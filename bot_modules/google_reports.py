@@ -7,14 +7,26 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from threading import Lock
 
 
 OUT_DIR = Path(__file__).resolve().parent.parent
 GA4_SCOPE = "https://www.googleapis.com/auth/analytics.readonly"
 GSC_SCOPE = "https://www.googleapis.com/auth/webmasters.readonly"
-GOOGLE_API_TIMEOUT_SECONDS = 25
+GOOGLE_API_TIMEOUT_SECONDS = 15
+TOKEN_REFRESH_SAFETY_SECONDS = 300
+_TOKEN_CACHE: dict[tuple[str, ...], tuple[str, datetime | None]] = {}
+_TOKEN_LOCK = Lock()
+
+
+def token_has_enough_life(expiry: datetime | None, now: datetime) -> bool:
+    if expiry is None:
+        return True
+    if getattr(expiry, "tzinfo", None) is not None:
+        now = datetime.now(expiry.tzinfo)
+    return (expiry - now).total_seconds() > TOKEN_REFRESH_SAFETY_SECONDS
 
 
 def h(value: object) -> str:
@@ -65,17 +77,13 @@ def load_google_credentials(scopes: list[str]):
             )
         try:
             from google.oauth2.credentials import Credentials
-            from google.auth.transport.requests import Request
         except ImportError as exc:
             raise RuntimeError(
                 "Máy chưa cài thư viện OAuth. Chạy một lần: "
                 "python -m pip install google-auth google-auth-oauthlib requests"
             ) from exc
         credentials = Credentials.from_authorized_user_file(str(token_path), scopes=scopes)
-        if credentials.expired and credentials.refresh_token:
-            credentials.refresh(Request())
-            token_path.write_text(credentials.to_json(), encoding="utf-8")
-        if not credentials.valid:
+        if not credentials.valid and not (credentials.expired and credentials.refresh_token):
             raise RuntimeError("Google OAuth token không hợp lệ. Hãy chạy lại: python setup_google_oauth.py")
         return credentials
 
@@ -97,6 +105,15 @@ def load_google_credentials(scopes: list[str]):
 
 
 def google_access_token(scopes: list[str]) -> str:
+    cache_key = tuple(sorted(scopes))
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    with _TOKEN_LOCK:
+        cached = _TOKEN_CACHE.get(cache_key)
+        if cached:
+            token, expiry = cached
+            if token and token_has_enough_life(expiry, now):
+                return token
+
     credentials = load_google_credentials(scopes)
     try:
         from google.auth.transport.requests import Request
@@ -104,8 +121,21 @@ def google_access_token(scopes: list[str]) -> str:
         raise RuntimeError(
             "Máy chưa cài requests/google-auth transport. Chạy một lần: python -m pip install google-auth requests"
         ) from exc
-    credentials.refresh(Request())
-    return credentials.token
+    with _TOKEN_LOCK:
+        cached = _TOKEN_CACHE.get(cache_key)
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        if cached:
+            token, expiry = cached
+            if token and token_has_enough_life(expiry, now):
+                return token
+        credentials.refresh(Request())
+        token_path = Path(os.environ.get("GOOGLE_OAUTH_TOKEN_JSON", "").strip() or "google-oauth-token.json")
+        if not token_path.is_absolute():
+            token_path = OUT_DIR / token_path
+        if token_path.exists() and hasattr(credentials, "to_json"):
+            token_path.write_text(credentials.to_json(), encoding="utf-8")
+        _TOKEN_CACHE[cache_key] = (credentials.token, getattr(credentials, "expiry", None))
+        return credentials.token
 
 
 def google_api_json(url: str, body: dict, scopes: list[str]) -> dict:

@@ -2508,7 +2508,7 @@ def send_message(chat_id: int, text: str) -> None:
 
 def send_typing(chat_id: int) -> None:
     try:
-        telegram_api("sendChatAction", {"chat_id": chat_id, "action": "typing"}, timeout=3)
+        telegram_api("sendChatAction", {"chat_id": chat_id, "action": "typing"}, timeout=1)
     except Exception:
         pass
 
@@ -2580,8 +2580,6 @@ def handle_message(chat_id: int, text: str) -> None:
         )
         return
 
-    send_typing(chat_id)
-
     try:
         if wants_ping(text):
             html_text = build_ping_html()
@@ -2591,31 +2589,42 @@ def handle_message(chat_id: int, text: str) -> None:
             PENDING_ACTIONS.pop(chat_id, None)
             html_text = "Đã hủy thao tác đang chờ."
         elif (product_delete := parse_product_delete_request(text)):
+            send_typing(chat_id)
             html_text = prepare_product_delete(chat_id, product_delete)
         elif (product_update := parse_product_update(text)):
+            send_typing(chat_id)
             html_text = prepare_product_update(chat_id, product_update)
         elif (product_post := parse_product_post_request(text)):
+            send_typing(chat_id)
             html_text = prepare_product_post(chat_id, product_post)
         elif wants_order_details_export(text):
+            send_typing(chat_id)
             caption, report_path = export_order_details_report_from_text(text)
             send_document(chat_id, report_path, caption)
             return
         elif wants_today_orders(text):
+            send_typing(chat_id)
             html_text = build_today_orders_html()
         elif (order_id := parse_order_detail_request(text)):
+            send_typing(chat_id)
             html_text = build_order_detail_html(order_id)
         elif re.match(r"^/(report|orders|products)\s+(\d{4}-\d{2})$", text.strip()):
+            send_typing(chat_id)
             _, month = re.match(r"^/(report|orders|products)\s+(\d{4}-\d{2})$", text.strip()).groups()
             html_text = build_woocommerce_html(f"báo cáo {month}")
         elif wants_product_catalog_report(text):
+            send_typing(chat_id)
             caption, report_path = export_product_catalog_report()
             send_document(chat_id, report_path, caption)
             return
         elif wants_woocommerce(text):
+            send_typing(chat_id)
             html_text = build_woocommerce_html(text)
         elif wants_google_report(text):
+            send_typing(chat_id)
             html_text = build_google_report_html(text)
         elif wants_web_search(text):
+            send_typing(chat_id)
             html_text = build_web_search_html(text)
         else:
             html_text = (
@@ -2662,6 +2671,11 @@ def handle_document(chat_id: int, document: dict, caption: str = "") -> None:
     send_message(chat_id, html_text)
 
 
+def is_lock_free_text(text: str) -> bool:
+    stripped = text.strip()
+    return stripped.startswith("/start") or stripped.startswith("/help") or stripped.startswith("/whoami") or wants_ping(text)
+
+
 def process_update(update: dict) -> None:
     message = update.get("message") or {}
     chat = message.get("chat") or {}
@@ -2669,6 +2683,9 @@ def process_update(update: dict) -> None:
     document = message.get("document")
     chat_id = chat.get("id")
     if not chat_id:
+        return
+    if text and is_lock_free_text(text):
+        process_chat_message(int(chat_id), text, document, message.get("caption") or "")
         return
     with CHAT_LOCKS[int(chat_id)]:
         process_chat_message(int(chat_id), text, document, message.get("caption") or "")
@@ -2711,7 +2728,7 @@ def main() -> None:
             time.sleep(30)
 
     offset = 0
-    executor = ThreadPoolExecutor(max_workers=4)
+    executor = ThreadPoolExecutor(max_workers=8)
     while True:
         try:
             result = telegram_api("getUpdates", {"timeout": 45, "offset": offset}, timeout=LONG_POLL_TIMEOUT_SECONDS)
