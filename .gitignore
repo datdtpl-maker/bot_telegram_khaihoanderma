@@ -1,0 +1,22 @@
+__pycache__/
+*.py[cod]
+
+# Local secrets and credentials
+telegram_bot.env
+google-oauth-client.json
+google-oauth-token.json
+google-service-account.json
+*.key
+*.pem
+
+# Runtime output
+bot.log
+new_product_urls.log
+telegram_uploads/
+*.xlsx
+*.csv
+
+# Local reports / scratch files
+woocommerce_report_*.md
+bot_start_stdout.log
+bot_start_stderr.log
