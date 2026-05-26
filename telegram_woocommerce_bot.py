@@ -13,7 +13,7 @@ import urllib.request
 import xml.etree.ElementTree as ET
 import zipfile
 from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, wait
 from datetime import datetime, timedelta
 from pathlib import Path
 from threading import Lock
@@ -28,10 +28,10 @@ NEW_PRODUCT_URLS_FILE = OUT_DIR / "new_product_urls.log"
 STARTED_AT = datetime.now()
 GA4_SCOPE = "https://www.googleapis.com/auth/analytics.readonly"
 GSC_SCOPE = "https://www.googleapis.com/auth/webmasters.readonly"
-DEFAULT_API_TIMEOUT_SECONDS = 25
+DEFAULT_API_TIMEOUT_SECONDS = 15
 UPLOAD_TIMEOUT_SECONDS = 120
 LONG_POLL_TIMEOUT_SECONDS = 60
-PING_CHECK_TIMEOUT_SECONDS = 10
+PING_CHECK_TIMEOUT_SECONDS = 4
 
 
 def _read_config_text() -> str:
@@ -829,25 +829,33 @@ def format_uptime() -> str:
 
 
 def build_ping_html() -> str:
-    checks = []
-    try:
-        me = telegram_api("getMe", {})
-        username = me.get("result", {}).get("username", "")
-        checks.append(f"Telegram: <b>OK</b>{' (@' + h(username) + ')' if username else ''}")
-    except Exception as exc:
-        checks.append(f"Telegram: <b>Lỗi</b> - <code>{h(exc)}</code>")
+    def check_woocommerce() -> str:
+        try:
+            products = wc_get("products", {"per_page": 1, "page": 1}, timeout=PING_CHECK_TIMEOUT_SECONDS)
+            return f"WooCommerce: <b>OK</b> ({len(products) if isinstance(products, list) else 0} mẫu)"
+        except Exception as exc:
+            return f"WooCommerce: <b>Lỗi</b> - <code>{h(exc)}</code>"
 
-    try:
-        products = wc_get("products", {"per_page": 1, "page": 1}, timeout=PING_CHECK_TIMEOUT_SECONDS)
-        checks.append(f"WooCommerce: <b>OK</b> ({len(products) if isinstance(products, list) else 0} mẫu)")
-    except Exception as exc:
-        checks.append(f"WooCommerce: <b>Lỗi</b> - <code>{h(exc)}</code>")
+    def check_wordpress() -> str:
+        try:
+            wp_request("users/me", timeout=PING_CHECK_TIMEOUT_SECONDS)
+            return "WordPress: <b>OK</b>"
+        except Exception as exc:
+            return f"WordPress: <b>Lỗi</b> - <code>{h(exc)}</code>"
 
-    try:
-        wp_request("users/me", timeout=PING_CHECK_TIMEOUT_SECONDS)
-        checks.append("WordPress: <b>OK</b>")
-    except Exception as exc:
-        checks.append(f"WordPress: <b>Lỗi</b> - <code>{h(exc)}</code>")
+    checks = ["Telegram: <b>OK</b> (đã nhận được tin nhắn)"]
+    executor = ThreadPoolExecutor(max_workers=2)
+    futures = {
+        executor.submit(check_woocommerce): "WooCommerce",
+        executor.submit(check_wordpress): "WordPress",
+    }
+    done, pending = wait(futures, timeout=PING_CHECK_TIMEOUT_SECONDS + 1)
+    for future, name in futures.items():
+        if future in done:
+            checks.append(future.result())
+        else:
+            checks.append(f"{name}: <b>Chậm</b> - quá {PING_CHECK_TIMEOUT_SECONDS + 1} giây chưa phản hồi")
+    executor.shutdown(wait=False, cancel_futures=True)
 
     return (
         "<b>Trạng thái bot</b>\n\n"
