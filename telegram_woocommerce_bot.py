@@ -1,4 +1,4 @@
-﻿import base64
+import base64
 import csv
 import html
 import json
@@ -99,6 +99,12 @@ def log(message: str) -> None:
     line = f"[{timestamp}] {message}"
     print(line, flush=True)
     try:
+        # Giới hạn file log ở mức 5MB, nếu vượt quá sẽ tự động xoay log
+        if LOG_FILE.exists() and LOG_FILE.stat().st_size > 5 * 1024 * 1024:
+            backup_log = LOG_FILE.with_suffix(".log.bak")
+            if backup_log.exists():
+                backup_log.unlink()
+            LOG_FILE.rename(backup_log)
         with LOG_FILE.open("a", encoding="utf-8") as handle:
             handle.write(line + "\n")
     except Exception:
@@ -2702,9 +2708,38 @@ def process_chat_message(chat_id: int, text: str, document: dict | None, caption
         log(f"Da xu ly file tu {chat_id}")
 
 
+def cleanup_old_uploads() -> None:
+    uploads_dir = OUT_DIR / "telegram_uploads"
+    if not uploads_dir.exists():
+        return
+    try:
+        now = time.time()
+        count = 0
+        for item in uploads_dir.iterdir():
+            if item.is_file() and (now - item.stat().st_mtime) > 7 * 24 * 3600:
+                item.unlink()
+                count += 1
+        if count > 0:
+            log(f"Da don dep {count} file docx cu trong thu muc upload de tiet kiem bo nho.")
+    except Exception as exc:
+        log(f"Loi khi don dep file upload cu: {exc}")
+
+
 def main() -> None:
     if "TELEGRAM_BOT_TOKEN" not in os.environ:
         raise RuntimeError("Thieu TELEGRAM_BOT_TOKEN.")
+
+    # Ngan Windows tu dong Sleep/Standby de giu bot hoat dong lien tuc 24/7
+    try:
+        import ctypes
+        # ES_CONTINUOUS (0x80000000) | ES_SYSTEM_REQUIRED (0x00000001)
+        ctypes.windll.kernel32.SetThreadExecutionState(0x80000000 | 0x00000001)
+        log("Che do ngan Windows ngu dong da duoc kich hoat thanh cong.")
+    except Exception as exc:
+        log(f"Khong the kich hoat che do ngan Windows ngu dong (co the khong chay tren Windows): {exc}")
+
+    # Don dep file docx cu nguoi dung tung upload tu truoc
+    cleanup_old_uploads()
 
     log("Bot dang khoi dong...")
     log(f"Thu muc chay bot: {OUT_DIR}")
