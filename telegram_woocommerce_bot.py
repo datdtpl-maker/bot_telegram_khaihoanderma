@@ -839,6 +839,39 @@ def wants_ping(text: str) -> bool:
     }
 
 
+def wants_cache_refresh(text: str) -> bool:
+    normalized = normalize_text(text)
+    keywords = [
+        "cập nhật danh mục",
+        "cap nhat danh muc",
+        "đồng bộ sản phẩm",
+        "dong bo san pham",
+        "đồng bộ danh mục",
+        "dong bo danh muc",
+        "refresh cache",
+        "reload cache",
+        "sync cache",
+    ]
+    return any(keyword in normalized for keyword in keywords)
+
+
+def trigger_cache_refresh() -> str:
+    global _ALL_PRODUCTS_CACHE, _ALL_PRODUCTS_CACHE_TIME
+    with _ALL_PRODUCTS_CACHE_LOCK:
+        _ALL_PRODUCTS_CACHE = []
+        _ALL_PRODUCTS_CACHE_TIME = 0.0
+    try:
+        products = get_cached_all_products()
+        return (
+            "<b>Đồng bộ dữ liệu sản phẩm thành công</b>\n\n"
+            f"Đã cập nhật lại toàn bộ danh mục sản phẩm từ website WooCommerce.\n"
+            f"Tổng số lượng sản phẩm ghi nhận trong bộ nhớ tạm: <b>{len(products)}</b> mẫu.\n"
+            "Bây giờ bạn có thể tìm kiếm hoặc sửa các sản phẩm mới thêm gần đây."
+        )
+    except Exception as exc:
+        return f"<b>Lỗi khi đồng bộ sản phẩm:</b>\n<code>{h(exc)}</code>"
+
+
 def format_uptime() -> str:
     seconds = int((datetime.now() - STARTED_AT).total_seconds())
     days, seconds = divmod(seconds, 86400)
@@ -2769,6 +2802,9 @@ def handle_message(chat_id: int, text: str) -> None:
     try:
         if wants_ping(text):
             html_text = build_ping_html()
+        elif wants_cache_refresh(text):
+            send_typing(chat_id)
+            html_text = trigger_cache_refresh()
         elif normalized in {"xác nhận", "xac nhan", "ok", "đồng ý", "dong y"}:
             html_text = apply_pending_action(chat_id)
         elif normalized in {"hủy", "huy", "cancel", "không", "khong"} and chat_id in PENDING_ACTIONS:
@@ -2891,19 +2927,34 @@ def process_chat_message(chat_id: int, text: str, document: dict | None, caption
 
 def cleanup_old_uploads() -> None:
     uploads_dir = OUT_DIR / "telegram_uploads"
-    if not uploads_dir.exists():
-        return
+    now = time.time()
+    seconds_in_7_days = 7 * 24 * 3600
+
+    # 1. Dọn dẹp file docx upload cũ
+    if uploads_dir.exists():
+        try:
+            count = 0
+            for item in uploads_dir.iterdir():
+                if item.is_file() and (now - item.stat().st_mtime) > seconds_in_7_days:
+                    item.unlink()
+                    count += 1
+            if count > 0:
+                log(f"Da don dep {count} file docx cu trong thu muc upload.")
+        except Exception as exc:
+            log(f"Loi khi don dep file docx: {exc}")
+
+    # 2. Dọn dẹp các tệp Excel báo cáo xuất ra từ trước
     try:
-        now = time.time()
-        count = 0
-        for item in uploads_dir.iterdir():
-            if item.is_file() and (now - item.stat().st_mtime) > 7 * 24 * 3600:
-                item.unlink()
-                count += 1
-        if count > 0:
-            log(f"Da don dep {count} file docx cu trong thu muc upload de tiet kiem bo nho.")
+        count_xlsx = 0
+        for item in OUT_DIR.iterdir():
+            if item.is_file() and item.suffix.lower() == ".xlsx" and (now - item.stat().st_mtime) > seconds_in_7_days:
+                if "bao_cao_san_pham_" in item.name or "chi_tiet_don_hang_" in item.name:
+                    item.unlink()
+                    count_xlsx += 1
+        if count_xlsx > 0:
+            log(f"Da don dep {count_xlsx} tep Excel bao cao cu de giai phong bo nho.")
     except Exception as exc:
-        log(f"Loi khi don dep file upload cu: {exc}")
+        log(f"Loi khi don dep tep Excel cu: {exc}")
 
 
 _singleton_socket = None
