@@ -96,19 +96,23 @@ PENDING_ACTIONS: dict[int, dict] = {}
 CHAT_LOCKS: defaultdict[int, Lock] = defaultdict(Lock)
 
 
+LOG_LOCK = Lock()
+
+
 def log(message: str) -> None:
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     line = f"[{timestamp}] {message}"
     print(line, flush=True)
     try:
-        # Giới hạn file log ở mức 5MB, nếu vượt quá sẽ tự động xoay log
-        if LOG_FILE.exists() and LOG_FILE.stat().st_size > 5 * 1024 * 1024:
-            backup_log = LOG_FILE.with_suffix(".log.bak")
-            if backup_log.exists():
-                backup_log.unlink()
-            LOG_FILE.rename(backup_log)
-        with LOG_FILE.open("a", encoding="utf-8") as handle:
-            handle.write(line + "\n")
+        with LOG_LOCK:
+            # Giới hạn file log ở mức 5MB, nếu vượt quá sẽ tự động xoay log
+            if LOG_FILE.exists() and LOG_FILE.stat().st_size > 5 * 1024 * 1024:
+                backup_log = LOG_FILE.with_suffix(".log.bak")
+                if backup_log.exists():
+                    backup_log.unlink()
+                LOG_FILE.rename(backup_log)
+            with LOG_FILE.open("a", encoding="utf-8") as handle:
+                handle.write(line + "\n")
     except Exception:
         pass
 
