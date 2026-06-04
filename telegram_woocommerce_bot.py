@@ -2909,14 +2909,49 @@ def cleanup_old_uploads() -> None:
 _singleton_socket = None
 
 
+def kill_process_on_port(port: int) -> None:
+    try:
+        import subprocess
+        # Chạy netstat tìm PID đang chiếm port trên Windows
+        cmd = f"netstat -ano | findstr :{port}"
+        output = subprocess.check_output(cmd, shell=True).decode("utf-8", errors="replace")
+        pids: set[int] = set()
+        for line in output.strip().split("\n"):
+            line = line.strip()
+            if not line:
+                continue
+            parts = line.split()
+            if len(parts) >= 5:
+                pid_str = parts[-1]
+                if pid_str.isdigit():
+                    pids.add(int(pid_str))
+        
+        my_pid = os.getpid()
+        for pid in pids:
+            if pid != my_pid:
+                log(f"Phat hien phien ban bot cu dang chay ngam (PID: {pid}) chiem cong {port}. Dang tien hanh giai phong...")
+                subprocess.run(f"taskkill /F /T /PID {pid}", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception as exc:
+        log(f"Khong the tu dong giai phong cong {port}: {exc}")
+
+
 def ensure_single_instance() -> None:
     global _singleton_socket
+    port = 52365
     try:
         _singleton_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        _singleton_socket.bind(("127.0.0.1", 52365))
+        _singleton_socket.bind(("127.0.0.1", port))
     except OSError:
-        log("Loi: Phat hien mot phien ban bot khac dang chay tren may nay (Port 52365 da bi chiem). Tien trinh nay se tu thoat.")
-        sys.exit(99)
+        log(f"Phat hien cong {port} da bi chiem. Dang tu dong don dep phien ban bot cu dang chay ngam...")
+        kill_process_on_port(port)
+        time.sleep(1.5)  # Cho 1.5 giay de Windows giai phong socket
+        try:
+            _singleton_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            _singleton_socket.bind(("127.0.0.1", port))
+            log("Da giai phong cong va khoi chay phien ban moi thanh cong.")
+        except OSError:
+            log(f"Loi: Cong {port} van bi chiem sau khi quet. Vui long kiem tra lai. Bot se tu thoat.")
+            sys.exit(99)
 
 
 def force_ipv4() -> None:
