@@ -601,9 +601,9 @@ def build_woocommerce_html(text: str) -> str:
     ]
 
     if statuses:
-        lines.extend(["", "<b>Tr\u1ea1ng th\u00e1i \u0111\u01a1n</b>"])
+        lines.extend(["", "<b>Trạng thái đơn</b>"])
         for status, count in sorted(statuses.items(), key=lambda item: item[0]):
-            lines.append(f"\u2022 <code>{h(status or 'unknown')}</code>: <b>{count}</b>")
+            lines.append(f"\u2022 <code>{h(order_status_label(status or 'unknown'))}</code>: <b>{count}</b>")
 
     if products:
         lines.extend(["", "<b>S\u1ea3n ph\u1ea9m b\u00e1n ra</b>"])
@@ -624,7 +624,7 @@ def build_woocommerce_html(text: str) -> str:
             lines.append(
                 f"\u2022 <b>#{h(row.get('number'))}</b> - {h(date_text)} - "
                 f"{h(customer)} - <b>{money(row.get('total') or 0)} VND</b> - "
-                f"<code>{h(row.get('status'))}</code>"
+                f"<code>{h(order_status_label(row.get('status') or ''))}</code>"
             )
 
     if not orders:
@@ -661,7 +661,7 @@ def build_today_orders_html() -> str:
         customer_name = f"{billing.get('first_name', '')} {billing.get('last_name', '')}".strip() or "Chưa có tên"
         lines.append(
             f"• <b>#{h(order.get('number'))}</b> - {h(customer_name)} - "
-            f"{money(order.get('total') or 0)} VND - <code>{h(order.get('status'))}</code>"
+            f"{money(order.get('total') or 0)} VND - <code>{h(order_status_label(order.get('status') or ''))}</code>"
         )
     if len(orders) > 20:
         lines.append(f"... và {len(orders) - 20} đơn khác.")
@@ -694,7 +694,7 @@ def build_order_detail_html(order_id: str) -> str:
         "<b>Chi tiết đơn hàng WooCommerce</b>\n\n"
         f"• ID đơn hàng: <code>{h(order.get('id'))}</code>\n"
         f"• Mã đơn: <b>#{h(order.get('number'))}</b>\n"
-        f"• Trạng thái: <b>{h(order.get('status'))}</b>\n"
+        f"• Trạng thái: <b>{h(order_status_label(order.get('status') or ''))}</b>\n"
         f"• Ngày tạo: <code>{h(str(order.get('date_created', '')).replace('T', ' ')[:19])}</code>\n\n"
         f"<b>Người mua</b>\n"
         f"• Tên: <b>{h(customer_name)}</b>\n"
@@ -735,7 +735,7 @@ def order_detail_export_rows(orders: list[dict]) -> list[dict]:
                     "order_id": order.get("id"),
                     "order_number": f"#{order.get('number')}",
                     "date_created": str(order.get("date_created", "")).replace("T", " ")[:19],
-                    "status": order.get("status") or "",
+                    "status": order_status_label(order.get("status") or ""),
                     "customer": customer_name,
                     "phone": billing.get("phone") or "",
                     "email": billing.get("email") or "",
@@ -886,6 +886,20 @@ def stock_label(value: str) -> str:
     if value == "onbackorder":
         return "chờ hàng"
     return value or "không rõ"
+
+
+def order_status_label(value: str) -> str:
+    status_map = {
+        "pending": "chờ thanh toán",
+        "processing": "đang xử lý",
+        "on-hold": "tạm giữ",
+        "completed": "đã hoàn thành",
+        "cancelled": "đã hủy",
+        "refunded": "đã hoàn tiền",
+        "failed": "thất bại",
+        "checkout-draft": "nháp thanh toán",
+    }
+    return status_map.get(value.lower(), value)
 
 
 def parse_price(value: str) -> str:
