@@ -2749,11 +2749,12 @@ def handle_message(chat_id: int, text: str) -> None:
             "<b>5. Site Kit / Google</b>\n"
             "• <i>Traffic 28 ngày qua</i>\n"
             "• <i>Site Kit 7 ngày qua</i>\n"
-            "• <i>Từ khóa Search Console 28 ngày qua</i>\n\n"
+            "• <i>Từ khóa Search Console 28 ngày qua</i>\n"
             "• <i>Phân tích từ khóa đang top Google 30 ngày qua</i>\n\n"
-            "<b>6. Tra cứu web</b>\n"
-            "• <i>Tìm thông tin serum trị nám</i>\n"
-            "• <i>Tra cứu isotretinoin là gì</i>\n\n"
+            "<b>6. Tìm kiếm sản phẩm</b>\n"
+            "• <i>có sản phẩm Thuốc Silver-GSV Isotretinoin 20mg không?</i>\n"
+            "• <i>tìm sản phẩm Thuốc Silver-GSV</i>\n"
+            "• <i>check sản phẩm Isotretinoin</i>\n\n"
             "<b>7. Lệnh kiểm tra</b>\n"
             "• <code>ping</code> - kiểm tra bot còn chạy.\n"
             "• <code>/whoami</code> - xem Chat ID.\n\n"
@@ -2810,15 +2811,13 @@ def handle_message(chat_id: int, text: str) -> None:
         elif wants_google_report(text):
             send_typing(chat_id)
             html_text = build_google_report_html(text)
-        elif wants_web_search(text):
-            send_typing(chat_id)
-            html_text = build_web_search_html(text)
         else:
             html_text = (
-                "<b>Tôi có thể xử lý yêu cầu này theo 2 nhóm chính:</b>\n\n"
-                "• Báo cáo WooCommerce: <i>doanh thu tháng 5 2026</i>, <i>đơn hàng tháng này</i>\n"
-                "• Tìm kiếm web: <i>tìm thông tin ...</i>, <i>tra cứu ...</i>\n\n"
-                "Bạn hãy nhắn yêu cầu trực tiếp, không cần dùng dấu <code>/</code>."
+                "<b>Tôi chưa hiểu yêu cầu của bạn. Bạn có thể nhắn các yêu cầu như:</b>\n\n"
+                "• Báo cáo doanh thu: <i>doanh thu tháng này</i>, <i>đơn hàng hôm nay</i>\n"
+                "• Tra cứu sản phẩm: <i>có sản phẩm Thuốc Silver-GSV không?</i>\n"
+                "• Xuất tệp báo cáo: <i>xuất tất cả sản phẩm trên web</i>\n\n"
+                "Bạn hãy nhắn yêu cầu trực tiếp, không cần dùng dấu <code>/</code>. Gõ <code>/help</code> để xem hướng dẫn đầy đủ."
             )
     except Exception as exc:
         send_message(chat_id, f"<b>Lỗi khi xử lý yêu cầu:</b>\n<code>{h(exc)}</code>")
