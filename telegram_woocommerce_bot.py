@@ -4,7 +4,9 @@ import html
 import json
 import os
 import re
+import socket
 import ssl
+import sys
 import time
 import unicodedata
 import urllib.error
@@ -988,8 +990,10 @@ def parse_product_update(text: str) -> dict | None:
         }
 
     stock_match = re.search(
-        r"(?P<name>.+?)\s+(?:sua|doi|chinh|update|cap nhat|cho|de)\s+"
-        r"(?:ton kho|trang thai kho|kho)?\s*(?P<stock>co hang|con hang|het hang|in stock|out of stock)",
+        r"(?P<name>.+?)\s+"
+        r"(?:(?:sua|doi|chinh|update|cap nhat|cho|de|set)\s+)?"
+        r"(?:ton kho|trang thai kho|kho|ton)?\s*"
+        r"(?P<stock>co hang|con hang|het hang|in stock|out of stock)$",
         plain_text,
         flags=re.IGNORECASE,
     )
@@ -2725,7 +2729,26 @@ def cleanup_old_uploads() -> None:
         log(f"Loi khi don dep file upload cu: {exc}")
 
 
+_singleton_socket = None
+
+
+def ensure_single_instance() -> None:
+    global _singleton_socket
+    try:
+        _singleton_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        _singleton_socket.bind(("127.0.0.1", 52365))
+    except OSError:
+        log("Loi: Phat hien mot phien ban bot khac dang chay tren may nay (Port 52365 da bi chiem). Tien trinh nay se tu thoat.")
+        sys.exit(99)
+
+
 def main() -> None:
+    # Thiet lap timeout mac dinh cho tat ca cac ket noi socket
+    socket.setdefaulttimeout(75)
+
+    # Kiem tra tranh chay nhieu phien ban bot cung mot luc
+    ensure_single_instance()
+
     if "TELEGRAM_BOT_TOKEN" not in os.environ:
         raise RuntimeError("Thieu TELEGRAM_BOT_TOKEN.")
 

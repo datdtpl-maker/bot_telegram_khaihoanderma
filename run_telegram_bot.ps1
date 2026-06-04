@@ -30,6 +30,11 @@ Write-Host ""
 while ($true) {
     python (Join-Path $PSScriptRoot "telegram_woocommerce_bot.py")
     $exitCode = $LASTEXITCODE
+    if ($exitCode -eq 99) {
+        $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+        Write-Host "[$timestamp] Phat hien mot bot khac dang chay (Port 52365 da bi chiem). Dung tu dong khoi dong lai."
+        break
+    }
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     Write-Host "[$timestamp] Bot vua dung voi exit code $exitCode. Tu khoi dong lai sau 30 giay..."
     Start-Sleep -Seconds 30
