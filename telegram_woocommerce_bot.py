@@ -1191,6 +1191,145 @@ def product_tokens(value: str) -> list[str]:
     return [token for token in normalize_product_name(value).split() if len(token) >= 2 and token not in stopwords]
 
 
+_ALL_PRODUCTS_CACHE: list[dict] = []
+_ALL_PRODUCTS_CACHE_TIME: float = 0.0
+_ALL_PRODUCTS_CACHE_LOCK = Lock()
+
+
+def get_cached_all_products() -> list[dict]:
+    global _ALL_PRODUCTS_CACHE, _ALL_PRODUCTS_CACHE_TIME
+    now = time.time()
+    with _ALL_PRODUCTS_CACHE_LOCK:
+        if not _ALL_PRODUCTS_CACHE or (now - _ALL_PRODUCTS_CACHE_TIME) > 600:
+            log("Tai danh sach tat ca san pham tu WooCommerce de cap nhat cache...")
+            try:
+                _ALL_PRODUCTS_CACHE = fetch_all_products()
+                _ALL_PRODUCTS_CACHE_TIME = now
+                log(f"Da tai va cache {len(_ALL_PRODUCTS_CACHE)} san pham.")
+            except Exception as e:
+                log(f"Loi khi tai tat ca san pham: {e}")
+                if not _ALL_PRODUCTS_CACHE:
+                    _ALL_PRODUCTS_CACHE = []
+        return _ALL_PRODUCTS_CACHE
+
+
+def find_products_by_fuzzy_name(name: str) -> list[dict]:
+    # 1. Tim kiem bang API WooCommerce truoc
+    products = search_products(name, limit=20)
+    target_normalized = normalize_product_name(name)
+    if not target_normalized:
+        return []
+
+    # Loc/Kiem tra de dam bao ket qua search API co chua cum tu nguoi dung go
+    matched_products = []
+    for product in products:
+        p_name = normalize_product_name(product.get("name", ""))
+        if target_normalized in p_name or p_name in target_normalized:
+            matched_products.append(product)
+
+    # 2. Neu API search khong ra, tien hanh do tim tu cache (fuzzy search)
+    if not matched_products:
+        all_products = get_cached_all_products()
+        matches = []
+        name_tokens = product_tokens(name)
+
+        for product in all_products:
+            p_name = product.get("name", "")
+            p_normalized = normalize_product_name(p_name)
+
+            # Khop chuoi con
+            if target_normalized in p_normalized or p_normalized in target_normalized:
+                matches.append((product, 1.0))
+                continue
+
+            # Khop theo tu (token)
+            p_tokens = product_tokens(p_name)
+            if not p_tokens:
+                continue
+            matched = [t for t in p_tokens if t in name_tokens]
+            if matched:
+                score = len(matched) / max(len(p_tokens), len(name_tokens))
+                if score >= 0.3:
+                    matches.append((product, score))
+
+        matches.sort(key=lambda item: item[1], reverse=True)
+        matched_products = [item[0] for item in matches[:5]]
+
+    return matched_products
+
+
+def parse_product_search_request(text: str) -> str | None:
+    normalized = normalize_text(text)
+    plain = plain_ascii(text)
+
+    # Co san pham nao [ten] khong? / co [ten] khong?
+    match_co_khong = re.search(
+        r"\b(?:co)\s+"
+        r"(?:san pham|thuoc|kem|serum|vien uong|gel|kem duong)?\s*"
+        r"(?P<query>.+?)\s*(?:khong|\?)$",
+        plain,
+        flags=re.IGNORECASE,
+    )
+    if match_co_khong:
+        start, end = match_co_khong.span("query")
+        return text[start:end].strip(" :-?")
+
+    # Tim / Tra cuu / Kiem tra / Check san pham [ten]
+    match_tim = re.search(
+        r"\b(?:tim|tim kiem|tra cuu|kiem tra|check)\s+"
+        r"(?:san pham|thuoc|kem|serum|vien uong|gel|kem duong)?\s*"
+        r"(?P<query>.+)",
+        plain,
+        flags=re.IGNORECASE,
+    )
+    if match_tim:
+        start, end = match_tim.span("query")
+        return text[start:end].strip(" :-?")
+
+    # Co san pham nao / co thuoc nao [ten]
+    match_co_nao = re.search(
+        r"\b(?:co san pham nao|co thuoc nao|co kem nao|co serum nao)\s+(?P<query>.+)",
+        plain,
+        flags=re.IGNORECASE,
+    )
+    if match_co_nao:
+        start, end = match_co_nao.span("query")
+        return text[start:end].strip(" :-?")
+
+    return None
+
+
+def build_product_search_response_html(query: str) -> str:
+    products = find_products_by_fuzzy_name(query)
+    if not products:
+        return (
+            f"<b>Không tìm thấy sản phẩm phù hợp trên website.</b>\n"
+            f"Từ khóa tìm kiếm: <code>{h(query)}</code>\n\n"
+            "Nhắn lại tên sản phẩm gần đúng hơn hoặc từ khóa ngắn hơn (ví dụ: <i>Silver-GSV</i>)."
+        )
+
+    lines = [
+        f"<b>Kết quả tìm kiếm sản phẩm cho:</b> <code>{h(query)}</code>",
+        f"Tìm thấy <b>{len(products)}</b> sản phẩm phù hợp:",
+        "",
+    ]
+    for idx, product in enumerate(products, start=1):
+        name = product.get("name") or "Sản phẩm không tên"
+        price_val = product.get("regular_price") or product.get("price") or 0
+        price_str = f"<b>{money(price_val)} VND</b>" if price_val else "<i>Chưa để giá</i>"
+        if product.get("type") == "variable":
+            price_str = "<i>Giá theo biến thể</i>"
+        stock = stock_label(product.get("stock_status") or "")
+        permalink = product.get("permalink") or ""
+        lines.append(f"<b>{idx}. {h(name)}</b>")
+        lines.append(f"• Giá bán: {price_str}")
+        lines.append(f"• Trạng thái: <b>{h(stock)}</b>")
+        if permalink:
+            lines.append(f"• Đường dẫn: <a href=\"{h(permalink)}\">Xem trên website</a>")
+        lines.append("")
+    return "\n".join(lines).strip()
+
+
 def find_exact_product_by_name(name: str) -> dict | None:
     target = normalize_product_name(name)
     if not target:
@@ -1229,7 +1368,7 @@ def find_product_by_h1_prefix(title: str) -> dict | None:
             continue
 
     if not candidates:
-        candidates = fetch_all_products()
+        candidates = get_cached_all_products()
 
     best = None
     best_score = 0.0
@@ -1792,7 +1931,7 @@ def i_tag(value: str) -> str:
 
 
 def prepare_product_update(chat_id: int, update: dict) -> str:
-    products = search_products(update["name"])
+    products = find_products_by_fuzzy_name(update["name"])
     if not products:
         return (
             f"<b>Không tìm thấy sản phẩm</b>\n"
@@ -1935,7 +2074,7 @@ def prepare_product_update(chat_id: int, update: dict) -> str:
 
 
 def prepare_product_delete(chat_id: int, request: dict) -> str:
-    products = search_products(request["name"], limit=10)
+    products = find_products_by_fuzzy_name(request["name"])
     if not products:
         return (
             "<b>Không tìm thấy sản phẩm để xóa</b>\n\n"
@@ -1968,6 +2107,8 @@ def prepare_product_delete(chat_id: int, request: dict) -> str:
 
 
 def apply_pending_action(chat_id: int) -> str:
+    global _ALL_PRODUCTS_CACHE_TIME
+    _ALL_PRODUCTS_CACHE_TIME = 0.0
     action = PENDING_ACTIONS.pop(chat_id, None)
     if not action:
         return "Không có thao tác nào đang chờ xác nhận."
@@ -2622,6 +2763,9 @@ def handle_message(chat_id: int, text: str) -> None:
             send_typing(chat_id)
             _, month = re.match(r"^/(report|orders|products)\s+(\d{4}-\d{2})$", text.strip()).groups()
             html_text = build_woocommerce_html(f"báo cáo {month}")
+        elif (search_query := parse_product_search_request(text)):
+            send_typing(chat_id)
+            html_text = build_product_search_response_html(search_query)
         elif wants_product_catalog_report(text):
             send_typing(chat_id)
             caption, report_path = export_product_catalog_report()
