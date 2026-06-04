@@ -413,6 +413,21 @@ def make_date(year: int, month: int, day: int) -> datetime | None:
 def extract_date_range(text: str) -> tuple[datetime, datetime] | None:
     normalized = normalize_text(text)
 
+    # Khớp định dạng tiếng Việt: ngày X đến Y tháng M năm YYYY hoặc ngày X đến Y/M/YYYY
+    viet_range = re.search(
+        r"(?:từ|tu|from)?\s*(?:ngày|ngay)?\s*(?P<d1>\d{1,2})\s*(?:đến|den|tới|toi|to|-)\s*(?:ngày|ngay)?\s*(?P<d2>\d{1,2})\s*(?:tháng|thang|/)\s*(?P<m>\d{1,2})(?:\s*(?:năm|nam|/)\s*(?P<y>\d{4}))?",
+        normalized,
+    )
+    if viet_range:
+        d1 = int(viet_range.group("d1"))
+        d2 = int(viet_range.group("d2"))
+        m = int(viet_range.group("m"))
+        y = int(viet_range.group("y") or datetime.now().year)
+        start = make_date(y, m, d1)
+        end = make_date(y, m, d2)
+        if start and end:
+            return (start, end) if start <= end else (end, start)
+
     iso = re.search(
         r"(?:từ|tu|from)\s*(?:(?:ngày|ngay)\s*)?(20\d{2})[-/.](0?[1-9]|1[0-2])[-/.](0?[1-9]|[12]\d|3[01])\s*(?:đến|den|tới|toi|to|-)\s*(?:(?:ngày|ngay)\s*)?(20\d{2})[-/.](0?[1-9]|1[0-2])[-/.](0?[1-9]|[12]\d|3[01])",
         normalized,
