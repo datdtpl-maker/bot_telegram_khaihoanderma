@@ -2919,7 +2919,20 @@ def ensure_single_instance() -> None:
         sys.exit(99)
 
 
+def force_ipv4() -> None:
+    original_getaddrinfo = socket.getaddrinfo
+
+    def getaddrinfo_ipv4(host, port, family=0, type=0, proto=0, flags=0):
+        # Ép buộc giải quyết DNS qua IPv4 để tránh lỗi trễ timeout 15s IPv6 trên Windows
+        return original_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
+
+    socket.getaddrinfo = getaddrinfo_ipv4
+
+
 def main() -> None:
+    # Ép buộc sử dụng IPv4 để sửa lỗi phản hồi chậm do IPv6 DNS fallback (15s timeout)
+    force_ipv4()
+
     # Thiet lap timeout mac dinh cho tat ca cac ket noi socket
     socket.setdefaulttimeout(75)
 
