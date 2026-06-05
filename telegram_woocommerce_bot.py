@@ -299,14 +299,17 @@ def fetch_orders(month: str) -> list[dict]:
         page += 1
 
 
-def summarize_orders(orders: list[dict]) -> tuple[list[dict], list[dict], dict[str, int], float, float]:
+def summarize_orders(orders: list[dict]) -> tuple[list[dict], list[dict], dict[str, int], float, float, dict[str, int]]:
     product_map: dict[str, dict] = {}
     statuses: dict[str, int] = defaultdict(int)
+    sources: dict[str, int] = defaultdict(int)
     total_revenue = 0.0
     line_revenue = 0.0
 
     for order in orders:
         statuses[str(order.get("status", ""))] += 1
+        source = order.get("created_via") or "checkout"
+        sources[str(source)] += 1
         total_revenue += float(order.get("total") or 0)
         for item in order.get("line_items", []):
             key = f"{item.get('product_id')}-{item.get('variation_id') or 0}"
@@ -352,7 +355,7 @@ def summarize_orders(orders: list[dict]) -> tuple[list[dict], list[dict], dict[s
         )
 
     products = sorted(product_map.values(), key=lambda row: row["total"], reverse=True)
-    return order_rows, products, dict(statuses), total_revenue, line_revenue
+    return order_rows, products, dict(statuses), total_revenue, line_revenue, dict(sources)
 
 
 def money(value: float | str) -> str:
@@ -379,8 +382,12 @@ def day_bounds(day: datetime) -> tuple[str, str]:
 
 def extract_day(text: str) -> datetime | None:
     normalized = normalize_text(text)
+    # Lấy mốc thời gian hiện tại làm gốc để so sánh
+    now = datetime.now()
     if "hôm nay" in normalized or "hom nay" in normalized or "today" in normalized:
-        return datetime.now()
+        return now
+    if "hôm qua" in normalized or "hom qua" in normalized or "yesterday" in normalized:
+        return now - timedelta(days=1)
 
     match = re.search(r"\b(20\d{2})[-/.](0?[1-9]|1[0-2])[-/.](0?[1-9]|[12]\d|3[01])\b", normalized)
     if match:
@@ -398,7 +405,7 @@ def extract_day(text: str) -> datetime | None:
     )
     if match:
         day, month, year = match.groups()
-        return datetime(int(year or datetime.now().year), int(month), int(day))
+        return datetime(int(year or now.year), int(month), int(day))
     return None
 
 
@@ -590,7 +597,7 @@ def report_period_from_text(text: str) -> tuple[str, str, str]:
         return after, before, label
 
     day = extract_day(text)
-    if day and any(word in normalize_text(text) for word in ["ng\u00e0y", "ngay", "h\u00f4m nay", "hom nay", "today"]):
+    if day and any(word in normalize_text(text) for word in ["ng\u00e0y", "ngay", "h\u00f4m nay", "hom nay", "h\u00f4m qua", "hom qua", "today", "yesterday"]):
         after, before = day_bounds(day)
         return after, before, f"ng\u00e0y {day.strftime('%d/%m/%Y')}"
 
@@ -602,7 +609,7 @@ def report_period_from_text(text: str) -> tuple[str, str, str]:
 def build_woocommerce_html(text: str) -> str:
     after, before, label = report_period_from_text(text)
     orders = fetch_orders_between(after, before)
-    order_rows, products, statuses, total_revenue, line_revenue = summarize_orders(orders)
+    order_rows, products, statuses, total_revenue, line_revenue, sources = summarize_orders(orders)
     fee_diff = total_revenue - line_revenue
 
     lines = [
@@ -614,6 +621,12 @@ def build_woocommerce_html(text: str) -> str:
         f"\u2022 Doanh thu s\u1ea3n ph\u1ea9m: <b>{money(line_revenue)} VND</b>",
         f"\u2022 Ch\u00eanh l\u1ec7ch v\u1eadn chuy\u1ec3n/ph\u1ee5 ph\u00ed/gi\u1ea3m gi\u00e1: <b>{money(fee_diff)} VND</b>",
     ]
+
+    if sources:
+        lines.extend(["", "<b>Nguồn đơn hàng</b>"])
+        for src, count in sorted(sources.items(), key=lambda item: item[0]):
+            src_label = "Web (Checkout)" if src == "checkout" else ("Tạo thủ công (Admin)" if src == "admin" else ("REST API" if src == "rest-api" else src))
+            lines.append(f"\u2022 <code>{h(src_label)}</code>: <b>{count}</b>")
 
     if statuses:
         lines.extend(["", "<b>Trạng thái đơn</b>"])
@@ -1327,6 +1340,11 @@ def find_products_by_fuzzy_name(name: str) -> list[dict]:
 def parse_product_search_request(text: str) -> str | None:
     normalized = normalize_text(text)
     plain = plain_ascii(text)
+
+    # Bỏ qua nếu tin nhắn hỏi về đơn hàng, doanh thu, báo cáo, traffic, gsc
+    order_keywords = ["đơn hàng", "don hang", "đơn", "don", "doanh thu", "báo cáo", "bao cao", "traffic", "site kit", "gsc", "search console", "hôm nay", "hom nay", "hôm qua", "hom qua", "yesterday"]
+    if any(keyword in normalized for keyword in order_keywords) and not any(p_keyword in normalized for p_keyword in ["sản phẩm", "san pham"]):
+        return None
 
     # Co san pham nao [ten] khong? / co [ten] khong?
     match_co_khong = re.search(
