@@ -107,7 +107,7 @@ Quy trình đăng sản phẩm mới từ Notion:
 
 2. **Kích hoạt đồng bộ:**
    - Nhắn tin lệnh: `đồng bộ notion` (hoặc `sync notion`, `dong bo notion`) cho bot Telegram.
-   - Bot sẽ tự động tải các ảnh từ Google Drive, upload lên WordPress, tạo sản phẩm WooCommerce kèm SEO Rank Math (lấy tối đa 4 từ khóa đầu tiên), sau đó tự chuyển trạng thái Notion sang `Đã đăng web`, tích chọn `IT đã đăng` và cập nhật `Link web`.
+   - Bot sẽ tự động tải các ảnh từ Google Drive, upload lên WordPress, tạo sản phẩm WooCommerce kèm SEO Rank Math (lấy tối đa 3 từ khóa đầu tiên), sau đó tự chuyển trạng thái Notion sang `Đã đăng web`, tích chọn `IT đã đăng` và cập nhật `Link web`.
 
 ## Báo cáo sản phẩm
 

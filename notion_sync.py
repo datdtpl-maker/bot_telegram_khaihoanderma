@@ -320,12 +320,12 @@ def run_notion_sync_workflow():
         product_title = title_list[0].get("plain_text", "") if title_list else "Sản phẩm không tên"
         log_message(f"Start processing: {product_title}")
         
-        # 2. Get focus keywords (lấy từ 3 đến 4 từ khóa đầu tiên cách nhau bởi dấu phẩy)
+        # 2. Get focus keywords (lấy từ 2 đến 3 từ khóa đầu tiên cách nhau bởi dấu phẩy)
         keyword_list = properties.get("Từ khóa SEO Rank Math", {}).get("rich_text", [])
         seo_keywords_raw = keyword_list[0].get("plain_text", "") if keyword_list else ""
         if seo_keywords_raw:
             kw_parts = [k.strip() for k in seo_keywords_raw.split(",") if k.strip()]
-            seo_keywords = ", ".join(kw_parts[:4])
+            seo_keywords = ", ".join(kw_parts[:3])
         else:
             seo_keywords = ""
         
