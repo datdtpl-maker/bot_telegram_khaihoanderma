@@ -2237,6 +2237,17 @@ def apply_pending_action(chat_id: int) -> str:
     if not action:
         return "Không có thao tác nào đang chờ xác nhận."
 
+    if action.get("type") == "notion_sync":
+        try:
+            from notion_sync import run_notion_sync_workflow
+            res = run_notion_sync_workflow()
+            if res.get("status") == "success":
+                return res.get("message")
+            else:
+                return f"<b>Lỗi đồng bộ Notion:</b>\n{h(res.get('message'))}"
+        except Exception as exc:
+            return f"<b>Lỗi khi thực hiện đồng bộ Notion:</b>\n<code>{h(exc)}</code>"
+
     if action.get("type") == "product_description":
         try:
             result = wc_put(
@@ -3057,6 +3068,88 @@ def force_ipv4() -> None:
     socket.getaddrinfo = getaddrinfo_ipv4
 
 
+def check_notion_loop() -> None:
+    import threading
+    import notion_sync
+    
+    notified_file = OUT_DIR / "notified_pages.json"
+    
+    # Đọc danh sách đã thông báo từ trước
+    notified_pages = set()
+    if notified_file.exists():
+        try:
+            with notified_file.open("r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, list):
+                    notified_pages = set(data)
+        except Exception:
+            pass
+            
+    while True:
+        # Ngủ 3 phút (180 giây) trước mỗi chu kỳ quét
+        time.sleep(180)
+        
+        config = notion_sync.load_config()
+        token = config.get("NOTION_TOKEN")
+        db_id = config.get("NOTION_DATABASE_ID")
+        
+        if not token or not db_id:
+            continue
+            
+        try:
+            # Query các sản phẩm có trạng thái "Báo IT đăng"
+            pages = notion_sync.query_notion_pages_to_post(token, db_id)
+            if not pages:
+                continue
+                
+            new_pages_detected = []
+            for page in pages:
+                page_id = page.get("id")
+                if page_id not in notified_pages:
+                    # Lấy tên sản phẩm
+                    properties = page.get("properties", {})
+                    title_list = properties.get("Tên sản phẩm", {}).get("title", [])
+                    product_title = title_list[0].get("plain_text", "") if title_list else "Sản phẩm không tên"
+                    new_pages_detected.append((page_id, product_title))
+                    
+            if not new_pages_detected:
+                continue
+                
+            # Gửi thông báo cho từng sản phẩm mới phát hiện
+            allowed_str = os.environ.get("TELEGRAM_ALLOWED_CHAT_IDS", "")
+            allowed_ids = [int(x.strip()) for x in allowed_str.split(",") if x.strip().replace("-", "").isdigit()]
+            
+            for page_id, product_title in new_pages_detected:
+                # Lưu vào danh sách đã thông báo
+                notified_pages.add(page_id)
+                
+                # Gửi thông báo đến toàn bộ chat được phép
+                msg = (
+                    f"🔔 <b>Phát hiện sản phẩm mới từ Notion cần đăng:</b>\n"
+                    f"👉 <b>{h(product_title)}</b>\n\n"
+                    f"Nhắn <b>xác nhận</b> để tự động đăng sản phẩm lên WooCommerce, hoặc nhắn <b>hủy</b>."
+                )
+                for cid in allowed_ids:
+                    try:
+                        send_message(cid, msg)
+                        # Đặt hành động chờ xác nhận
+                        PENDING_ACTIONS[cid] = {
+                            "type": "notion_sync"
+                        }
+                    except Exception as e:
+                        log(f"Loi gui thong bao Notion toi {cid}: {e}")
+                        
+            # Lưu lại danh sách đã thông báo xuống file
+            try:
+                with notified_file.open("w", encoding="utf-8") as f:
+                    json.dump(list(notified_pages), f, indent=2, ensure_ascii=False)
+            except Exception as e:
+                log(f"Loi ghi file notified_pages.json: {e}")
+                
+        except Exception as e:
+            log(f"Loi khi quét Notion tu dong: {e}")
+
+
 def main() -> None:
     # Ép buộc sử dụng IPv4 để sửa lỗi phản hồi chậm do IPv6 DNS fallback (15s timeout)
     force_ipv4()
@@ -3066,6 +3159,12 @@ def main() -> None:
 
     # Kiem tra tranh chay nhieu phien ban bot cung mot luc
     ensure_single_instance()
+
+    # Khởi động luồng quét Notion tự động (chu kỳ 3 phút)
+    import threading
+    t = threading.Thread(target=check_notion_loop, daemon=True)
+    t.start()
+    log("Da khoi dong luong quet Notion tu dong (chu ky 3 phut).")
 
     if "TELEGRAM_BOT_TOKEN" not in os.environ:
         raise RuntimeError("Thieu TELEGRAM_BOT_TOKEN.")
