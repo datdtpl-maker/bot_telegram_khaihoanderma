@@ -80,11 +80,12 @@ def parse_notion_blocks(blocks):
             in_numbered_list = False
             
         if b_type == "paragraph":
-            text = rich_text_to_html(block["paragraph"]["rich_text"])
-            text_lower = text.lower()
-            if "danh mục" in text_lower and ("giá" in text_lower or "sp" in text_lower):
+            # Lấy plain_text sạch không chứa thẻ HTML để parse danh mục và giá chính xác
+            plain_text = "".join([r.get("plain_text", "") for r in block["paragraph"]["rich_text"]])
+            plain_text_lower = plain_text.lower()
+            if "danh mục" in plain_text_lower and ("giá" in plain_text_lower or "sp" in plain_text_lower):
                 # Tách dòng này theo dấu "-" để parse
-                parts = text.split("-")
+                parts = plain_text.split("-")
                 for part in parts:
                     part_lower = part.lower()
                     if "danh mục" in part_lower:
@@ -103,6 +104,7 @@ def parse_notion_blocks(blocks):
                             if digits:
                                 price_val = int(digits)
                 continue
+            text = rich_text_to_html(block["paragraph"]["rich_text"])
             html_parts.append(f"<p>{text}</p>")
             
         elif b_type == "heading_1":
