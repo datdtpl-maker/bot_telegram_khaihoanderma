@@ -67,6 +67,7 @@ def parse_notion_blocks(blocks):
     
     category_name = ""
     price_val = 0
+    sale_price_val = 0
     
     for block in blocks:
         b_type = block.get("type")
@@ -80,16 +81,27 @@ def parse_notion_blocks(blocks):
             
         if b_type == "paragraph":
             text = rich_text_to_html(block["paragraph"]["rich_text"])
-            if "danh mục sp:" in text.lower():
-                cat_match = re.search(r"danh mục sp:\s*([^-]+)", text, re.IGNORECASE)
-                if cat_match:
-                    category_name = cat_match.group(1).strip()
-                price_match = re.search(r"giá:\s*([\d\s.kK]+)", text, re.IGNORECASE)
-                if price_match:
-                    price_raw = price_match.group(1).strip().lower().replace("k", "000").replace(".", "").replace(",", "").replace(" ", "")
-                    digits = re.sub(r"[^\d]", "", price_raw)
-                    if digits:
-                        price_val = int(digits)
+            text_lower = text.lower()
+            if "danh mục" in text_lower and ("giá" in text_lower or "sp" in text_lower):
+                # Tách dòng này theo dấu "-" để parse
+                parts = text.split("-")
+                for part in parts:
+                    part_lower = part.lower()
+                    if "danh mục" in part_lower:
+                        if ":" in part:
+                            category_name = part.split(":", 1)[1].strip()
+                    elif "giá khuyến mãi" in part_lower or "giá km" in part_lower:
+                        if ":" in part:
+                            price_raw = part.split(":", 1)[1].strip().lower().replace("k", "000").replace(".", "").replace(",", "").replace(" ", "")
+                            digits = re.sub(r"[^\d]", "", price_raw)
+                            if digits:
+                                sale_price_val = int(digits)
+                    elif "giá" in part_lower:
+                        if ":" in part:
+                            price_raw = part.split(":", 1)[1].strip().lower().replace("k", "000").replace(".", "").replace(",", "").replace(" ", "")
+                            digits = re.sub(r"[^\d]", "", price_raw)
+                            if digits:
+                                price_val = int(digits)
                 continue
             html_parts.append(f"<p>{text}</p>")
             
@@ -125,7 +137,7 @@ def parse_notion_blocks(blocks):
     if in_numbered_list:
         html_parts.append("</ol>")
         
-    return "\n".join(html_parts), category_name, price_val
+    return "\n".join(html_parts), category_name, price_val, sale_price_val
 
 def query_notion_pages_to_post(token, db_id):
     url = f"https://api.notion.com/v1/databases/{db_id}/query"
@@ -308,9 +320,14 @@ def run_notion_sync_workflow():
         product_title = title_list[0].get("plain_text", "") if title_list else "Sản phẩm không tên"
         log_message(f"Start processing: {product_title}")
         
-        # 2. Get focus keywords
+        # 2. Get focus keywords (lấy từ 3 đến 4 từ khóa đầu tiên cách nhau bởi dấu phẩy)
         keyword_list = properties.get("Từ khóa SEO Rank Math", {}).get("rich_text", [])
-        seo_keywords = keyword_list[0].get("plain_text", "") if keyword_list else ""
+        seo_keywords_raw = keyword_list[0].get("plain_text", "") if keyword_list else ""
+        if seo_keywords_raw:
+            kw_parts = [k.strip() for k in seo_keywords_raw.split(",") if k.strip()]
+            seo_keywords = ", ".join(kw_parts[:4])
+        else:
+            seo_keywords = ""
         
         # 3. Google Drive folder URL
         drive_url = properties.get("Media sản phẩm", {}).get("url")
@@ -328,7 +345,7 @@ def run_notion_sync_workflow():
             log_message(f"Lỗi đọc nội dung liên kết của '{product_title}': {e}")
             continue
             
-        product_description, category_name, price_val = parse_notion_blocks(blocks)
+        product_description, category_name, price_val, sale_price_val = parse_notion_blocks(blocks)
         
         # 5. Download images from drive folder
         temp_dir = OUT_DIR / "temp_notion_images"
@@ -375,6 +392,8 @@ def run_notion_sync_workflow():
                 }
             ]
         }
+        if sale_price_val > 0:
+            product_payload["sale_price"] = str(sale_price_val)
         
         # 9. Create product on WooCommerce
         product_res = create_woocommerce_product(config, product_payload)

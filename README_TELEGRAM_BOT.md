@@ -93,37 +93,21 @@ Hủy thao tác:
 hủy
 ```
 
-## Import nội dung sản phẩm DOCX
+## Đồng bộ và đăng sản phẩm từ Notion
 
-Gửi file Word `.docx` trực tiếp vào bot. Bot sẽ đọc H1 đầu tiên trong file:
+Quy trình đăng sản phẩm mới từ Notion:
 
-- Nếu H1 chứa tên sản phẩm đã đăng ở vế đầu, bot cập nhật mô tả sản phẩm đó. Ví dụ H1 `Gel Trị Mụn Deriva BPO: Giải Pháp...` sẽ dò về sản phẩm `Gel Trị Mụn Deriva Bpo Gel` nếu đã có.
-- Nếu H1 không dò được sản phẩm nào, bot chuẩn bị tạo sản phẩm WooCommerce mới.
-- Nếu muốn ép cập nhật một sản phẩm cụ thể, gửi file kèm caption dạng: `cập nhật mô tả + tên sản phẩm`.
+1. **Chuẩn bị trên Notion:**
+   - Tạo dòng sản phẩm trên Notion. Điền **Tên sản phẩm**, **Từ khóa SEO Rank Math**, và dán URL Google Drive chứa ảnh sản phẩm ở cột **Media sản phẩm** (phải share quyền xem công khai).
+   - Chọn liên kết ở cột **Bài content Tây** trỏ đến trang con chứa nội dung bài viết.
+   - Trong trang **Bài content Tây**, dòng đầu tiên phải ghi rõ thông tin danh mục, giá bán và giá khuyến mãi (nếu có) theo định dạng:
+     `Danh mục sản phẩm: [Tên danh mục] - Giá: [Giá thường] - Giá khuyến mãi: [Giá khuyến mãi]`
+     *(Ví dụ: Danh mục sản phẩm: Trị mụn - Giá: 750.000 - Giá khuyến mãi: 710.000)*
+   - Chuyển **Trạng thái** (Status) của dòng sang **`Báo IT đăng`**.
 
-Khi đăng sản phẩm mới, có thể gửi caption kèm giá và danh mục:
-
-```text
-thêm sản phẩm, giá là 350000, danh mục là Trị Mụn
-```
-
-Bot sẽ tự điền `regular_price`, để trạng thái kho là `có hàng`, và gán danh mục WooCommerce. Nếu danh mục chưa có, bot sẽ tạo danh mục mới.
-
-Bot sẽ đọc nội dung và giữ định dạng:
-
-- Heading 1 -> `<h1>`
-- Heading 2 -> `<h2>`
-- Heading 3 -> `<h3>`
-- Paragraph -> `<p>`
-
-Sau khi đọc file, bot sẽ hỏi xác nhận trước khi cập nhật mô tả hoặc tạo sản phẩm mới.
-
-Khi tạo sản phẩm mới thành công, bot sẽ:
-
-- Gửi lại URL sản phẩm.
-- Gửi link Google Search Console Inspect để bạn mở và yêu cầu index tay nhanh hơn.
-- Ghi URL mới vào `new_product_urls.log` để không sót sản phẩm cần kiểm tra index.
-- Hiển thị sitemap để bạn kiểm tra trong Search Console khi cần.
+2. **Kích hoạt đồng bộ:**
+   - Nhắn tin lệnh: `đồng bộ notion` (hoặc `sync notion`, `dong bo notion`) cho bot Telegram.
+   - Bot sẽ tự động tải các ảnh từ Google Drive, upload lên WordPress, tạo sản phẩm WooCommerce kèm SEO Rank Math (lấy tối đa 4 từ khóa đầu tiên), sau đó tự chuyển trạng thái Notion sang `Đã đăng web`, tích chọn `IT đã đăng` và cập nhật `Link web`.
 
 ## Báo cáo sản phẩm
 
