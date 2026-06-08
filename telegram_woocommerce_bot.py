@@ -868,6 +868,38 @@ def wants_cache_refresh(text: str) -> bool:
     return any(keyword in normalized for keyword in keywords)
 
 
+def wants_notion_sync(text: str) -> bool:
+    normalized = normalize_text(text)
+    keywords = [
+        "đồng bộ notion",
+        "dong bo notion",
+        "đăng bài từ notion",
+        "dang bai tu notion",
+        "sync notion",
+    ]
+    return any(keyword in normalized for keyword in keywords)
+
+
+def trigger_notion_sync() -> str:
+    try:
+        from notion_sync import run_notion_sync_workflow
+        res = run_notion_sync_workflow()
+        if res.get("status") == "success":
+            msg = res.get("message", "Đồng bộ hoàn tất.")
+            products = res.get("products", [])
+            if products:
+                lines = [msg, ""]
+                for idx, prod in enumerate(products, start=1):
+                    warning_text = f" (Cảnh báo: {prod['warning']})" if "warning" in prod else ""
+                    lines.append(f"{idx}. <b>{h(prod['title'])}</b>\n• Link: <a href=\"{h(prod['url'])}\">Xem trên web</a>{warning_text}")
+                return "\n".join(lines)
+            return msg
+        else:
+            return f"<b>Lỗi đồng bộ Notion:</b>\n{h(res.get('message'))}"
+    except Exception as exc:
+        return f"<b>Lỗi khi thực hiện đồng bộ Notion:</b>\n<code>{h(exc)}</code>"
+
+
 def trigger_cache_refresh() -> str:
     global _ALL_PRODUCTS_CACHE, _ALL_PRODUCTS_CACHE_TIME
     with _ALL_PRODUCTS_CACHE_LOCK:
@@ -2810,7 +2842,8 @@ def handle_message(chat_id: int, text: str) -> None:
             "<b>7. Lệnh kiểm tra</b>\n"
             "• <code>ping</code> - kiểm tra bot còn chạy.\n"
             "• <code>/whoami</code> - xem Chat ID.\n"
-            "• <code>đồng bộ sản phẩm</code> - tải lại danh sách sản phẩm mới nhất từ website WooCommerce.\n\n"
+            "• <code>đồng bộ sản phẩm</code> - tải lại danh sách sản phẩm mới nhất từ website WooCommerce.\n"
+            "• <code>đồng bộ notion</code> - đăng sản phẩm mới từ Notion lên WooCommerce.\n\n"
             "<b>Xác nhận</b>\n"
             "Các thao tác sửa giá, tồn kho, mô tả, tạo hoặc xóa sản phẩm đều cần nhắn <b>xác nhận</b>. "
             "Nếu sản phẩm có biến thể mà chưa ghi rõ loại, bot sẽ liệt kê biến thể để chọn. "
@@ -2824,6 +2857,10 @@ def handle_message(chat_id: int, text: str) -> None:
         elif wants_cache_refresh(text):
             send_typing(chat_id)
             html_text = trigger_cache_refresh()
+        elif wants_notion_sync(text):
+            send_message(chat_id, "<b>Đang quét và đồng bộ sản phẩm từ Notion...</b>\n<i>Quá trình tải hình ảnh từ Google Drive và đăng sản phẩm có thể mất vài phút. Bot sẽ gửi thông báo ngay khi hoàn tất.</i>")
+            send_typing(chat_id)
+            html_text = trigger_notion_sync()
         elif normalized in {"xác nhận", "xac nhan", "ok", "đồng ý", "dong y"}:
             html_text = apply_pending_action(chat_id)
         elif normalized in {"hủy", "huy", "cancel", "không", "khong"} and chat_id in PENDING_ACTIONS:
