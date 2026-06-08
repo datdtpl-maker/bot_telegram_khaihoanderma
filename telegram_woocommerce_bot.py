@@ -2836,15 +2836,18 @@ def handle_message(chat_id: int, text: str) -> None:
             "• <code>Xóa sản phẩm [Tên sản phẩm]</code>\n"
             "• <code>Xuất tất cả sản phẩm trên web</code> (File Excel danh sách)\n\n"
             "<b>3. Đăng sản phẩm tự động từ Notion</b>\n"
-            "• <b>Cách dùng:</b> Chuẩn bị bài trên Notion -> Điền tên, từ khóa SEO, link ảnh Drive -> Chọn Bài content Tây (Dòng đầu ghi: <code>Danh mục SP: ... - Giá: ... - Giá khuyến mãi: ...</code>) -> Chuyển Trạng thái sang <b>Báo IT đăng</b>.\n"
-            "• <b>Chạy đồng bộ:</b> Nhắn tin <code>đồng bộ notion</code> cho bot.\n\n"
+            "• <b>Cách dùng:</b> Chuẩn bị bài trên Notion -> Điền tên, từ khóa SEO, link ảnh Drive -> Chọn Bài content Tây -> Chuyển Trạng thái sang <b>Báo IT đăng</b>.\n"
+            "• <b>Phê duyệt đăng:</b>\n"
+            "  - Bot tự động quét Notion (mỗi 3 phút) và chủ động nhắn tin hỏi khi phát hiện sản phẩm mới.\n"
+            "  - Bạn chỉ cần nhắn <code>xác nhận</code> để duyệt đăng bài lên WooCommerce và tự động cập nhật Notion.\n"
+            "  - Bạn cũng có thể nhắn <code>đồng bộ notion</code> để yêu cầu bot quét thủ công ngay lập tức.\n\n"
             "<b>4. Báo cáo SEO Google (Site Kit)</b>\n"
             "• <code>Traffic 28 ngày qua</code>\n"
             "• <code>Từ khóa Search Console 28 ngày qua</code>\n\n"
             "<b>5. Lệnh hệ thống & Kiểm tra</b>\n"
             "• <code>ping</code> (Kiểm tra kết nối bot)\n"
             "• <code>đồng bộ sản phẩm</code> (Cập nhật lại danh sách sản phẩm từ web vào bot)\n\n"
-            "<i>Lưu ý: Các thao tác sửa giá, tồn kho hoặc xóa sản phẩm đều cần nhắn <b>xác nhận</b> để thực hiện hoặc <b>hủy</b> để bỏ qua.</i>",
+            "<i>Lưu ý: Các thao tác sửa giá, tồn kho, xóa sản phẩm hoặc phê duyệt đăng bài đều cần nhắn <b>xác nhận</b> để thực hiện hoặc <b>hủy</b> để bỏ qua.</i>",
         )
         return
 
