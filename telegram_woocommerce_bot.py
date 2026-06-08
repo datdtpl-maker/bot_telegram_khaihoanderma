@@ -864,6 +864,10 @@ def wants_cache_refresh(text: str) -> bool:
         "refresh cache",
         "reload cache",
         "sync cache",
+        "/dongbosanpham",
+        "/dong_bo_san_pham",
+        "dongbosanpham",
+        "dong_bo_san_pham",
     ]
     return any(keyword in normalized for keyword in keywords)
 
@@ -876,6 +880,10 @@ def wants_notion_sync(text: str) -> bool:
         "đăng bài từ notion",
         "dang bai tu notion",
         "sync notion",
+        "/dongbonotion",
+        "/dong_bo_notion",
+        "dongbonotion",
+        "dong_bo_notion",
     ]
     return any(keyword in normalized for keyword in keywords)
 
