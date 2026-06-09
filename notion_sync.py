@@ -185,6 +185,8 @@ def download_drive_folder(folder_url, temp_dir):
                 p = Path(root) / file
                 if p.suffix.lower() in image_extensions:
                     downloaded_images.append(p)
+        # Sắp xếp danh sách ảnh theo tên tăng dần để ảnh số 1 làm ảnh sản phẩm đại diện, các ảnh tiếp theo làm album
+        downloaded_images.sort(key=lambda x: x.name.lower())
         return downloaded_images
     except Exception as e:
         log_message(f"Error downloading from Drive: {e}")
