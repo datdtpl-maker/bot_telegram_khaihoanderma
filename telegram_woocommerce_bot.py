@@ -420,7 +420,33 @@ def make_date(year: int, month: int, day: int) -> datetime | None:
 def extract_date_range(text: str) -> tuple[datetime, datetime] | None:
     normalized = normalize_text(text)
 
-    # Khớp định dạng tiếng Việt: ngày X đến Y tháng M năm YYYY hoặc ngày X đến Y/M/YYYY
+    # 1. Định dạng ISO: YYYY-MM-DD đến YYYY-MM-DD
+    iso = re.search(
+        r"(?:từ|tu|from)\s*(?:(?:ngày|ngay)\s*)?(20\d{2})[-/.](0?[1-9]|1[0-2])[-/.](0?[1-9]|[12]\d|3[01])\s*(?:đến|den|tới|toi|to|-)\s*(?:(?:ngày|ngay)\s*)?(20\d{2})[-/.](0?[1-9]|1[0-2])[-/.](0?[1-9]|[12]\d|3[01])",
+        normalized,
+    )
+    if iso:
+        y1, m1, d1, y2, m2, d2 = map(int, iso.groups())
+        start = make_date(y1, m1, d1)
+        end = make_date(y2, m2, d2)
+        if start and end:
+            return (start, end) if start <= end else (end, start)
+
+    # 2. Định dạng Việt Nam đầy đủ: DD/MM/YYYY đến DD/MM/YYYY
+    vietnamese = re.search(
+        r"(?:từ|tu|from)\s*(?:(?:ngày|ngay)\s*)?(0?[1-9]|[12]\d|3[01])[-/.](0?[1-9]|1[0-2])(?:[-/.](20\d{2}))?\s*(?:đến|den|tới|toi|to|-)\s*(?:(?:ngày|ngay)\s*)?(0?[1-9]|[12]\d|3[01])[-/.](0?[1-9]|1[0-2])(?:[-/.](20\d{2}))?",
+        normalized,
+    )
+    if vietnamese:
+        d1, m1, y1, d2, m2, y2 = vietnamese.groups()
+        year1 = int(y1 or y2 or datetime.now().year)
+        year2 = int(y2 or y1 or datetime.now().year)
+        start = make_date(year1, int(m1), int(d1))
+        end = make_date(year2, int(m2), int(d2))
+        if start and end:
+            return (start, end) if start <= end else (end, start)
+
+    # 3. Định dạng Việt Nam rút gọn: ngày X đến Y tháng M năm YYYY hoặc ngày X đến Y/M/YYYY
     viet_range = re.search(
         r"(?:từ|tu|from)?\s*(?:ngày|ngay)?\s*(?P<d1>\d{1,2})\s*(?:đến|den|tới|toi|to|-)\s*(?:ngày|ngay)?\s*(?P<d2>\d{1,2})\s*(?:tháng|thang|/)\s*(?P<m>\d{1,2})(?:\s*(?:năm|nam|/)\s*(?P<y>\d{4}))?",
         normalized,
@@ -435,30 +461,7 @@ def extract_date_range(text: str) -> tuple[datetime, datetime] | None:
         if start and end:
             return (start, end) if start <= end else (end, start)
 
-    iso = re.search(
-        r"(?:từ|tu|from)\s*(?:(?:ngày|ngay)\s*)?(20\d{2})[-/.](0?[1-9]|1[0-2])[-/.](0?[1-9]|[12]\d|3[01])\s*(?:đến|den|tới|toi|to|-)\s*(?:(?:ngày|ngay)\s*)?(20\d{2})[-/.](0?[1-9]|1[0-2])[-/.](0?[1-9]|[12]\d|3[01])",
-        normalized,
-    )
-    if iso:
-        y1, m1, d1, y2, m2, d2 = map(int, iso.groups())
-        start = make_date(y1, m1, d1)
-        end = make_date(y2, m2, d2)
-        if start and end:
-            return (start, end) if start <= end else (end, start)
-
-    vietnamese = re.search(
-        r"(?:từ|tu|from)\s*(?:(?:ngày|ngay)\s*)?(0?[1-9]|[12]\d|3[01])[-/.](0?[1-9]|1[0-2])(?:[-/.](20\d{2}))?\s*(?:đến|den|tới|toi|to|-)\s*(?:(?:ngày|ngay)\s*)?(0?[1-9]|[12]\d|3[01])[-/.](0?[1-9]|1[0-2])(?:[-/.](20\d{2}))?",
-        normalized,
-    )
-    if vietnamese:
-        d1, m1, y1, d2, m2, y2 = vietnamese.groups()
-        year1 = int(y1 or y2 or datetime.now().year)
-        year2 = int(y2 or y1 or datetime.now().year)
-        start = make_date(year1, int(m1), int(d1))
-        end = make_date(year2, int(m2), int(d2))
-        if start and end:
-            return (start, end) if start <= end else (end, start)
-
+    # 4. Định dạng gọn khác: DD/MM đến DD/MM
     compact = re.search(
         r"\b(0?[1-9]|[12]\d|3[01])[-/.](0?[1-9]|1[0-2])(?:[-/.](20\d{2}))?\s*(?:đến|den|tới|toi|to|-)\s*(0?[1-9]|[12]\d|3[01])[-/.](0?[1-9]|1[0-2])(?:[-/.](20\d{2}))?\b",
         normalized,
