@@ -157,7 +157,7 @@ def query_notion_pages_to_post(token, db_id):
         "Content-Type": "application/json"
     }
     req = urllib.request.Request(url, headers=headers, method="POST", data=json.dumps(filter_body).encode("utf-8"))
-    with urllib.request.urlopen(req) as resp:
+    with urllib.request.urlopen(req, timeout=15) as resp:
         data = json.loads(resp.read().decode("utf-8"))
         return data.get("results", [])
 
@@ -169,7 +169,7 @@ def get_page_blocks(token, page_id):
         "Content-Type": "application/json"
     }
     req = urllib.request.Request(url, headers=headers, method="GET")
-    with urllib.request.urlopen(req) as resp:
+    with urllib.request.urlopen(req, timeout=15) as resp:
         return json.loads(resp.read().decode("utf-8")).get("results", [])
 
 def download_drive_folder(folder_url, temp_dir):
@@ -227,7 +227,7 @@ def find_or_create_category(config, name):
         ctx = urllib.request.ssl._create_unverified_context()
     try:
         req = urllib.request.Request(url, headers=headers, method="GET")
-        with urllib.request.urlopen(req, context=ctx) as resp:
+        with urllib.request.urlopen(req, context=ctx, timeout=15) as resp:
             categories = json.loads(resp.read().decode("utf-8"))
             for category in categories:
                 if category.get("name", "").lower() == name.lower():
@@ -238,7 +238,7 @@ def find_or_create_category(config, name):
             create_data = json.dumps({"name": name}).encode("utf-8")
             headers["Content-Type"] = "application/json; charset=utf-8"
             req = urllib.request.Request(create_url, data=create_data, headers=headers, method="POST")
-            with urllib.request.urlopen(req, context=ctx) as resp2:
+            with urllib.request.urlopen(req, context=ctx, timeout=15) as resp2:
                 new_cat = json.loads(resp2.read().decode("utf-8"))
                 log_message(f"Created new WooCommerce category: {name} | ID: {new_cat.get('id')}")
                 return new_cat.get("id")
@@ -260,7 +260,7 @@ def create_woocommerce_product(config, product_data):
     try:
         req_data = json.dumps(product_data).encode("utf-8")
         req = urllib.request.Request(url, data=req_data, headers=headers, method="POST")
-        with urllib.request.urlopen(req, context=ctx) as resp:
+        with urllib.request.urlopen(req, context=ctx, timeout=30) as resp:
             product = json.loads(resp.read().decode("utf-8"))
             log_message(f"Created WooCommerce product: {product.get('name')} | ID: {product.get('id')}")
             return product
@@ -294,7 +294,7 @@ def update_notion_status(token, page_id, product_url):
         "Content-Type": "application/json"
     }
     req = urllib.request.Request(url, headers=headers, method="PATCH", data=json.dumps(update_data).encode("utf-8"))
-    with urllib.request.urlopen(req) as resp:
+    with urllib.request.urlopen(req, timeout=15) as resp:
         log_message(f"Updated Notion page status to 'Đã đăng web' for ID: {page_id}")
 
 def run_notion_sync_workflow(progress_callback=None):
