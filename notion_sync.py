@@ -297,7 +297,7 @@ def update_notion_status(token, page_id, product_url):
     with urllib.request.urlopen(req) as resp:
         log_message(f"Updated Notion page status to 'Đã đăng web' for ID: {page_id}")
 
-def run_notion_sync_workflow():
+def run_notion_sync_workflow(progress_callback=None):
     config = load_config()
     token = config.get("NOTION_TOKEN")
     db_id = config.get("NOTION_DATABASE_ID")
@@ -313,6 +313,9 @@ def run_notion_sync_workflow():
     if not pages:
         return {"status": "success", "message": "Không tìm thấy sản phẩm nào có trạng thái 'Báo IT đăng'.", "count": 0}
         
+    if progress_callback:
+        progress_callback(f"🔍 Tìm thấy {len(pages)} sản phẩm chờ đăng trên Notion. Bắt đầu xử lý...")
+        
     processed_products = []
     
     for page in pages:
@@ -324,6 +327,9 @@ def run_notion_sync_workflow():
         product_title = title_list[0].get("plain_text", "") if title_list else "Sản phẩm không tên"
         log_message(f"Start processing: {product_title}")
         
+        if progress_callback:
+            progress_callback(f"📦 <b>Sản phẩm: {product_title}</b>\n1️⃣ Đang phân tích thông tin chi tiết trên Notion...")
+            
         # 2. Get focus keywords (lấy từ 2 đến 3 từ khóa đầu tiên cách nhau bởi dấu phẩy)
         keyword_list = properties.get("Từ khóa SEO Rank Math", {}).get("rich_text", [])
         seo_keywords_raw = keyword_list[0].get("plain_text", "") if keyword_list else ""
@@ -340,6 +346,8 @@ def run_notion_sync_workflow():
         relation = properties.get("Bài content Tây", {}).get("relation", [])
         if not relation:
             log_message(f"Bỏ qua '{product_title}': Cột 'Bài content Tây' trống.")
+            if progress_callback:
+                progress_callback(f"⚠️ Bỏ qua '{product_title}': Cột 'Bài content Tây' trống.")
             continue
             
         related_page_id = relation[0].get("id")
@@ -347,6 +355,8 @@ def run_notion_sync_workflow():
             blocks = get_page_blocks(token, related_page_id)
         except Exception as e:
             log_message(f"Lỗi đọc nội dung liên kết của '{product_title}': {e}")
+            if progress_callback:
+                progress_callback(f"❌ Lỗi đọc nội dung liên kết của '{product_title}': {e}")
             continue
             
         product_description, category_name, price_val, sale_price_val = parse_notion_blocks(blocks)
@@ -363,14 +373,19 @@ def run_notion_sync_workflow():
         
         downloaded_images = []
         if drive_url:
+            if progress_callback:
+                progress_callback(f"📥 2️⃣ Đang tải hình ảnh từ Google Drive...")
             downloaded_images = download_drive_folder(drive_url, temp_dir)
             
         # 6. Upload images to WordPress Media Library
         uploaded_media_ids = []
-        for img_path in downloaded_images:
-            media_id = wp_upload_media(config, img_path)
-            if media_id:
-                uploaded_media_ids.append(media_id)
+        if downloaded_images:
+            if progress_callback:
+                progress_callback(f"📤 3️⃣ Đang upload {len(downloaded_images)} ảnh lên website (WordPress Media)...")
+            for img_path in downloaded_images:
+                media_id = wp_upload_media(config, img_path)
+                if media_id:
+                    uploaded_media_ids.append(media_id)
                 
         # 7. Map/Create category
         category_id = None
@@ -400,10 +415,14 @@ def run_notion_sync_workflow():
             product_payload["sale_price"] = str(sale_price_val)
         
         # 9. Create product on WooCommerce
+        if progress_callback:
+            progress_callback(f"⚙️ 4️⃣ Đang tạo sản phẩm trên WooCommerce (Giá: {price_val:,}đ)...")
         product_res = create_woocommerce_product(config, product_payload)
         if product_res:
             product_url = product_res.get("permalink", "")
             # 10. Update status and URL back to Notion
+            if progress_callback:
+                progress_callback(f"📝 5️⃣ Cập nhật lại trạng thái Đã đăng lên Notion...")
             try:
                 update_notion_status(token, page_id, product_url)
                 processed_products.append({"title": product_title, "url": product_url})
@@ -425,7 +444,6 @@ def run_notion_sync_workflow():
         return {"status": "success", "message": msg, "count": len(processed_products), "products": processed_products}
     else:
         return {"status": "success", "message": "Quá trình đồng bộ hoàn tất nhưng không có sản phẩm mới nào được đăng (vui lòng kiểm tra lỗi chi tiết trong bot.log).", "count": 0}
-
 if __name__ == "__main__":
     res = run_notion_sync_workflow()
     print(json.dumps(res, indent=2, ensure_ascii=False))
