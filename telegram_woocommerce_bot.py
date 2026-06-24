@@ -2819,8 +2819,12 @@ def send_message(chat_id: int, text: str, reply_markup: dict | None = None) -> N
     
     # Tự động đính kèm nút bấm xác nhận/hủy nếu là tin nhắn yêu cầu phê duyệt
     if reply_markup is None:
-        text_lower = text.lower()
-        if "nhắn xác nhận để" in text_lower or "cần xác nhận trước khi" in text_lower:
+        clean_text = re.sub(r'<[^>]+>', '', text).lower()
+        if (
+            "nhắn xác nhận để" in clean_text
+            or "nhận xác nhận để" in clean_text
+            or "cần xác nhận trước khi" in clean_text
+        ):
             reply_markup = {
                 "inline_keyboard": [
                     [
