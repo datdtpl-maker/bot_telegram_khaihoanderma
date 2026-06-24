@@ -359,7 +359,15 @@ def summarize_orders(orders: list[dict]) -> tuple[list[dict], list[dict], dict[s
 
 
 def money(value: float | str) -> str:
-    return f"{round(float(value)):,.0f}".replace(",", ".")
+    if value == "" or value is None:
+        return "Liên hệ"
+    try:
+        val_float = float(value)
+        if val_float == 0:
+            return "Liên hệ"
+        return f"{round(val_float):,.0f}".replace(",", ".")
+    except ValueError:
+        return str(value)
 
 
 def h(value: object) -> str:
@@ -1017,6 +1025,9 @@ def order_status_label(value: str) -> str:
 
 
 def parse_price(value: str) -> str:
+    normalized_val = plain_ascii(value).strip()
+    if normalized_val in {"0", "lien he", "lienhe", "trong", "xoa", "contact", ""}:
+        return ""
     digits = re.sub(r"[^\d]", "", value)
     if not digits:
         raise ValueError("Không đọc được giá mới.")
@@ -1091,7 +1102,7 @@ def parse_product_update(text: str) -> dict | None:
         r"(?P<name>.+?)\s+(?:(?:sua|doi|chinh|update|cap nhat)\s+)?"
         r"(?:gia\s+giu\s+nguyen\s+)?"
         r"(?:(?:gia)\s+)?(?:khuyen\s*mai|sale|gia\s*sale)\s+"
-        r"(?:thanh|la|=)?\s*(?P<price>[\d\.,\s]+)",
+        r"(?:thanh|la|=)?\s*(?P<price>[\d\.,\s]+|lien\s*he|trong|xoa|0)",
         plain_text,
         flags=re.IGNORECASE,
     )
@@ -1107,7 +1118,7 @@ def parse_product_update(text: str) -> dict | None:
 
     price_match = re.search(
         r"(?P<name>.+?)\s+(?:sua|doi|chinh|update|cap nhat)\s+"
-        r"(?:lai\s+)?gia\s+(?:thanh|la|=)?\s*(?P<price>[\d\.,\s]+)",
+        r"(?:lai\s+)?gia\s+(?:thanh|la|=)?\s*(?P<price>[\d\.,\s]+|lien\s*he|trong|xoa|0)",
         plain_text,
         flags=re.IGNORECASE,
     )
@@ -1946,7 +1957,7 @@ def prepare_docx_post(chat_id: int, path: Path, caption: str = "") -> str:
     }
     if action_type == "product_create":
         meta_lines = []
-        if action.get("regular_price"):
+        if action.get("regular_price") is not None:
             meta_lines.append(f"Giá bán: <b>{money(action['regular_price'])} VND</b>")
         if action.get("category_name"):
             meta_lines.append(f"Danh mục: <b>{h(action['category_name'])}</b>")
@@ -2810,6 +2821,7 @@ def send_document(chat_id: int, path: Path, caption: str = "") -> None:
 
 
 def send_message(chat_id: int, text: str, reply_markup: dict | None = None) -> None:
+    text = text.replace("Liên hệ VND", "Liên hệ")
     payload = {
         "chat_id": chat_id,
         "text": text[:3900],
