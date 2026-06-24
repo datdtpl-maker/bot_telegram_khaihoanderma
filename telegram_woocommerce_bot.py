@@ -2809,15 +2809,33 @@ def send_document(chat_id: int, path: Path, caption: str = "") -> None:
         json.loads(response.read().decode("utf-8"))
 
 
-def send_message(chat_id: int, text: str) -> None:
+def send_message(chat_id: int, text: str, reply_markup: dict | None = None) -> None:
+    payload = {
+        "chat_id": chat_id,
+        "text": text[:3900],
+        "parse_mode": "HTML",
+        "disable_web_page_preview": "true",
+    }
+    
+    # Tự động đính kèm nút bấm xác nhận/hủy nếu là tin nhắn yêu cầu phê duyệt
+    if reply_markup is None:
+        text_lower = text.lower()
+        if "nhắn xác nhận để" in text_lower or "cần xác nhận trước khi" in text_lower:
+            reply_markup = {
+                "inline_keyboard": [
+                    [
+                        {"text": "✅ Xác nhận", "callback_data": "xác nhận"},
+                        {"text": "❌ Hủy", "callback_data": "hủy"}
+                    ]
+                ]
+            }
+            
+    if reply_markup:
+        payload["reply_markup"] = json.dumps(reply_markup)
+        
     telegram_api(
         "sendMessage",
-        {
-            "chat_id": chat_id,
-            "text": text[:3900],
-            "parse_mode": "HTML",
-            "disable_web_page_preview": "true",
-        },
+        payload,
         timeout=DEFAULT_API_TIMEOUT_SECONDS,
     )
 
@@ -2986,6 +3004,28 @@ def is_lock_free_text(text: str) -> bool:
 
 
 def process_update(update: dict) -> None:
+    callback_query = update.get("callback_query")
+    if callback_query:
+        cb_id = callback_query.get("id")
+        cb_data = callback_query.get("data") or ""
+        message = callback_query.get("message") or {}
+        chat = message.get("chat") or {}
+        chat_id = chat.get("id")
+        if not chat_id:
+            return
+            
+        try:
+            telegram_api("answerCallbackQuery", {"callback_query_id": cb_id})
+        except Exception:
+            pass
+            
+        if cb_data and is_lock_free_text(cb_data):
+            process_chat_message(int(chat_id), cb_data, None, "")
+            return
+        with CHAT_LOCKS[int(chat_id)]:
+            process_chat_message(int(chat_id), cb_data, None, "")
+        return
+
     message = update.get("message") or {}
     chat = message.get("chat") or {}
     text = message.get("text") or ""
