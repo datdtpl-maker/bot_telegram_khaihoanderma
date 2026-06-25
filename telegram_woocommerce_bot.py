@@ -903,16 +903,23 @@ def trigger_notion_sync(chat_id: int = None) -> str:
     try:
         from notion_sync import run_notion_sync_workflow
         
+        tracker = None
         progress_callback = None
         if chat_id:
-            def callback(msg):
-                try:
-                    send_message(chat_id, f"<i>{msg}</i>")
-                except Exception:
-                    pass
+            tracker, callback = make_notion_sync_callback(chat_id)
             progress_callback = callback
             
         res = run_notion_sync_workflow(progress_callback=progress_callback)
+        if tracker:
+            if res.get("status") == "success":
+                tracker.update_step(4, 2, details="Đồng bộ hoàn tất!")
+            else:
+                for idx in range(len(tracker.steps)):
+                    if tracker.steps[idx] == 1:
+                        tracker.steps[idx] = 3
+                tracker.details = f"Lỗi: {res.get('message', 'Không rõ nguyên nhân')}"
+                tracker.send_or_edit()
+                
         if res.get("status") == "success":
             msg = res.get("message", "Đồng bộ hoàn tất.")
             products = res.get("products", [])
@@ -2319,17 +2326,19 @@ def apply_pending_action(chat_id: int) -> str:
 
     if action.get("type") == "notion_sync":
         try:
-            # Gửi tin nhắn bắt đầu
-            send_message(chat_id, "⏳ <b>Bắt đầu quá trình đồng bộ và đăng bài từ Notion...</b>")
-            
-            def callback(msg):
-                try:
-                    send_message(chat_id, f"<i>{msg}</i>")
-                except Exception:
-                    pass
-                    
+            tracker, callback = make_notion_sync_callback(chat_id)
             from notion_sync import run_notion_sync_workflow
             res = run_notion_sync_workflow(progress_callback=callback)
+            if tracker:
+                if res.get("status") == "success":
+                    tracker.update_step(4, 2, details="Đồng bộ hoàn tất!")
+                else:
+                    for idx in range(len(tracker.steps)):
+                        if tracker.steps[idx] == 1:
+                            tracker.steps[idx] = 3
+                    tracker.details = f"Lỗi: {res.get('message', 'Không rõ nguyên nhân')}"
+                    tracker.send_or_edit()
+                    
             if res.get("status") == "success":
                 msg = res.get("message", "Đồng bộ hoàn tất.")
                 products = res.get("products", [])
@@ -2891,7 +2900,7 @@ def send_document(chat_id: int, path: Path, caption: str = "") -> None:
         json.loads(response.read().decode("utf-8"))
 
 
-def send_message(chat_id: int, text: str, reply_markup: dict | None = None) -> None:
+def send_message(chat_id: int, text: str, reply_markup: dict | None = None) -> dict:
     text = text.replace("Liên hệ VND", "Liên hệ")
     payload = {
         "chat_id": chat_id,
@@ -2920,11 +2929,126 @@ def send_message(chat_id: int, text: str, reply_markup: dict | None = None) -> N
     if reply_markup:
         payload["reply_markup"] = json.dumps(reply_markup)
         
-    telegram_api(
+    return telegram_api(
         "sendMessage",
         payload,
         timeout=DEFAULT_API_TIMEOUT_SECONDS,
     )
+
+
+def edit_message(chat_id: int, message_id: int, text: str, reply_markup: dict | None = None) -> dict | None:
+    text = text.replace("Liên hệ VND", "Liên hệ")
+    payload = {
+        "chat_id": chat_id,
+        "message_id": message_id,
+        "text": text[:3900],
+        "parse_mode": "HTML",
+        "disable_web_page_preview": "true",
+    }
+    if reply_markup:
+        payload["reply_markup"] = json.dumps(reply_markup)
+    try:
+        return telegram_api("editMessageText", payload, timeout=DEFAULT_API_TIMEOUT_SECONDS)
+    except Exception as e:
+        log(f"Lỗi khi sửa tin nhắn {message_id}: {e}")
+        return None
+
+
+class NotionSyncProgressTracker:
+    def __init__(self, chat_id: int, product_title: str = "Đang quét..."):
+        self.chat_id = chat_id
+        self.product_title = product_title
+        # Steps status: 0 = pending (white), 1 = active (blue), 2 = done (green), 3 = error (red)
+        self.steps = [0, 0, 0, 0, 0]
+        self.message_id = None
+        self.step_names = [
+            "Đọc & phân tích chi tiết sản phẩm trên Notion",
+            "Tải hình ảnh từ Google Drive",
+            "Upload hình ảnh lên WordPress Media",
+            "Tạo/cập nhật sản phẩm trên WooCommerce",
+            "Cập nhật trạng thái Đã đăng lên Notion"
+        ]
+        self.details = ""
+
+    def render(self) -> str:
+        emojis = {0: "⚪", 1: "🔵", 2: "✅", 3: "❌"}
+        lines = [
+            f"⏳ <b>Tiến trình đồng bộ sản phẩm từ Notion</b>",
+            f"📦 Sản phẩm: <b>{self.product_title}</b>",
+            "--------------------------------------------"
+        ]
+        for i, name in enumerate(self.step_names):
+            status = self.steps[i]
+            emoji = emojis[status]
+            if status == 1:
+                lines.append(f"{emoji} <b>{name}...</b>")
+            else:
+                lines.append(f"{emoji} {name}")
+        lines.append("--------------------------------------------")
+        if self.details:
+            lines.append(f"<i>{self.details}</i>")
+        else:
+            lines.append("<i>Cập nhật tiến trình liên tục...</i>")
+        return "\n".join(lines)
+
+    def update_step(self, step_idx: int, status: int, details: str = ""):
+        if 0 <= step_idx < len(self.steps):
+            self.steps[step_idx] = status
+            if status == 2:
+                for idx in range(step_idx):
+                    if self.steps[idx] in {0, 1}:
+                        self.steps[idx] = 2
+            if status == 1:
+                for idx in range(step_idx):
+                    if self.steps[idx] == 0:
+                        self.steps[idx] = 2
+        if details:
+            # Strip emojis or numbering prefix from details to look cleaner in footer
+            clean_det = re.sub(r'^(?:[^\w\s\d]|[\d️⃣]+)+\s*', '', details)
+            self.details = clean_det
+        self.send_or_edit()
+
+    def send_or_edit(self):
+        text = self.render()
+        if self.message_id is None:
+            res = send_message(self.chat_id, text)
+            if res and res.get("ok"):
+                self.message_id = res.get("result", {}).get("message_id")
+        else:
+            edit_message(self.chat_id, self.message_id, text)
+
+
+def make_notion_sync_callback(chat_id: int):
+    tracker = NotionSyncProgressTracker(chat_id)
+    
+    def callback(msg: str):
+        try:
+            msg_lower = msg.lower()
+            if "tìm thấy" in msg_lower:
+                tracker.details = msg
+                tracker.send_or_edit()
+            elif "sản phẩm:" in msg_lower or "1️⃣" in msg_lower:
+                title_match = re.search(r"sản phẩm:\s*<b>(.+?)</b>", msg, flags=re.IGNORECASE)
+                if not title_match:
+                    title_match = re.search(r"sản phẩm:\s*(.+)", msg, flags=re.IGNORECASE)
+                if title_match:
+                    tracker.product_title = title_match.group(1).split("\n")[0].strip()
+                tracker.update_step(0, 1, details="Đang phân tích thông tin...")
+            elif "2️⃣" in msg_lower or "google drive" in msg_lower:
+                tracker.update_step(1, 1, details="Đang tải hình ảnh...")
+            elif "3️⃣" in msg_lower or "wordpress media" in msg_lower or "upload" in msg_lower:
+                tracker.update_step(2, 1, details=msg)
+            elif "4️⃣" in msg_lower or "woocommerce" in msg_lower:
+                tracker.update_step(3, 1, details=msg)
+            elif "5️⃣" in msg_lower or "trạng thái" in msg_lower:
+                tracker.update_step(4, 1, details="Đang cập nhật Notion...")
+            else:
+                tracker.details = msg
+                tracker.send_or_edit()
+        except Exception as e:
+            log(f"Lỗi cập nhật tiến trình: {e}")
+            
+    return tracker, callback
 
 
 def send_typing(chat_id: int) -> None:
