@@ -3110,10 +3110,13 @@ def handle_message(chat_id: int, text: str) -> None:
             "• <code>đồng bộ notion</code> (Quét Notion thủ công ngay lập tức)\n"
             "• <code>Xóa sản phẩm [Tên sản phẩm]</code>\n"
             "• <code>Xuất tất cả sản phẩm trên web</code> (Xuất file Excel danh mục)\n\n"
-            "<b>4. Báo cáo SEO Google (Site Kit)</b>\n"
+            "<b>4. Duyệt đánh giá sản phẩm</b>\n"
+            "• <b>Duyệt tự động:</b> Bot tự động quét đánh giá mới (chờ duyệt) mỗi 3 phút và gửi nút bấm duyệt/xóa nhanh.\n"
+            "• <b>Duyệt thủ công:</b> Gõ lệnh trực tiếp: <code>duyệt đánh giá [ID]</code> hoặc <code>xóa [ID]</code> (Ví dụ: <code>duyệt đánh giá 235</code>, <code>xóa 235</code>, <code>từ chối 235</code>).\n\n"
+            "<b>5. Báo cáo SEO Google (Site Kit)</b>\n"
             "• <code>Traffic 28 ngày qua</code>\n"
             "• <code>Từ khóa Search Console 28 ngày qua</code>\n\n"
-            "<b>5. Hệ thống</b>\n"
+            "<b>6. Hệ thống</b>\n"
             "• <code>ping</code> (Kiểm tra kết nối)\n"
             "• <code>đồng bộ sản phẩm</code> (Cập nhật danh sách từ web vào bộ nhớ bot)\n\n"
             "<i>Lưu ý: Các thao tác cập nhật đều có nút <b>[ ✅ Xác nhận ]</b> và <b>[ ❌ Hủy ]</b> đi kèm để bạn duyệt nhanh bằng cách bấm nút.</i>",
@@ -3138,6 +3141,9 @@ def handle_message(chat_id: int, text: str) -> None:
         elif (product_delete := parse_product_delete_request(text)):
             send_typing(chat_id)
             html_text = prepare_product_delete(chat_id, product_delete)
+        elif (review_action := parse_review_action(text)):
+            send_typing(chat_id)
+            html_text = execute_review_action_text(chat_id, review_action)
         elif (product_update := parse_product_update(text)):
             send_typing(chat_id)
             html_text = prepare_product_update(chat_id, product_update)
@@ -3221,7 +3227,7 @@ def handle_document(chat_id: int, document: dict, caption: str = "") -> None:
 
 def is_lock_free_text(text: str) -> bool:
     stripped = text.strip()
-    return stripped.startswith("/start") or stripped.startswith("/help") or stripped.startswith("/whoami") or wants_ping(text)
+    return stripped.startswith("/start") or stripped.startswith("/help") or stripped.startswith("/whoami") or wants_ping(text) or bool(parse_review_action(text))
 
 
 def process_update(update: dict) -> None:
@@ -3240,6 +3246,12 @@ def process_update(update: dict) -> None:
         except Exception:
             pass
             
+        review_action = parse_review_action(cb_data)
+        if review_action:
+            msg_id = message.get("message_id")
+            execute_review_callback(int(chat_id), msg_id, message.get("text") or "", review_action)
+            return
+
         if cb_data and is_lock_free_text(cb_data):
             process_chat_message(int(chat_id), cb_data, None, "")
             return
@@ -3362,6 +3374,193 @@ def force_ipv4() -> None:
     socket.getaddrinfo = getaddrinfo_ipv4
 
 
+def parse_review_action(text: str) -> dict | None:
+    normalized = normalize_text(text)
+    plain = plain_ascii(normalized)
+    
+    # 1. Check approval
+    approve_match = re.search(r"^(?:duyet|duyet\s+danh\s+gia|chap\s+thuan)\s+(?P<id>\d+)$", plain, flags=re.IGNORECASE)
+    if approve_match:
+        return {
+            "action": "approve",
+            "id": int(approve_match.group("id"))
+        }
+        
+    # 2. Check deletion
+    delete_match = re.search(r"^(?:xoa|xoa\s+danh\s+gia|huy|huy\s+danh\s+gia|tu\s+choi)\s+(?P<id>\d+)$", plain, flags=re.IGNORECASE)
+    if delete_match:
+        return {
+            "action": "delete",
+            "id": int(delete_match.group("id"))
+        }
+        
+    return None
+
+
+def find_product_name_by_id(product_id: int) -> str:
+    try:
+        product = wc_get(f"products/{product_id}", {})
+        if isinstance(product, dict) and "name" in product:
+            return str(product["name"])
+    except Exception as e:
+        log(f"Loi lay ten san pham {product_id}: {e}")
+    return f"Sản phẩm #{product_id}"
+
+
+def execute_review_action_text(chat_id: int, review_action: dict) -> str:
+    action = review_action["action"]
+    review_id = review_action["id"]
+    
+    try:
+        if action == "approve":
+            res = wc_put(f"products/reviews/{review_id}", {"status": "approved"})
+            if isinstance(res, dict) and res.get("id"):
+                reviewer = res.get("reviewer") or "Ẩn danh"
+                product_id = res.get("product_id")
+                product_name = find_product_name_by_id(product_id) if product_id else "Sản phẩm"
+                return (
+                    f"✅ <b>Đã duyệt thành công đánh giá #{review_id}:</b>\n"
+                    f"• Người đánh giá: {h(reviewer)}\n"
+                    f"• Sản phẩm: {h(product_name)}"
+                )
+            else:
+                return f"❌ Không thể duyệt đánh giá #{review_id}. Phản hồi lỗi từ WooCommerce."
+        elif action == "delete":
+            res = wc_put(f"products/reviews/{review_id}", {"status": "trash"})
+            if isinstance(res, dict) and res.get("id"):
+                reviewer = res.get("reviewer") or "Ẩn danh"
+                product_id = res.get("product_id")
+                product_name = find_product_name_by_id(product_id) if product_id else "Sản phẩm"
+                return (
+                    f"🗑️ <b>Đã chuyển đánh giá #{review_id} vào Thùng rác:</b>\n"
+                    f"• Người đánh giá: {h(reviewer)}\n"
+                    f"• Sản phẩm: {h(product_name)}"
+                )
+            else:
+                return f"❌ Không thể xóa đánh giá #{review_id}. Phản hồi lỗi từ WooCommerce."
+    except Exception as e:
+        log(f"Loi khi thuc thi hanh dong danh gia #{review_id}: {e}")
+        return f"❌ <b>Gặp lỗi khi xử lý đánh giá #{review_id}:</b>\n<code>{h(e)}</code>"
+
+
+def execute_review_callback(chat_id: int, msg_id: int, original_text: str, review_action: dict) -> None:
+    action = review_action["action"]
+    review_id = review_action["id"]
+    
+    try:
+        if action == "approve":
+            res = wc_put(f"products/reviews/{review_id}", {"status": "approved"})
+            if isinstance(res, dict) and res.get("id"):
+                status_text = "<b>[ĐÃ DUYỆT]</b>"
+            else:
+                status_text = "<b>[LỖI DUYỆT]</b>"
+        elif action == "delete":
+            res = wc_put(f"products/reviews/{review_id}", {"status": "trash"})
+            if isinstance(res, dict) and res.get("id"):
+                status_text = "<b>[ĐÃ XÓA/BỎ QUA]</b>"
+            else:
+                status_text = "<b>[LỖI XÓA]</b>"
+    except Exception as e:
+        log(f"Loi callback danh gia #{review_id}: {e}")
+        status_text = f"<b>[LỖI: {h(e)}]</b>"
+        
+    new_text = original_text
+    prompt_line = "Bạn muốn duyệt hay xóa đánh giá này?"
+    if prompt_line in new_text:
+        new_text = new_text.replace(prompt_line, f"Trạng thái xử lý: {status_text}")
+    else:
+        new_text = f"{status_text}\n\n{new_text}"
+        
+    edit_message(chat_id, msg_id, new_text, reply_markup={"inline_keyboard": []})
+
+
+def check_reviews_loop() -> None:
+    notified_file = OUT_DIR / "notified_reviews.json"
+    
+    # Đọc danh sách đã thông báo từ trước
+    notified_reviews = set()
+    if notified_file.exists():
+        try:
+            with notified_file.open("r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, list):
+                    notified_reviews = set(data)
+        except Exception:
+            pass
+            
+    while True:
+        # Ngủ 3 phút (180 giây) trước mỗi chu kỳ quét
+        time.sleep(180)
+        
+        try:
+            # Query các đánh giá có trạng thái "hold" (chờ duyệt)
+            reviews = wc_get("products/reviews", {"status": "hold", "per_page": 100})
+            if not isinstance(reviews, list) or not reviews:
+                continue
+                
+            new_reviews_detected = []
+            for rev in reviews:
+                rev_id = rev.get("id")
+                if rev_id not in notified_reviews:
+                    new_reviews_detected.append(rev)
+                    
+            if not new_reviews_detected:
+                continue
+                
+            # Lấy danh sách admin chat IDs
+            allowed_str = os.environ.get("TELEGRAM_ALLOWED_CHAT_IDS", "")
+            allowed_ids = [int(x.strip()) for x in allowed_str.split(",") if x.strip().replace("-", "").isdigit()]
+            
+            for rev in new_reviews_detected:
+                rev_id = rev.get("id")
+                notified_reviews.add(rev_id)
+                
+                # Chi tiết đánh giá
+                reviewer = rev.get("reviewer") or "Ẩn danh"
+                reviewer_email = rev.get("reviewer_email") or ""
+                rating = rev.get("rating") or 0
+                review_content = plain_text_from_html(rev.get("review") or "")
+                product_id = rev.get("product_id")
+                product_name = find_product_name_by_id(product_id)
+                
+                stars = "★" * rating + "☆" * (5 - rating)
+                
+                # Tạo tin nhắn Telegram
+                msg = (
+                    f"⭐ <b>Có đánh giá sản phẩm mới cần duyệt:</b>\n"
+                    f"• <b>Sản phẩm:</b> <a href=\"{site_base_url()}/?p={product_id}\">{h(product_name)}</a>\n"
+                    f"• <b>Người đánh giá:</b> {h(reviewer)} ({h(reviewer_email)})\n"
+                    f"• <b>Đánh giá:</b> {stars} ({rating}/5)\n"
+                    f"• <b>Nội dung:</b> <i>{h(review_content)}</i>\n\n"
+                    f"Bạn muốn duyệt hay xóa đánh giá này?"
+                )
+                
+                reply_markup = {
+                    "inline_keyboard": [
+                        [
+                            {"text": "✅ Duyệt", "callback_data": f"duyệt đánh giá {rev_id}"},
+                            {"text": "❌ Xóa", "callback_data": f"xóa đánh giá {rev_id}"}
+                        ]
+                    ]
+                }
+                
+                for cid in allowed_ids:
+                    try:
+                        send_message(cid, msg, reply_markup=reply_markup)
+                    except Exception as e:
+                        log(f"Loi gui thong bao danh gia toi {cid}: {e}")
+                        
+            # Lưu danh sách đã thông báo xuống file
+            try:
+                with notified_file.open("w", encoding="utf-8") as f:
+                    json.dump(list(notified_reviews), f, indent=2, ensure_ascii=False)
+            except Exception as e:
+                log(f"Loi ghi file notified_reviews.json: {e}")
+                
+        except Exception as e:
+            log(f"Loi khi quet danh gia tu dong: {e}")
+
+
 def check_notion_loop() -> None:
     import threading
     import notion_sync
@@ -3459,6 +3658,11 @@ def main() -> None:
     t = threading.Thread(target=check_notion_loop, daemon=True)
     t.start()
     log("Da khoi dong luong quet Notion tu dong (chu ky 3 phut).")
+
+    # Khởi động luồng quét đánh giá WooCommerce tự động (chu kỳ 3 phút)
+    t_rev = threading.Thread(target=check_reviews_loop, daemon=True)
+    t_rev.start()
+    log("Da khoi dong luong quet danh gia tu dong (chu ky 3 phut).")
 
     if "TELEGRAM_BOT_TOKEN" not in os.environ:
         raise RuntimeError("Thieu TELEGRAM_BOT_TOKEN.")
