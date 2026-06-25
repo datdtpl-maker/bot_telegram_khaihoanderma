@@ -94,6 +94,7 @@ def load_wordpress_credentials() -> tuple[str, str, str]:
 
 PENDING_ACTIONS: dict[int, dict] = {}
 CHAT_LOCKS: defaultdict[int, Lock] = defaultdict(Lock)
+NOTIFIED_REVIEWS: set[int] = set()
 
 
 LOG_LOCK = Lock()
@@ -3138,6 +3139,16 @@ def handle_message(chat_id: int, text: str) -> None:
         elif normalized in {"hủy", "huy", "cancel", "không", "khong"} and chat_id in PENDING_ACTIONS:
             PENDING_ACTIONS.pop(chat_id, None)
             html_text = "Đã hủy thao tác đang chờ."
+        elif normalized in {"xóa cache đánh giá", "xoa cache danh gia", "reset đánh giá", "reset danh gia"}:
+            global NOTIFIED_REVIEWS
+            NOTIFIED_REVIEWS.clear()
+            notified_file = OUT_DIR / "notified_reviews.json"
+            if notified_file.exists():
+                try:
+                    notified_file.unlink()
+                except Exception:
+                    pass
+            html_text = "🔄 <b>Đã xóa bộ nhớ cache đánh giá thành công!</b>\nBot sẽ tự động quét lại toàn bộ các đánh giá chờ duyệt ở chu kỳ tiếp theo."
         elif (product_delete := parse_product_delete_request(text)):
             send_typing(chat_id)
             html_text = prepare_product_delete(chat_id, product_delete)
@@ -3593,16 +3604,16 @@ def auto_moderate_review(rev: dict) -> tuple[bool, str]:
 
 
 def check_reviews_loop() -> None:
+    global NOTIFIED_REVIEWS
     notified_file = OUT_DIR / "notified_reviews.json"
     
     # Đọc danh sách đã thông báo từ trước
-    notified_reviews = set()
     if notified_file.exists():
         try:
             with notified_file.open("r", encoding="utf-8") as f:
                 data = json.load(f)
                 if isinstance(data, list):
-                    notified_reviews = set(data)
+                    NOTIFIED_REVIEWS = set(data)
         except Exception:
             pass
             
@@ -3627,7 +3638,7 @@ def check_reviews_loop() -> None:
             new_reviews_detected = []
             for rev in reviews:
                 rev_id = rev.get("id")
-                if rev_id not in notified_reviews:
+                if rev_id not in NOTIFIED_REVIEWS:
                     new_reviews_detected.append(rev)
                     
             log(f"Phat hien {len(new_reviews_detected)} danh gia moi chua thong bao.")
@@ -3640,7 +3651,7 @@ def check_reviews_loop() -> None:
             
             for rev in new_reviews_detected:
                 rev_id = rev.get("id")
-                notified_reviews.add(rev_id)
+                NOTIFIED_REVIEWS.add(rev_id)
                 
                 # Chi tiết đánh giá
                 reviewer = rev.get("reviewer") or "Ẩn danh"
@@ -3709,7 +3720,7 @@ def check_reviews_loop() -> None:
             # Lưu danh sách đã thông báo xuống file
             try:
                 with notified_file.open("w", encoding="utf-8") as f:
-                    json.dump(list(notified_reviews), f, indent=2, ensure_ascii=False)
+                    json.dump(list(NOTIFIED_REVIEWS), f, indent=2, ensure_ascii=False)
             except Exception as e:
                 log(f"Loi ghi file notified_reviews.json: {e}")
                 
