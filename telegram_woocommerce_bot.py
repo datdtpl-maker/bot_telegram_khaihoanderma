@@ -3474,6 +3474,118 @@ def execute_review_callback(chat_id: int, msg_id: int, original_text: str, revie
     edit_message(chat_id, msg_id, new_text, reply_markup={"inline_keyboard": []})
 
 
+def gemini_moderate_review(reviewer: str, content: str) -> tuple[bool, str]:
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        return True, "Không cấu hình GEMINI_API_KEY, bỏ qua kiểm tra AI"
+        
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+    prompt = (
+        "Bạn là một trợ lý AI thông minh chuyên duyệt đánh giá sản phẩm cho cửa hàng mỹ phẩm Khải Hoàn Derma.\n"
+        "Nhiệm vụ của bạn là phân tích đánh giá sản phẩm sau để xem nó là đánh giá tự nhiên của khách mua hàng thật "
+        "(nói về mùi hương, bao bì đóng gói, chất kem, hiệu quả sử dụng, giao hàng...) "
+        "hay là đánh giá spam rác do bot tạo ra hoặc quảng cáo cờ bạc, link lừa đảo.\n\n"
+        f"Thông tin đánh giá:\n"
+        f"- Người đánh giá: {reviewer}\n"
+        f"- Nội dung đánh giá: {content}\n\n"
+        "Chỉ trả về duy nhất một chuỗi JSON có cấu trúc sau (không giải thích thêm):\n"
+        "{\n"
+        '  "is_genuine": true hoặc false,\n'
+        '  "reason": "Lý do ngắn gọn bằng tiếng Việt"\n'
+        "}"
+    )
+    
+    body = {
+        "contents": [
+            {
+                "parts": [
+                    {"text": prompt}
+                ]
+            }
+        ],
+        "generationConfig": {
+            "responseMimeType": "application/json"
+        }
+    }
+    
+    try:
+        data = json.dumps(body).encode("utf-8")
+        req = urllib.request.Request(
+            url,
+            data=data,
+            headers={
+                "Content-Type": "application/json",
+                "User-Agent": "Codex Telegram Bot Gemini Moderator"
+            },
+            method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=15, context=ssl_context()) as response:
+            res_data = json.loads(response.read().decode("utf-8"))
+            candidates = res_data.get("candidates") or []
+            if candidates:
+                content_obj = candidates[0].get("content") or {}
+                parts = content_obj.get("parts") or []
+                if parts:
+                    text_out = parts[0].get("text") or ""
+                    parsed = json.loads(text_out.strip())
+                    is_genuine = bool(parsed.get("is_genuine"))
+                    reason = str(parsed.get("reason") or "AI xác thực thành công")
+                    return is_genuine, reason
+    except Exception as e:
+        log(f"Loi khi goi API Gemini: {e}")
+        return True, f"Lỗi gọi AI (mặc định duyệt tay): {e}"
+        
+    return True, "Không nhận được phản hồi từ AI"
+
+
+def auto_moderate_review(rev: dict) -> tuple[bool, str]:
+    # 1. Điểm đánh giá phải đạt 5/5
+    rating = int(rev.get("rating") or 0)
+    if rating != 5:
+        return False, f"Đánh giá {rating}/5 sao (yêu cầu bắt buộc 5 sao để tự duyệt)"
+        
+    # 2. Tên người đánh giá phải đầy đủ họ tên (có ít nhất 2 từ) và không chứa ký tự đặc biệt/số
+    reviewer = (rev.get("reviewer") or "").strip()
+    words = reviewer.split()
+    if len(words) < 2:
+        return False, f"Tên người đánh giá quá ngắn: '{reviewer}' (yêu cầu ít nhất 2 từ)"
+    if re.search(r"[0-9\d@#$%^&*()_+={}\[\]|\\:;\"'<>,.?/~`]", reviewer):
+        return False, f"Tên người đánh giá chứa ký tự đặc biệt hoặc số: '{reviewer}'"
+        
+    # 3. Email phải hợp lệ và thuộc các đuôi email uy tín
+    email = (rev.get("reviewer_email") or "").strip().lower()
+    if not email or not re.match(r"^[\w\.-]+@[\w\.-]+\.\w+$", email):
+        return False, f"Email không hợp lệ: '{email}'"
+        
+    allowed_domains = {"gmail.com", "yahoo.com", "outlook.com", "hotmail.com", "yandex.com", "mail.ru", "protonmail.com", "icloud.com"}
+    domain = email.split("@")[-1]
+    if domain not in allowed_domains:
+        return False, f"Email sử dụng domain lạ/không uy tín: '{email}'"
+        
+    # 4. Nội dung đánh giá rõ ràng, độ dài hợp lệ, không chứa link quảng cáo, chứa tiếng Việt có dấu
+    review_content = plain_text_from_html(rev.get("review") or "").strip()
+    if len(review_content) < 10:
+        return False, "Nội dung đánh giá quá ngắn (dưới 10 ký tự)"
+    if len(review_content) > 300:
+        return False, "Nội dung đánh giá quá dài (trên 300 ký tự - nghi ngờ spam)"
+        
+    # Kiểm tra dấu tiếng Việt để xác nhận người dùng thật
+    vietnamese_marks = r"[áàảãạăắằẳẵặâấầẩẫậéèẻẽẹêếềểễệíìỉĩịóòỏõọôốồổỗộơớờởỡợúùủũụưứừửữựýỳỷỹỵđ]"
+    if not re.search(vietnamese_marks, review_content, re.IGNORECASE):
+        return False, "Nội dung đánh giá không chứa tiếng Việt có dấu"
+        
+    # Kiểm tra liên kết URL
+    if re.search(r"https?://[^\s]+|www\.[^\s]+", review_content):
+        return False, "Nội dung chứa liên kết quảng cáo (URL)"
+        
+    # 5. Gọi AI kiểm duyệt sâu hơn (nếu có cấu hình GEMINI_API_KEY)
+    ai_genuine, ai_reason = gemini_moderate_review(reviewer, review_content)
+    if not ai_genuine:
+        return False, f"AI đánh giá là spam: {ai_reason}"
+        
+    return True, f"Thỏa mãn tất cả các tiêu chuẩn duyệt tự động. {ai_reason}"
+
+
 def check_reviews_loop() -> None:
     notified_file = OUT_DIR / "notified_reviews.json"
     
@@ -3523,32 +3635,59 @@ def check_reviews_loop() -> None:
                 product_id = rev.get("product_id")
                 product_name = find_product_name_by_id(product_id)
                 
-                stars = "★" * rating + "☆" * (5 - rating)
+                # Chạy cơ chế duyệt tự động
+                is_auto, moderate_reason = auto_moderate_review(rev)
                 
-                # Tạo tin nhắn Telegram
-                msg = (
-                    f"⭐ <b>Có đánh giá sản phẩm mới cần duyệt:</b>\n"
-                    f"• <b>Sản phẩm:</b> <a href=\"{site_base_url()}/?p={product_id}\">{h(product_name)}</a>\n"
-                    f"• <b>Người đánh giá:</b> {h(reviewer)} ({h(reviewer_email)})\n"
-                    f"• <b>Đánh giá:</b> {stars} ({rating}/5)\n"
-                    f"• <b>Nội dung:</b> <i>{h(review_content)}</i>\n\n"
-                    f"Bạn muốn duyệt hay xóa đánh giá này?"
-                )
-                
-                reply_markup = {
-                    "inline_keyboard": [
-                        [
-                            {"text": "✅ Duyệt", "callback_data": f"duyệt đánh giá {rev_id}"},
-                            {"text": "❌ Xóa", "callback_data": f"xóa đánh giá {rev_id}"}
-                        ]
-                    ]
-                }
-                
-                for cid in allowed_ids:
+                if is_auto:
+                    # Tiến hành duyệt tự động đánh giá này trên WooCommerce
                     try:
-                        send_message(cid, msg, reply_markup=reply_markup)
+                        wc_put(f"products/reviews/{rev_id}", {"status": "approved"})
+                        log(f"Tu dong duyet danh gia #{rev_id} thanh cong. Ly do: {moderate_reason}")
+                        
+                        # Gửi thông báo ngắn gọn về cho Admin
+                        msg = (
+                            f"🔔 <b>Tự động duyệt đánh giá 5★ thành công:</b>\n"
+                            f"• <b>Sản phẩm:</b> <a href=\"{site_base_url()}/?p={product_id}\">{h(product_name)}</a>\n"
+                            f"• <b>Khách hàng:</b> {h(reviewer)} ({h(reviewer_email)})\n"
+                            f"• <b>Nội dung:</b> <i>{h(review_content)}</i>\n"
+                            f"• <b>Chi tiết:</b> {h(moderate_reason)}"
+                        )
+                        for cid in allowed_ids:
+                            try:
+                                send_message(cid, msg)
+                            except Exception as e:
+                                log(f"Loi gui thong bao tu dong duyet toi {cid}: {e}")
                     except Exception as e:
-                        log(f"Loi gui thong bao danh gia toi {cid}: {e}")
+                        log(f"Loi khi thuc hien tu dong duyet danh gia #{rev_id}: {e}")
+                        is_auto = False  # Chuyển về duyệt thủ công nếu gọi API lỗi
+                        
+                if not is_auto:
+                    # Gửi thông báo duyệt thủ công kèm nút bấm
+                    stars = "★" * rating + "☆" * (5 - rating)
+                    msg = (
+                        f"⭐ <b>Có đánh giá sản phẩm mới cần duyệt:</b>\n"
+                        f"• <b>Sản phẩm:</b> <a href=\"{site_base_url()}/?p={product_id}\">{h(product_name)}</a>\n"
+                        f"• <b>Người đánh giá:</b> {h(reviewer)} ({h(reviewer_email)})\n"
+                        f"• <b>Đánh giá:</b> {stars} ({rating}/5)\n"
+                        f"• <b>Nội dung:</b> <i>{h(review_content)}</i>\n"
+                        f"• <b>Lý do không tự duyệt:</b> <i>{h(moderate_reason)}</i>\n\n"
+                        f"Bạn muốn duyệt hay xóa đánh giá này?"
+                    )
+                    
+                    reply_markup = {
+                        "inline_keyboard": [
+                            [
+                                {"text": "✅ Duyệt", "callback_data": f"duyệt đánh giá {rev_id}"},
+                                {"text": "❌ Xóa", "callback_data": f"xóa đánh giá {rev_id}"}
+                            ]
+                        ]
+                    }
+                    
+                    for cid in allowed_ids:
+                        try:
+                            send_message(cid, msg, reply_markup=reply_markup)
+                        except Exception as e:
+                            log(f"Loi gui thong bao danh gia toi {cid}: {e}")
                         
             # Lưu danh sách đã thông báo xuống file
             try:
