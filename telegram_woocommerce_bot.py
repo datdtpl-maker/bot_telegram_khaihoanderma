@@ -2974,7 +2974,7 @@ class NotionSyncProgressTracker:
         emojis = {0: "⚪", 1: "🔵", 2: "✅", 3: "❌"}
         lines = [
             f"⏳ <b>Tiến trình đồng bộ sản phẩm từ Notion</b>",
-            f"📦 Sản phẩm: <b>{self.product_title}</b>",
+            f"📦 Sản phẩm: <b>{h(self.product_title)}</b>",
             "--------------------------------------------"
         ]
         for i, name in enumerate(self.step_names):
@@ -2986,7 +2986,7 @@ class NotionSyncProgressTracker:
                 lines.append(f"{emoji} {name}")
         lines.append("--------------------------------------------")
         if self.details:
-            lines.append(f"<i>{self.details}</i>")
+            lines.append(f"<i>{h(self.details)}</i>")
         else:
             lines.append("<i>Cập nhật tiến trình liên tục...</i>")
         return "\n".join(lines)
@@ -3028,11 +3028,15 @@ def make_notion_sync_callback(chat_id: int):
                 tracker.details = msg
                 tracker.send_or_edit()
             elif "sản phẩm:" in msg_lower or "1️⃣" in msg_lower:
-                title_match = re.search(r"sản phẩm:\s*<b>(.+?)</b>", msg, flags=re.IGNORECASE)
+                title_match = re.search(r"<b>Sản phẩm:\s*(.+?)</b>", msg, flags=re.IGNORECASE)
+                if not title_match:
+                    title_match = re.search(r"sản phẩm:\s*<b>(.+?)</b>", msg, flags=re.IGNORECASE)
                 if not title_match:
                     title_match = re.search(r"sản phẩm:\s*(.+)", msg, flags=re.IGNORECASE)
                 if title_match:
-                    tracker.product_title = title_match.group(1).split("\n")[0].strip()
+                    raw_title = title_match.group(1).split("\n")[0].strip()
+                    raw_title = re.sub(r'</?[a-zA-Z]+>', '', raw_title)
+                    tracker.product_title = raw_title
                 tracker.update_step(0, 1, details="Đang phân tích thông tin...")
             elif "2️⃣" in msg_lower or "google drive" in msg_lower:
                 tracker.update_step(1, 1, details="Đang tải hình ảnh...")
