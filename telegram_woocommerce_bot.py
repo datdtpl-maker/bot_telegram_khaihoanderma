@@ -1095,43 +1095,52 @@ def find_or_create_product_category(name: str) -> dict:
 
 
 def parse_product_update(text: str) -> dict | None:
+    # 1. Normalize text
     normalized = normalize_text(text)
-    plain_text = plain_ascii(text)
+    plain_text = plain_ascii(text).strip()
+    
+    def extract_names(t: str) -> tuple[str, str | None]:
+        plain = plain_ascii(t)
+        
+        def clean_prefix(name: str) -> str:
+            p = plain_ascii(name)
+            pattern = r"^(?:sua|doi|chinh|update|cap\s*nhat)?\s*(?:gia\s+ban|gia\s+thuong|gia\s+khuyen\s*mai|gia\s+sale|khuyen\s*mai|sale|gia)?\s*(?:san\s*pham\s+)?(?P<real_name>.+)$"
+            m = re.match(pattern, p, flags=re.IGNORECASE)
+            if m:
+                return name[m.start("real_name"):].strip(" :-")
+            return name.strip(" :-")
 
-    sale_match = re.search(
-        r"(?P<name>.+?)\s+(?:(?:sua|doi|chinh|update|cap nhat)\s+)?"
-        r"(?:gia\s+giu\s+nguyen\s+)?"
-        r"(?:(?:gia)\s+)?(?:khuyen\s*mai|sale|gia\s*sale)\s+"
-        r"(?:thanh|la|=)?\s*(?P<price>[\d\.,\s]+|lien\s*he|trong|xoa|0)",
-        plain_text,
-        flags=re.IGNORECASE,
-    )
-    if sale_match:
-        name_start, name_end = sale_match.span("name")
-        product_name, variant_name = split_variant_from_product_name(text[name_start:name_end].strip(" :-"))
-        return {
-            "type": "sale_price",
-            "name": product_name,
-            "variation": variant_name,
-            "sale_price": parse_price(sale_match.group("price")),
-        }
+        # Format A pattern: starts with "sua phan loai ... cua ..." or "phan loai ... cua ..." or "loai ... cua ..."
+        format_a_match = re.search(
+            r"^(?:sua\s+)?(?:bien\s*the|phan\s*loai|loai|mau|dang)\s+(?P<variant>.+?)\s+cua\s+(?:san\s*pham\s+)?(?P<product>.+)$",
+            plain,
+            flags=re.IGNORECASE
+        )
+        if format_a_match:
+            var_start, var_end = format_a_match.span("variant")
+            prod_start, prod_end = format_a_match.span("product")
+            variant_name = t[var_start:var_end].strip(" :-")
+            product_name = clean_prefix(t[prod_start:prod_end])
+            return product_name, variant_name
+            
+        # Format B pattern (standard suffix-based variant): "[Product Name] phân loại [Variant Name]"
+        format_b_match = re.search(
+            r"(?P<product>.+?)\s+(?:bien\s*the|phan\s*loai|loai|mau|dang)\s+(?P<variant>[^,;|]+)$",
+            plain,
+            flags=re.IGNORECASE
+        )
+        if format_b_match:
+            prod_start, prod_end = format_b_match.span("product")
+            var_start, var_end = format_b_match.span("variant")
+            product_name = clean_prefix(t[prod_start:prod_end])
+            variant_name = t[var_start:var_end].strip(" :-")
+            return product_name, variant_name
+            
+        # Fallback: simple product
+        product_name = clean_prefix(t)
+        return product_name, None
 
-    price_match = re.search(
-        r"(?P<name>.+?)\s+(?:sua|doi|chinh|update|cap nhat)\s+"
-        r"(?:lai\s+)?gia\s+(?:thanh|la|=)?\s*(?P<price>[\d\.,\s]+|lien\s*he|trong|xoa|0)",
-        plain_text,
-        flags=re.IGNORECASE,
-    )
-    if price_match:
-        name_start, name_end = price_match.span("name")
-        product_name, variant_name = split_variant_from_product_name(text[name_start:name_end].strip(" :-"))
-        return {
-            "type": "price",
-            "name": product_name,
-            "variation": variant_name,
-            "regular_price": parse_price(price_match.group("price")),
-        }
-
+    # 2. Check if it is a stock update
     stock_match = re.search(
         r"(?P<name>.+?)\s+"
         r"(?:(?:sua|doi|chinh|update|cap nhat|cho|de|set)\s+)?"
@@ -1141,10 +1150,10 @@ def parse_product_update(text: str) -> dict | None:
         flags=re.IGNORECASE,
     )
     if stock_match:
-        name_start, name_end = stock_match.span("name")
+        name_part = text[stock_match.start("name"):stock_match.end("name")].strip(" :-")
         raw_stock = stock_match.group("stock")
         stock_status = "outofstock" if raw_stock in {"het hang", "out of stock"} else "instock"
-        product_name, variant_name = split_variant_from_product_name(text[name_start:name_end].strip(" :-"))
+        product_name, variant_name = extract_names(name_part)
         return {
             "type": "stock",
             "name": product_name,
@@ -1152,13 +1161,60 @@ def parse_product_update(text: str) -> dict | None:
             "stock_status": stock_status,
         }
 
-    if any(word in plain_ascii(normalized) for word in ["sua gia", "chinh gia", "khuyen mai", "sale", "het hang", "co hang", "con hang"]):
-        raise ValueError(
-            "T\u00f4i ch\u01b0a \u0111\u1ecdc r\u00f5 t\u00ean s\u1ea3n ph\u1ea9m ho\u1eb7c gi\u00e1/tr\u1ea1ng th\u00e1i m\u1edbi. V\u00ed d\u1ee5: "
-            "'Deriva Bpo Gel s\u1eeda gi\u00e1 267000', 'Deriva Bpo Gel khuy\u1ebfn m\u00e3i l\u00e0 240000' ho\u1eb7c 'Deriva Bpo Gel ch\u1ec9nh t\u1ed3n kho h\u1ebft h\u00e0ng'."
-        )
-
-    return None
+    # 3. Determine if it is a sale price or regular price update
+    is_sale = False
+    sale_keywords = ["khuyen mai", "sale", "gia sale"]
+    
+    # Search for price pattern
+    price_pattern = r"(?P<left>.+?)\s+(?:thanh|la|=)?\s*(?P<price>\d[\d\.,\s]*|lien\s*he|trong|xoa|0)$"
+    price_match = re.search(price_pattern, plain_text, flags=re.IGNORECASE)
+    
+    if not price_match:
+        if any(word in plain_ascii(normalized) for word in ["sua gia", "chinh gia", "khuyen mai", "sale", "het hang", "co hang", "con hang"]):
+            raise ValueError(
+                "Tôi chưa đọc rõ tên sản phẩm hoặc giá/trạng thái mới. Ví dụ: "
+                "'Deriva Bpo Gel sữa giá 267000', 'Deriva Bpo Gel khuyến mãi là 240000' hoặc 'Deriva Bpo Gel chỉ chỉnh tồn kho hết hàng'."
+            )
+        return None
+        
+    left_part = text[price_match.start("left"):price_match.end("left")].strip(" :-")
+    price_str = price_match.group("price")
+    
+    # Check if left_part or text contains sale keywords to determine price type
+    left_plain = plain_ascii(left_part)
+    if any(kw in left_plain for kw in sale_keywords):
+        is_sale = True
+        
+    # Now clean up left_part by removing price-update verb phrases:
+    plain_left = plain_ascii(left_part)
+    suffix_pattern = r"\s+(?:sua|doi|chinh|update|cap nhat)?\s*(?:lai\s+)?(?:gia|gia\s+ban|gia\s+thuong|gia\s+khuyen\s*mai|gia\s+sale|khuyen\s*mai|sale)\s*$"
+    suffix_match = re.search(suffix_pattern, plain_left, flags=re.IGNORECASE)
+    if suffix_match:
+        cleaned_name_part = left_part[:suffix_match.start()].strip(" :-")
+    else:
+        cleaned_name_part = left_part
+    
+    product_name, variant_name = extract_names(cleaned_name_part)
+    
+    try:
+        parsed_val = parse_price(price_str)
+    except ValueError:
+        return None
+        
+    if is_sale:
+        return {
+            "type": "sale_price",
+            "name": product_name,
+            "variation": variant_name,
+            "sale_price": parsed_val,
+        }
+    else:
+        return {
+            "type": "price",
+            "name": product_name,
+            "variation": variant_name,
+            "regular_price": parsed_val,
+        }
 
 
 def parse_product_post_request(text: str) -> dict | None:
@@ -2409,22 +2465,36 @@ def apply_pending_action(chat_id: int) -> str:
     if action.get("variation_id"):
         result_id_line = f"ID biến thể: <code>{h(action.get('variation_id'))}</code>\n"
 
+    link = result.get("permalink") or ""
+    if not link:
+        try:
+            prod_id = action.get("product_id")
+            if prod_id:
+                main_prod = wc_get(f"products/{prod_id}")
+                if isinstance(main_prod, dict):
+                    link = main_prod.get("permalink") or ""
+        except Exception:
+            pass
+    link_line = f"• Link sản phẩm: <a href=\"{h(link)}\">Xem trên web</a>\n" if link else ""
+
     if update["type"] == "price":
         return (
-            "<b>\u0110\u00e3 c\u1eadp nh\u1eadt gi\u00e1 th\u01b0\u1eddng s\u1ea3n ph\u1ea9m</b>\n\n"
-            f"S\u1ea3n ph\u1ea9m: <b>{h(target_name)}</b>\n"
+            "<b>Đã cập nhật giá thường sản phẩm</b>\n\n"
+            f"Sản phẩm: <b>{h(target_name)}</b>\n"
             f"{result_id_line}"
-            f"Gi\u00e1 th\u01b0\u1eddng m\u1edbi: <b>{money(result.get('regular_price') or result.get('price') or 0)} VND</b>\n"
-            f"Khuy\u1ebfn m\u00e3i hi\u1ec7n t\u1ea1i: <b>{money(result.get('sale_price') or 0)} VND</b>"
+            f"Giá thường mới: <b>{money(result.get('regular_price') or result.get('price') or 0)} VND</b>\n"
+            f"Khuyến mãi hiện tại: <b>{money(result.get('sale_price') or 0)} VND</b>\n"
+            f"{link_line}"
         )
 
     if update["type"] == "sale_price":
         return (
-            "<b>\u0110\u00e3 c\u1eadp nh\u1eadt gi\u00e1 khuy\u1ebfn m\u00e3i s\u1ea3n ph\u1ea9m</b>\n\n"
-            f"S\u1ea3n ph\u1ea9m: <b>{h(target_name)}</b>\n"
+            "<b>Đã cập nhật giá khuyến mãi sản phẩm</b>\n\n"
+            f"Sản phẩm: <b>{h(target_name)}</b>\n"
             f"{result_id_line}"
-            f"Gi\u00e1 th\u01b0\u1eddng gi\u1eef nguy\u00ean: <b>{money(result.get('regular_price') or 0)} VND</b>\n"
-            f"Khuy\u1ebfn m\u00e3i m\u1edbi: <b>{money(result.get('sale_price') or 0)} VND</b>"
+            f"Giá thường giữ nguyên: <b>{money(result.get('regular_price') or 0)} VND</b>\n"
+            f"Khuyến mãi mới: <b>{money(result.get('sale_price') or 0)} VND</b>\n"
+            f"{link_line}"
         )
 
     stock_label = "có hàng" if result.get("stock_status") == "instock" else "hết hàng"
@@ -2432,7 +2502,8 @@ def apply_pending_action(chat_id: int) -> str:
         "<b>Đã cập nhật tồn kho sản phẩm</b>\n\n"
         f"Sản phẩm: <b>{h(target_name)}</b>\n"
         f"{result_id_line}"
-        f"Trạng thái mới: <b>{stock_label}</b>"
+        f"Trạng thái mới: <b>{stock_label}</b>\n"
+        f"{link_line}"
     )
 
 
@@ -2892,26 +2963,32 @@ def handle_message(chat_id: int, text: str) -> None:
             "<b>1. Đơn hàng & Doanh thu</b>\n"
             "• <code>Hôm nay có đơn hàng không?</code>\n"
             "• <code>Doanh thu tháng này là bao nhiêu?</code>\n"
-            "• <code>Chi tiết đơn hàng hôm nay</code> (Báo cáo file Excel)\n"
-            "• <code>Chi tiết đơn hàng 2365</code> (Xem thông tin chi tiết của đơn hàng)\n\n"
-            "<b>2. Quản lý sản phẩm & Tồn kho</b>\n"
-            "• <code>[Tên sản phẩm] sửa giá 350000</code>\n"
-            "• <code>[Tên sản phẩm] hết hàng</code> hoặc <code>còn hàng</code>\n"
+            "• <code>Chi tiết đơn hàng hôm nay</code> (Xuất file Excel báo cáo)\n"
+            "• <code>Chi tiết đơn hàng 2365</code> (Xem chi tiết 1 đơn hàng)\n\n"
+            "<b>2. Quản lý giá & Tồn kho</b>\n"
+            "• <b>Giá thường (mặc định):</b>\n"
+            "  - <code>[Tên sản phẩm] sửa giá 350000</code>\n"
+            "  - <code>[Tên sản phẩm] sửa giá 0</code> hoặc <code>liên hệ</code> (để xóa giá, web hiện chữ Liên hệ)\n"
+            "• <b>Giá khuyến mãi:</b>\n"
+            "  - <code>[Tên sản phẩm] sửa giá khuyến mãi 300000</code> (hoặc <code>giá sale</code>)\n"
+            "• <b>Sản phẩm có phân loại (biến thể):</b>\n"
+            "  - <code>sửa phân loại Cream của [Tên sản phẩm] giá là 350000</code>\n"
+            "  - <code>sửa phân loại Cream của [Tên sản phẩm] giá khuyến mãi là 300000</code>\n"
+            "• <b>Tồn kho & Trạng thái:</b>\n"
+            "  - <code>[Tên sản phẩm] hết hàng</code> hoặc <code>còn hàng</code>\n"
+            "  - <code>sửa phân loại Gel của [Tên sản phẩm] hết hàng</code>\n\n"
+            "<b>3. Quản trị & Đăng sản phẩm tự động từ Notion</b>\n"
+            "• <b>Đăng tự động:</b> Chuẩn bị bài trên Notion -> Chuyển Trạng thái sang <b>Báo IT đăng</b>. Bot quét mỗi 3 phút, nhắn tin duyệt bài kèm nút <code>Xác nhận</code>/<code>Hủy</code>.\n"
+            "• <code>đồng bộ notion</code> (Quét Notion thủ công ngay lập tức)\n"
             "• <code>Xóa sản phẩm [Tên sản phẩm]</code>\n"
-            "• <code>Xuất tất cả sản phẩm trên web</code> (File Excel danh sách)\n\n"
-            "<b>3. Đăng sản phẩm tự động từ Notion</b>\n"
-            "• <b>Cách dùng:</b> Chuẩn bị bài trên Notion -> Điền tên, từ khóa SEO, link ảnh Drive -> Chọn Bài content Tây -> Chuyển Trạng thái sang <b>Báo IT đăng</b>.\n"
-            "• <b>Phê duyệt đăng:</b>\n"
-            "  - Bot tự động quét Notion (mỗi 3 phút) và chủ động nhắn tin hỏi khi phát hiện sản phẩm mới.\n"
-            "  - Bạn chỉ cần nhắn <code>xác nhận</code> để duyệt đăng bài lên WooCommerce và tự động cập nhật Notion.\n"
-            "  - Bạn cũng có thể nhắn <code>đồng bộ notion</code> để yêu cầu bot quét thủ công ngay lập tức.\n\n"
+            "• <code>Xuất tất cả sản phẩm trên web</code> (Xuất file Excel danh mục)\n\n"
             "<b>4. Báo cáo SEO Google (Site Kit)</b>\n"
             "• <code>Traffic 28 ngày qua</code>\n"
             "• <code>Từ khóa Search Console 28 ngày qua</code>\n\n"
-            "<b>5. Lệnh hệ thống & Kiểm tra</b>\n"
-            "• <code>ping</code> (Kiểm tra kết nối bot)\n"
-            "• <code>đồng bộ sản phẩm</code> (Cập nhật lại danh sách sản phẩm từ web vào bot)\n\n"
-            "<i>Lưu ý: Các thao tác sửa giá, tồn kho, xóa sản phẩm hoặc phê duyệt đăng bài đều cần nhắn <b>xác nhận</b> để thực hiện hoặc <b>hủy</b> để bỏ qua.</i>",
+            "<b>5. Hệ thống</b>\n"
+            "• <code>ping</code> (Kiểm tra kết nối)\n"
+            "• <code>đồng bộ sản phẩm</code> (Cập nhật danh sách từ web vào bộ nhớ bot)\n\n"
+            "<i>Lưu ý: Các thao tác cập nhật đều có nút <b>[ ✅ Xác nhận ]</b> và <b>[ ❌ Hủy ]</b> đi kèm để bạn duyệt nhanh bằng cách bấm nút.</i>",
         )
         return
 
