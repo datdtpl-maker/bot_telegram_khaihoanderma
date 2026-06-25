@@ -3600,9 +3600,12 @@ def check_reviews_loop() -> None:
         except Exception:
             pass
             
+    is_first_run = True
     while True:
-        # Ngủ 3 phút (180 giây) trước mỗi chu kỳ quét
-        time.sleep(180)
+        if not is_first_run:
+            # Ngủ 3 phút (180 giây) trước các chu kỳ quét tiếp theo
+            time.sleep(180)
+        is_first_run = False
         
         try:
             # Query các đánh giá có trạng thái "hold" (chờ duyệt)
@@ -3717,9 +3720,12 @@ def check_notion_loop() -> None:
         except Exception:
             pass
             
+    is_first_run = True
     while True:
-        # Ngủ 3 phút (180 giây) trước mỗi chu kỳ quét
-        time.sleep(180)
+        if not is_first_run:
+            # Ngủ 3 phút (180 giây) trước các chu kỳ quét tiếp theo
+            time.sleep(180)
+        is_first_run = False
         
         config = notion_sync.load_config()
         token = config.get("NOTION_TOKEN")
