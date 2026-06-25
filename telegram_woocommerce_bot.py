@@ -3397,11 +3397,17 @@ def parse_review_action(text: str) -> dict | None:
     return None
 
 
+PRODUCT_NAME_CACHE: dict[int, str] = {}
+
 def find_product_name_by_id(product_id: int) -> str:
+    if product_id in PRODUCT_NAME_CACHE:
+        return PRODUCT_NAME_CACHE[product_id]
     try:
         product = wc_get(f"products/{product_id}", {})
         if isinstance(product, dict) and "name" in product:
-            return str(product["name"])
+            name = str(product["name"])
+            PRODUCT_NAME_CACHE[product_id] = name
+            return name
     except Exception as e:
         log(f"Loi lay ten san pham {product_id}: {e}")
     return f"Sản phẩm #{product_id}"
@@ -3624,6 +3630,7 @@ def check_reviews_loop() -> None:
                 if rev_id not in notified_reviews:
                     new_reviews_detected.append(rev)
                     
+            log(f"Phat hien {len(new_reviews_detected)} danh gia moi chua thong bao.")
             if not new_reviews_detected:
                 continue
                 
@@ -3637,6 +3644,7 @@ def check_reviews_loop() -> None:
                 
                 # Chi tiết đánh giá
                 reviewer = rev.get("reviewer") or "Ẩn danh"
+                log(f"-> Dang xu ly danh gia #{rev_id} cua {reviewer}...")
                 reviewer_email = rev.get("reviewer_email") or ""
                 rating = rev.get("rating") or 0
                 review_content = plain_text_from_html(rev.get("review") or "")
@@ -3670,6 +3678,7 @@ def check_reviews_loop() -> None:
                         is_auto = False  # Chuyển về duyệt thủ công nếu gọi API lỗi
                         
                 if not is_auto:
+                    log(f"Yeu cau kiem duyet thu cong danh gia #{rev_id}. Ly do: {moderate_reason}")
                     # Gửi thông báo duyệt thủ công kèm nút bấm
                     stars = "★" * rating + "☆" * (5 - rating)
                     msg = (
