@@ -3608,9 +3608,14 @@ def check_reviews_loop() -> None:
         is_first_run = False
         
         try:
-            # Query các đánh giá có trạng thái "hold" (chờ duyệt)
+            log("Dang quet WooCommerce de kiem tra danh gia moi...")
             reviews = wc_get("products/reviews", {"status": "hold", "per_page": 100})
-            if not isinstance(reviews, list) or not reviews:
+            if not isinstance(reviews, list):
+                log("Loi: Ket qua tra ve tu WooCommerce reviews khong phai danh sach.")
+                continue
+            
+            log(f"Tim thay {len(reviews)} danh gia cho duyet (hold) tren WooCommerce.")
+            if not reviews:
                 continue
                 
             new_reviews_detected = []
