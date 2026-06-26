@@ -215,6 +215,33 @@ def wp_upload_media(config, file_path):
         log_message(f"Error uploading image {file_path.name}: {e}")
         return None
 
+
+def wp_update_media_metadata(config, media_id, alt_text, title):
+    url = f"{config.get('WORDPRESS_SITE_URL', '').rstrip('/')}/wp-json/wp/v2/media/{media_id}"
+    token = base64.b64encode(f"{config.get('WORDPRESS_USERNAME')}:{config.get('WORDPRESS_PASSWORD')}".encode("utf-8")).decode("ascii")
+    headers = {
+        "Authorization": f"Basic {token}",
+        "Content-Type": "application/json; charset=utf-8",
+        "User-Agent": "Notion WooCommerce AutoSync"
+    }
+    body = {
+        "alt_text": alt_text,
+        "title": title
+    }
+    try:
+        data = json.dumps(body).encode("utf-8")
+        req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+        ctx = None
+        if config.get("SSL_NO_VERIFY", "").lower() in {"1", "true", "yes", "on"}:
+            ctx = urllib.request.ssl._create_unverified_context()
+        with urllib.request.urlopen(req, context=ctx, timeout=15) as resp:
+            log_message(f"Updated media metadata for ID {media_id} -> Alt: '{alt_text}'")
+            return True
+    except Exception as e:
+        log_message(f"Error updating media metadata for ID {media_id}: {e}")
+        return False
+
+
 def find_or_create_category(config, name):
     url = f"{config.get('WORDPRESS_SITE_URL', '').rstrip('/')}/wp-json/wc/v3/products/categories?search={urllib.parse.quote(name)}"
     token = base64.b64encode(f"{config.get('WOOCOMMERCE_CONSUMER_KEY')}:{config.get('WOOCOMMERCE_CONSUMER_SECRET')}".encode("ascii")).decode("ascii")
@@ -382,10 +409,13 @@ def run_notion_sync_workflow(progress_callback=None):
         if downloaded_images:
             if progress_callback:
                 progress_callback(f"📤 3️⃣ Đang upload {len(downloaded_images)} ảnh lên website (WordPress Media)...")
-            for img_path in downloaded_images:
+            for idx, img_path in enumerate(downloaded_images):
                 media_id = wp_upload_media(config, img_path)
                 if media_id:
                     uploaded_media_ids.append(media_id)
+                    # Tạo alt_text & title tối ưu SEO: ảnh đầu tiên là tên SP, các ảnh sau có thêm số index
+                    alt_text = product_title if idx == 0 else f"{product_title} {idx}"
+                    wp_update_media_metadata(config, media_id, alt_text, alt_text)
                 
         # 7. Map/Create category
         category_id = None
