@@ -900,6 +900,28 @@ def wants_notion_sync(text: str) -> bool:
     return any(keyword in normalized for keyword in keywords)
 
 
+def send_notion_sync_links_file(chat_id: int, products: list) -> None:
+    if not chat_id or not products:
+        return
+    try:
+        link_lines = [prod['url'] for prod in products if prod.get('url')]
+        if link_lines:
+            file_content = "\n".join(link_lines)
+            timestamp = time.strftime('%Y%m%d_%H%M%S')
+            filename = f"links_dong_bo_{timestamp}.txt"
+            temp_file_path = OUT_DIR / filename
+            temp_file_path.write_text(file_content, encoding="utf-8")
+            
+            # Gửi file này qua Telegram
+            send_document(chat_id, temp_file_path, caption="📄 Danh sách link sản phẩm đã đăng")
+            
+            # Xóa file sau khi gửi thành công
+            if temp_file_path.exists():
+                temp_file_path.unlink()
+    except Exception as e:
+        log(f"Loi khi tao hoac gui file links.txt: {e}")
+
+
 def trigger_notion_sync(chat_id: int = None) -> str:
     try:
         from notion_sync import run_notion_sync_workflow
@@ -925,6 +947,9 @@ def trigger_notion_sync(chat_id: int = None) -> str:
             msg = res.get("message", "Đồng bộ hoàn tất.")
             products = res.get("products", [])
             if products:
+                # Tự động gửi file txt chứa các link sản phẩm
+                send_notion_sync_links_file(chat_id, products)
+                
                 lines = [msg, ""]
                 for idx, prod in enumerate(products, start=1):
                     warning_text = f" (Cảnh báo: {prod['warning']})" if "warning" in prod else ""
@@ -985,11 +1010,49 @@ def build_ping_html() -> str:
         except Exception as exc:
             return f"WordPress: <b>Lỗi</b> - <code>{h(exc)}</code>"
 
+    def check_gemini() -> str:
+        api_key = os.environ.get("GEMINI_API_KEY")
+        if not api_key:
+            return "Gemini AI: <b>Lỗi</b> - <code>Thiếu GEMINI_API_KEY</code>"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key={api_key}"
+        body = {
+            "contents": [
+                {
+                    "parts": [
+                        {"text": "Hãy trả lời đúng từ: OK"}
+                    ]
+                }
+            ]
+        }
+        try:
+            data = json.dumps(body).encode("utf-8")
+            req = urllib.request.Request(
+                url,
+                data=data,
+                headers={"Content-Type": "application/json", "User-Agent": "Codex Telegram Bot Ping Check"},
+                method="POST"
+            )
+            ctx = None
+            if os.environ.get("SSL_NO_VERIFY", "").strip().lower() in {"1", "true", "yes", "on"}:
+                ctx = urllib.request.ssl._create_unverified_context()
+            with urllib.request.urlopen(req, timeout=PING_CHECK_TIMEOUT_SECONDS, context=ctx) as response:
+                res_data = json.loads(response.read().decode("utf-8"))
+                candidates = res_data.get("candidates") or []
+                if candidates:
+                    content_obj = candidates[0].get("content") or {}
+                    parts = content_obj.get("parts") or []
+                    if parts:
+                        return "Gemini AI: <b>OK</b>"
+                return "Gemini AI: <b>Lỗi</b> - <code>Không nhận được phản hồi từ Gemini</code>"
+        except Exception as exc:
+            return f"Gemini AI: <b>Lỗi</b> - <code>{h(exc)}</code>"
+
     checks = ["Telegram: <b>OK</b> (đã nhận được tin nhắn)"]
-    executor = ThreadPoolExecutor(max_workers=2)
+    executor = ThreadPoolExecutor(max_workers=3)
     futures = {
         executor.submit(check_woocommerce): "WooCommerce",
         executor.submit(check_wordpress): "WordPress",
+        executor.submit(check_gemini): "Gemini AI",
     }
     done, pending = wait(futures, timeout=PING_CHECK_TIMEOUT_SECONDS + 1)
     for future, name in futures.items():
@@ -999,12 +1062,23 @@ def build_ping_html() -> str:
             checks.append(f"{name}: <b>Chậm</b> - quá {PING_CHECK_TIMEOUT_SECONDS + 1} giây chưa phản hồi")
     executor.shutdown(wait=False, cancel_futures=True)
 
+    # Sắp xếp thứ tự các check cho đẹp mắt
+    sorted_checks = []
+    for prefix in ["Telegram:", "WooCommerce:", "WordPress:", "Gemini AI:"]:
+        for line in checks:
+            if line.startswith(prefix):
+                sorted_checks.append(line)
+                break
+    for line in checks:
+        if not any(line.startswith(p) for p in ["Telegram:", "WooCommerce:", "WordPress:", "Gemini AI:"]):
+            sorted_checks.append(line)
+
     return (
         "<b>Trạng thái bot</b>\n\n"
         f"• Bot: <b>đang hoạt động</b>\n"
         f"• Thời gian chạy: <b>{h(format_uptime())}</b>\n"
         f"• Thời điểm kiểm tra: <code>{h(datetime.now().strftime('%Y-%m-%d %H:%M:%S'))}</code>\n\n"
-        + "\n".join(f"• {line}" for line in checks)
+        + "\n".join(f"• {line}" for line in sorted_checks)
     )
 
 
@@ -2344,6 +2418,9 @@ def apply_pending_action(chat_id: int) -> str:
                 msg = res.get("message", "Đồng bộ hoàn tất.")
                 products = res.get("products", [])
                 if products:
+                    # Tự động gửi file txt chứa các link sản phẩm
+                    send_notion_sync_links_file(chat_id, products)
+                    
                     lines = [msg, ""]
                     for idx, prod in enumerate(products, start=1):
                         warning_text = f" (Cảnh báo: {prod['warning']})" if "warning" in prod else ""
