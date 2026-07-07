@@ -3186,13 +3186,41 @@ def handle_message(chat_id: int, text: str) -> None:
         }
         send_message(
             chat_id,
-            "| 🔥 <b>Chào mừng bạn đến với Bot Khải Hoàn Derma!</b> ❞\n\n"
-            "⚡ <b>Hệ thống hỗ trợ quản trị WooCommerce tự động:</b>\n"
-            "- Đồng bộ & Đăng sản phẩm tự động từ Notion\n"
-            "- Quản lý giá cả, tồn kho nhanh qua chat\n"
-            "- Kiểm duyệt đánh giá sản phẩm tự động bằng AI\n"
-            "- Báo cáo doanh thu, đơn hàng & SEO Google (Site Kit)\n\n"
-            "💬 <i>Bạn cứ nhắn tin tự nhiên, bot sẽ tự động đọc hiểu ý định. Hoặc bạn có thể sử dụng các phím tắt bên dưới để thao tác nhanh hơn:</i>",
+            "| 🔥 <b>Bot Khải Hoàn Derma</b> ❞\n"
+            "<i>Bạn cứ nhắn tự nhiên. Bot sẽ tự động đọc hiểu ý định và thao tác với WooCommerce.</i>\n\n"
+            "<b>1. Đơn hàng & Doanh thu</b>\n"
+            "• <code>Hôm nay có đơn hàng không?</code>\n"
+            "• <code>Doanh thu tháng này là bao nhiêu?</code>\n"
+            "• <code>Chi tiết đơn hàng hôm nay</code> (Xuất file Excel báo cáo)\n"
+            "• <code>Chi tiết đơn hàng 2365</code> (Xem chi tiết 1 đơn hàng)\n\n"
+            "<b>2. Quản lý giá & Tồn kho</b>\n"
+            "• <b>Giá thường (mặc định):</b>\n"
+            "  - <code>[Tên sản phẩm] sửa giá 350000</code>\n"
+            "  - <code>[Tên sản phẩm] sửa giá 0</code> hoặc <code>liên hệ</code> (để xóa giá, web hiện chữ Liên hệ)\n"
+            "• <b>Giá khuyến mãi:</b>\n"
+            "  - <code>[Tên sản phẩm] sửa giá khuyến mãi 300000</code> (hoặc <code>giá sale</code>)\n"
+            "• <b>Sản phẩm có phân loại (biến thể):</b>\n"
+            "  - <code>sửa phân loại Cream của [Tên sản phẩm] giá là 350000</code>\n"
+            "  - <code>sửa phân loại Cream của [Tên sản phẩm] giá khuyến mãi là 300000</code>\n"
+            "• <b>Tồn kho & Trạng thái:</b>\n"
+            "  - <code>[Tên sản phẩm] hết hàng</code> hoặc <code>còn hàng</code>\n"
+            "  - <code>sửa phân loại Gel của [Tên sản phẩm] hết hàng</code>\n\n"
+            "<b>3. Quản trị & Đăng sản phẩm tự động từ Notion</b>\n"
+            "• <b>Đăng tự động:</b> Chuẩn bị bài trên Notion -> Chuyển Trạng thái sang <b>Báo IT đăng</b>. Bot quét mỗi 3 phút, nhắn tin duyệt bài kèm nút <code>Xác nhận</code>/<code>Hủy</code>.\n"
+            "• <code>đồng bộ notion</code> (Quét Notion thủ công ngay lập tức)\n"
+            "• <code>Xóa sản phẩm [Tên sản phẩm]</code>\n"
+            "• <code>Xuất tất cả sản phẩm trên web</code> (Xuất file Excel danh mục)\n\n"
+            "<b>4. Duyệt đánh giá sản phẩm</b>\n"
+            "• <b>Duyệt tự động:</b> Bot tự động quét đánh giá mới (chờ duyệt) mỗi 3 phút và gửi nút bấm duyệt/xóa nhanh.\n"
+            "• <b>Duyệt thủ công:</b> Gõ lệnh trực tiếp: <code>duyệt đánh giá [ID]</code> hoặc <code>xóa [ID]</code> (Ví dụ: <code>duyệt đánh giá 235</code>, <code>xóa 235</code>, <code>từ chối 235</code>).\n"
+            "• <code>xóa cache đánh giá</code> (Xóa bộ nhớ đệm để bot quét và duyệt lại từ đầu các đánh giá cũ).\n\n"
+            "<b>5. Báo cáo SEO Google (Site Kit)</b>\n"
+            "• <code>Traffic 28 ngày qua</code>\n"
+            "• <code>Từ khóa Search Console 28 ngày qua</code>\n\n"
+            "<b>6. Hệ thống</b>\n"
+            "• <code>ping</code> (Kiểm tra kết nối)\n"
+            "• <code>đồng bộ sản phẩm</code> (Cập nhật danh sách từ web vào bộ nhớ bot)\n\n"
+            "<i>Lưu ý: Các thao tác cập nhật đều có nút <b>[ ✅ Xác nhận ]</b> và <b>[ ❌ Hủy ]</b> đi kèm để bạn duyệt nhanh bằng cách bấm nút. Hoặc bạn có thể bấm trực tiếp các nút chức năng nhanh bên dưới:</i>",
             reply_markup=reply_markup
         )
         return
