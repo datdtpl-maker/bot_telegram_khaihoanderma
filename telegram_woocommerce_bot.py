@@ -3721,8 +3721,8 @@ def check_reviews_loop() -> None:
     is_first_run = True
     while True:
         if not is_first_run:
-            # Ngủ 3 phút (180 giây) trước các chu kỳ quét tiếp theo
-            time.sleep(180)
+            # Ngủ 30 phút (1800 giây) trước các chu kỳ quét tiếp theo
+            time.sleep(1800)
         is_first_run = False
         
         try:
@@ -3849,8 +3849,8 @@ def check_notion_loop() -> None:
     is_first_run = True
     while True:
         if not is_first_run:
-            # Ngủ 3 phút (180 giây) trước các chu kỳ quét tiếp theo
-            time.sleep(180)
+            # Ngủ 15 phút (900 giây) trước các chu kỳ quét tiếp theo
+            time.sleep(900)
         is_first_run = False
         
         config = notion_sync.load_config()
