@@ -3172,15 +3172,22 @@ def handle_message(chat_id: int, text: str) -> None:
                     {"text": "📦 Đơn hàng hôm nay", "callback_data": "đơn hàng hôm nay"}
                 ],
                 [
-                    {"text": "📝 Báo cáo đơn hàng", "callback_data": "chi tiết đơn hàng hôm nay"},
-                    {"text": "🛍️ Xuất tất cả sản phẩm", "callback_data": "xuất tất cả sản phẩm trên web"}
+                    {"text": "📈 Google Traffic (SEO)", "callback_data": "traffic 28 ngày qua"},
+                    {"text": "🔍 Từ khóa Google Search", "callback_data": "từ khóa search console 28 ngày qua"}
                 ],
                 [
-                    {"text": "🔄 Làm mới cache sản phẩm", "callback_data": "đồng bộ sản phẩm"}
+                    {"text": "📝 Báo cáo đơn hàng Excel", "callback_data": "chi tiết đơn hàng hôm nay"},
+                    {"text": "🛍️ Xuất danh mục sản phẩm", "callback_data": "xuất tất cả sản phẩm trên web"}
                 ],
                 [
-                    {"text": "⚡ Kiểm tra bot (Ping)", "callback_data": "ping"},
+                    {"text": "💡 Hướng dẫn & Cú pháp mẫu", "callback_data": "hướng dẫn cú pháp"}
+                ],
+                [
+                    {"text": "🔄 Làm mới cache sản phẩm", "callback_data": "đồng bộ sản phẩm"},
                     {"text": "⚙️ Xóa cache đánh giá", "callback_data": "xóa cache đánh giá"}
+                ],
+                [
+                    {"text": "⚡ Kiểm tra bot (Ping)", "callback_data": "ping"}
                 ]
             ]
         }
@@ -3250,6 +3257,35 @@ def handle_message(chat_id: int, text: str) -> None:
                 except Exception:
                     pass
             html_text = "🔄 <b>Đã xóa bộ nhớ cache đánh giá thành công!</b>\nBot sẽ tự động quét lại toàn bộ các đánh giá chờ duyệt ở chu kỳ tiếp theo."
+        elif normalized in {"hướng dẫn cú pháp", "huong dan cu phap", "cú pháp mẫu", "cu phap mau"}:
+            html_text = (
+                "<b>💡 HƯỚNG DẪN CÁC CÚ PHÁP LỆNH CHỈNH SỬA NHANH</b>\n\n"
+                "Bạn hãy copy các cú pháp mẫu dưới đây và thay đổi thông tin để gửi cho bot:\n\n"
+                "<b>1. Sửa giá sản phẩm thường (Mặc định)</b>\n"
+                "• Cú pháp: <code>[Tên sản phẩm] sửa giá [Số tiền]</code>\n"
+                "• Ví dụ: <code>Tazret Gel 0.05% sửa giá 280000</code>\n"
+                "• Để xóa giá (web hiện chữ Liên hệ): <code>[Tên sản phẩm] sửa giá 0</code> hoặc <code>[Tên sản phẩm] sửa giá liên hệ</code>\n\n"
+                "<b>2. Sửa giá khuyến mãi (Giá Sale)</b>\n"
+                "• Cú pháp: <code>[Tên sản phẩm] sửa giá khuyến mãi [Số tiền]</code> (hoặc dùng từ <code>giá sale</code>)\n"
+                "• Ví dụ: <code>Rilastil Acnestil PB sửa giá khuyến mãi 350000</code>\n\n"
+                "<b>3. Sản phẩm có phân loại (Biến thể)</b>\n"
+                "• Sửa giá thường phân loại: <code>sửa phân loại [Tên phân loại] của [Tên sản phẩm] giá là [Số tiền]</code>\n"
+                "• Ví dụ: <code>sửa phân loại Cream của Tazret Forte giá là 350000</code>\n"
+                "• Sửa giá khuyến mãi phân loại: <code>sửa phân loại [Tên phân loại] của [Tên sản phẩm] giá khuyến mãi là [Số tiền]</code>\n"
+                "• Ví dụ: <code>sửa phân loại Cream của Tazret Forte giá khuyến mãi là 300000</code>\n\n"
+                "<b>4. Cập nhật Tồn kho & Trạng thái</b>\n"
+                "• Báo hết hàng: <code>[Tên sản phẩm] hết hàng</code>\n"
+                "• Báo còn hàng: <code>[Tên sản phẩm] còn hàng</code>\n"
+                "• Biến thể hết hàng: <code>sửa phân loại [Tên phân loại] của [Tên sản phẩm] hết hàng</code>\n"
+                "• Ví dụ: <code>sửa phân loại Cream của Tazret Forte hết hàng</code>\n\n"
+                "<b>5. Xóa sản phẩm trên web</b>\n"
+                "• Cú pháp: <code>xóa sản phẩm [Tên sản phẩm]</code> hoặc <code>gỡ sản phẩm [Tên sản phẩm]</code>\n"
+                "• Ví dụ: <code>xóa sản phẩm Tazret Gel 0.05%</code>\n\n"
+                "<b>6. Duyệt đánh giá thủ công</b>\n"
+                "• Duyệt nhanh: <code>duyệt đánh giá [ID]</code>\n"
+                "• Xóa nhanh: <code>xóa [ID]</code> hoặc <code>từ chối [ID]</code>\n"
+                "• Ví dụ: <code>duyệt đánh giá 2350</code>"
+            )
         elif (product_delete := parse_product_delete_request(text)):
             send_typing(chat_id)
             html_text = prepare_product_delete(chat_id, product_delete)
