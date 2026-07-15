@@ -1181,6 +1181,12 @@ def parse_product_update(text: str) -> dict | None:
     normalized = normalize_text(text)
     plain_text = plain_ascii(text).strip()
     
+    # Bỏ qua các câu hỏi về doanh thu, đơn hàng, báo cáo, traffic, gsc để tránh nhận diện nhầm thành sửa giá sản phẩm
+    order_keywords = ["đơn hàng", "don hang", "doanh thu", "báo cáo", "bao cao", "traffic", "site kit", "gsc", "search console"]
+    explicit_update_keywords = ["sửa giá", "sua gia", "đổi giá", "doi gia", "chỉnh giá", "chinh gia", "cập nhật giá", "cap nhat gia", "giá khuyến mãi", "khuyen mai", "giá sale", "gia sale", "hết hàng", "het hang", "còn hàng", "con hang", "tồn kho", "ton kho", "trạng thái", "trang thai"]
+    if any(keyword in normalized for keyword in order_keywords) and not any(kw in normalized for kw in explicit_update_keywords):
+        return None
+    
     def extract_names(t: str) -> tuple[str, str | None]:
         plain = plain_ascii(t)
         
@@ -1301,6 +1307,11 @@ def parse_product_update(text: str) -> dict | None:
 
 def parse_product_post_request(text: str) -> dict | None:
     normalized = normalize_text(text)
+    
+    # Bỏ qua các câu hỏi về doanh thu, đơn hàng, báo cáo, traffic, gsc
+    order_keywords = ["đơn hàng", "don hang", "doanh thu", "báo cáo", "bao cao", "traffic", "site kit", "gsc", "search console"]
+    if any(keyword in normalized for keyword in order_keywords):
+        return None
     post_keywords = [
         "đăng bài",
         "dang bai",
@@ -3286,18 +3297,6 @@ def handle_message(chat_id: int, text: str) -> None:
                 "• Xóa nhanh: <code>xóa [ID]</code> hoặc <code>từ chối [ID]</code>\n"
                 "• Ví dụ: <code>duyệt đánh giá 2350</code>"
             )
-        elif (product_delete := parse_product_delete_request(text)):
-            send_typing(chat_id)
-            html_text = prepare_product_delete(chat_id, product_delete)
-        elif (review_action := parse_review_action(text)):
-            send_typing(chat_id)
-            html_text = execute_review_action_text(chat_id, review_action)
-        elif (product_update := parse_product_update(text)):
-            send_typing(chat_id)
-            html_text = prepare_product_update(chat_id, product_update)
-        elif (product_post := parse_product_post_request(text)):
-            send_typing(chat_id)
-            html_text = prepare_product_post(chat_id, product_post)
         elif wants_order_details_export(text):
             send_typing(chat_id)
             caption, report_path = export_order_details_report_from_text(text)
@@ -3313,20 +3312,32 @@ def handle_message(chat_id: int, text: str) -> None:
             send_typing(chat_id)
             _, month = re.match(r"^/(report|orders|products)\s+(\d{4}-\d{2})$", text.strip()).groups()
             html_text = build_woocommerce_html(f"báo cáo {month}")
-        elif (search_query := parse_product_search_request(text)):
-            send_typing(chat_id)
-            html_text = build_product_search_response_html(search_query)
-        elif wants_product_catalog_report(text):
-            send_typing(chat_id)
-            caption, report_path = export_product_catalog_report()
-            send_document(chat_id, report_path, caption)
-            return
         elif wants_woocommerce(text):
             send_typing(chat_id)
             html_text = build_woocommerce_html(text)
         elif wants_google_report(text):
             send_typing(chat_id)
             html_text = build_google_report_html(text)
+        elif wants_product_catalog_report(text):
+            send_typing(chat_id)
+            caption, report_path = export_product_catalog_report()
+            send_document(chat_id, report_path, caption)
+            return
+        elif (product_delete := parse_product_delete_request(text)):
+            send_typing(chat_id)
+            html_text = prepare_product_delete(chat_id, product_delete)
+        elif (review_action := parse_review_action(text)):
+            send_typing(chat_id)
+            html_text = execute_review_action_text(chat_id, review_action)
+        elif (product_update := parse_product_update(text)):
+            send_typing(chat_id)
+            html_text = prepare_product_update(chat_id, product_update)
+        elif (product_post := parse_product_post_request(text)):
+            send_typing(chat_id)
+            html_text = prepare_product_post(chat_id, product_post)
+        elif (search_query := parse_product_search_request(text)):
+            send_typing(chat_id)
+            html_text = build_product_search_response_html(search_query)
         else:
             html_text = (
                 "<b>Tôi chưa hiểu yêu cầu của bạn. Bạn có thể nhắn các yêu cầu như:</b>\n\n"
