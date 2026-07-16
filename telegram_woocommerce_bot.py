@@ -1722,13 +1722,25 @@ def export_product_catalog_report() -> tuple[str, Path]:
     for product in products:
         status = product.get("stock_status") or "unknown"
         counts[status] += 1
-        price = float(product.get("price") or product.get("regular_price") or 0)
+        
+        # Giá các loại
+        price = product.get("price")
+        regular_price = product.get("regular_price")
+        sale_price = product.get("sale_price")
+        
+        # Danh mục
+        categories = ", ".join(c.get("name") for c in product.get("categories", []))
+        
         rows.append(
             {
                 "id": product.get("id"),
                 "name": product.get("name"),
-                "price": product.get("price"),
+                "regular_price": regular_price,
+                "sale_price": sale_price,
+                "price": price,
                 "stock_label": stock_label(status),
+                "categories": categories,
+                "permalink": product.get("permalink") or ""
             }
         )
 
@@ -1759,15 +1771,31 @@ def xlsx_cell(ref: str, value: object, style: int | None = None) -> str:
 
 
 def write_products_xlsx(rows: list[dict], path: Path) -> None:
-    headers = ["ID", "Tên sản phẩm", "Giá", "Tình trạng"]
-    data_rows = [[row["id"], row["name"], int(float(row["price"] or 0)), row["stock_label"]] for row in rows]
+    headers = ["ID", "Tên sản phẩm", "Danh mục", "Giá thường", "Giá khuyến mãi", "Giá hiện tại", "Tình trạng", "Link sản phẩm"]
+    data_rows = []
+    for row in rows:
+        reg_val = int(float(row["regular_price"])) if row["regular_price"] else ""
+        sale_val = int(float(row["sale_price"])) if row["sale_price"] else ""
+        curr_val = int(float(row["price"])) if row["price"] else 0
+        
+        data_rows.append([
+            row["id"], 
+            row["name"], 
+            row["categories"],
+            reg_val,
+            sale_val,
+            curr_val,
+            row["stock_label"],
+            row["permalink"]
+        ])
+        
     sheet_rows = []
     all_rows = [headers] + data_rows
     for row_idx, row in enumerate(all_rows, start=1):
         cells = []
         for col_idx, value in enumerate(row, start=1):
             ref = f"{xlsx_col_name(col_idx)}{row_idx}"
-            style = 1 if row_idx == 1 else (2 if col_idx == 3 and row_idx > 1 else None)
+            style = 1 if row_idx == 1 else (2 if col_idx in {4, 5, 6} and row_idx > 1 and isinstance(value, (int, float)) else None)
             cells.append(xlsx_cell(ref, value, style))
         sheet_rows.append(f'<row r="{row_idx}">{"".join(cells)}</row>')
 
@@ -1775,13 +1803,19 @@ def write_products_xlsx(rows: list[dict], path: Path) -> None:
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
         'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
-        '<cols><col min="1" max="1" width="12" customWidth="1"/>'
-        '<col min="2" max="2" width="78" customWidth="1"/>'
-        '<col min="3" max="3" width="16" customWidth="1"/>'
-        '<col min="4" max="4" width="18" customWidth="1"/></cols>'
+        '<cols>'
+        '<col min="1" max="1" width="12" customWidth="1"/>'
+        '<col min="2" max="2" width="50" customWidth="1"/>'
+        '<col min="3" max="3" width="25" customWidth="1"/>'
+        '<col min="4" max="4" width="16" customWidth="1"/>'
+        '<col min="5" max="5" width="16" customWidth="1"/>'
+        '<col min="6" max="6" width="16" customWidth="1"/>'
+        '<col min="7" max="7" width="15" customWidth="1"/>'
+        '<col min="8" max="8" width="50" customWidth="1"/>'
+        '</cols>'
         '<sheetData>'
         + "".join(sheet_rows)
-        + '</sheetData><autoFilter ref="A1:D1"/></worksheet>'
+        + '</sheetData><autoFilter ref="A1:H1"/></worksheet>'
     )
     workbook_xml = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
@@ -3312,17 +3346,17 @@ def handle_message(chat_id: int, text: str) -> None:
             send_typing(chat_id)
             _, month = re.match(r"^/(report|orders|products)\s+(\d{4}-\d{2})$", text.strip()).groups()
             html_text = build_woocommerce_html(f"báo cáo {month}")
+        elif wants_product_catalog_report(text):
+            send_typing(chat_id)
+            caption, report_path = export_product_catalog_report()
+            send_document(chat_id, report_path, caption)
+            return
         elif wants_woocommerce(text):
             send_typing(chat_id)
             html_text = build_woocommerce_html(text)
         elif wants_google_report(text):
             send_typing(chat_id)
             html_text = build_google_report_html(text)
-        elif wants_product_catalog_report(text):
-            send_typing(chat_id)
-            caption, report_path = export_product_catalog_report()
-            send_document(chat_id, report_path, caption)
-            return
         elif (product_delete := parse_product_delete_request(text)):
             send_typing(chat_id)
             html_text = prepare_product_delete(chat_id, product_delete)
