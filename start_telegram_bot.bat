@@ -1,11 +1,11 @@
 @echo off
 setlocal
 chcp 65001 >nul
-title Bot Khải Hoàn Derma
+title Bot Khai Hoan Derma
 cd /d "%~dp0"
 
 echo ==============================================
-echo       KHỞI ĐỘNG BOT KHẢI HOÀN DERMA
+echo       KHOI DONG BOT KHAI HOAN DERMA
 echo ==============================================
 echo.
 
@@ -14,9 +14,9 @@ set "BOT_EXIT_CODE=%ERRORLEVEL%"
 
 echo.
 if not "%BOT_EXIT_CODE%"=="0" (
-    echo Bot dừng do lỗi. Hãy kiểm tra bot.log và nội dung thông báo phía trên.
+    echo Bot dung do loi. Hay kiem tra bot.log va noi dung phia tren.
 ) else (
-    echo Bot đã dừng.
+    echo Bot da dung.
 )
 pause
 exit /b %BOT_EXIT_CODE%

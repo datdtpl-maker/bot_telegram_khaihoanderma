@@ -4087,7 +4087,8 @@ def main() -> None:
         try:
             me = telegram_api("getMe", {})
             bot = me.get("result", {})
-            log(f"Ket noi Telegram OK: @{bot.get('username')} - {bot.get('first_name')}")
+            bot_name = plain_ascii(str(bot.get('first_name') or ''))
+            log(f"Ket noi Telegram OK: @{bot.get('username')} - {bot_name}")
             break
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")
