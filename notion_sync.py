@@ -105,7 +105,12 @@ def sort_product_images(images, root_dir):
 
 def validate_image_sequence(images, root_dir):
     root = Path(root_dir)
-    indexes = []
+    if not images:
+        raise WorkflowValidationError("Không tìm thấy file ảnh PNG/JPG/WebP nào trong thư mục Google Drive.")
+    
+    numeric_stems = []
+    seen_stems = set()
+    
     for image_path in images:
         path = Path(image_path)
         try:
@@ -114,21 +119,23 @@ def validate_image_sequence(images, root_dir):
             raise WorkflowValidationError(f"Ảnh nằm ngoài thư mục sản phẩm: {path}") from exc
         if len(relative.parts) != 1:
             raise WorkflowValidationError(
-                f"Ảnh phải nằm trực tiếp trong thư mục Drive của sản phẩm: {relative.as_posix()}"
+                f"Ảnh phải nằm trực tiếp trong thư mục Drive của sản phẩm (không để trong thư mục con): {relative.as_posix()}"
             )
-        if not path.stem.isdigit():
-            raise WorkflowValidationError(
-                f"Tên ảnh phải là số 1, 2, 3...: {path.name}"
-            )
-        indexes.append(int(path.stem))
+        
+        stem = path.stem.lower()
+        if stem in seen_stems:
+            raise WorkflowValidationError("Mỗi số ảnh chỉ được dùng một lần; không để đồng thời 1.jpg và 1.png.")
+        seen_stems.add(stem)
 
-    if len(indexes) != len(set(indexes)):
-        raise WorkflowValidationError("Mỗi số ảnh chỉ được dùng một lần; không để đồng thời 1.jpg và 1.png.")
-    expected = list(range(1, len(indexes) + 1))
-    if sorted(indexes) != expected:
-        raise WorkflowValidationError(
-            f"Ảnh phải là dãy liên tiếp từ 1 đến {len(indexes)}; hiện có {sorted(indexes)}."
-        )
+        if stem.isdigit():
+            numeric_stems.append(int(stem))
+
+    if len(numeric_stems) == len(images):
+        expected = list(range(1, len(numeric_stems) + 1))
+        if sorted(numeric_stems) != expected:
+            raise WorkflowValidationError(
+                f"Ảnh dạng số phải là dãy liên tiếp từ 1 đến {len(numeric_stems)}; hiện có {sorted(numeric_stems)}."
+            )
 
 
 def _ascii_slug(value):
@@ -245,32 +252,34 @@ def _extract_catalog_metadata(plain_text):
     sale_price = 0
     matched = False
 
-    category_match = re.search(
-        r"danh mục(?:\s+sản phẩm)?\s*:\s*(.+?)(?=\s+-\s+giá|$)",
-        plain_text,
-        flags=re.IGNORECASE,
-    )
-    if category_match:
-        category = category_match.group(1).strip(" -")
-        matched = True
+    parts = [p.strip() for p in re.split(r"\s+-\s+|\n", plain_text) if p.strip()]
+    for part in parts:
+        part_lower = part.lower()
+        if "danh mục" in part_lower:
+            if ":" in part:
+                cat_val = part.split(":", 1)[1].strip(" -")
+                if cat_val:
+                    category = cat_val
+                    matched = True
+        elif "giá khuyến mãi" in part_lower or "giá km" in part_lower:
+            if ":" in part:
+                val = _parse_money_value(part.split(":", 1)[1])
+                if val > 0:
+                    sale_price = val
+                    matched = True
+        elif "giá" in part_lower:
+            if ":" in part:
+                val = _parse_money_value(part.split(":", 1)[1])
+                if val > 0:
+                    regular_price = val
+                    matched = True
 
-    sale_match = re.search(
-        r"giá\s*(?:khuyến mãi|km)\s*:\s*(.+?)(?=\s+-\s+|$)",
-        plain_text,
-        flags=re.IGNORECASE,
-    )
-    if sale_match:
-        sale_price = _parse_money_value(sale_match.group(1))
-        matched = True
-
-    price_match = re.search(
-        r"giá(?!\s*(?:khuyến mãi|km))(?:\s+(?:bán|thường|niêm yết))?\s*:\s*(.+?)(?=\s+-\s+|$)",
-        plain_text,
-        flags=re.IGNORECASE,
-    )
-    if price_match:
-        regular_price = _parse_money_value(price_match.group(1))
-        matched = True
+    if not category:
+        cat_m = re.search(r"danh mục(?:\s+sản phẩm)?\s*:\s*([^-\n\r]+)", plain_text, flags=re.IGNORECASE)
+        if cat_m:
+            category = cat_m.group(1).strip(" -")
+            if category:
+                matched = True
 
     return category, regular_price, sale_price, matched
 
@@ -1040,9 +1049,13 @@ def _run_notion_sync_workflow(progress_callback=None, page_ids=None):
         msg = f"Đồng bộ thành công! Đã đăng <b>{len(processed_products)}</b> sản phẩm mới từ Notion lên WooCommerce."
         return {"status": "success", "message": msg, "count": len(processed_products), "products": processed_products}
     if failed_products:
+        err_details = "\n".join(
+            f"• <b>{h(item.get('title') or 'Sản phẩm')}</b>:\n  ↳ {h(item.get('error') or 'Lỗi chưa xác định')}"
+            for item in failed_products
+        )
         return {
             "status": "error",
-            "message": f"Không đăng sản phẩm vì có {len(failed_products)} lỗi validation/API. Xem chi tiết trong bot.log.",
+            "message": f"Không thể đăng sản phẩm do các lỗi sau:\n{err_details}",
             "count": 0,
             "errors": failed_products,
         }
