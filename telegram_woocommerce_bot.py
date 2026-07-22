@@ -922,7 +922,51 @@ def send_notion_sync_links_file(chat_id: int, products: list) -> None:
         log(f"Loi khi tao hoac gui file links.txt: {e}")
 
 
-def trigger_notion_sync(chat_id: int = None) -> str:
+def prepare_notion_sync_confirmation(chat_id: int, page_ids: list[str] | None = None, titles: list[str] | None = None) -> str:
+    selected_page_ids = [str(page_id) for page_id in (page_ids or []) if page_id]
+    PENDING_ACTIONS[chat_id] = {
+        "type": "notion_sync",
+        "page_ids": selected_page_ids,
+    }
+    if titles:
+        product_lines = "\n".join(f"• {h(title)}" for title in titles)
+        scope_text = f"\n\n<b>Sản phẩm chờ đăng:</b>\n{product_lines}"
+    else:
+        scope_text = "\n\nBot sẽ quét tất cả sản phẩm đang có trạng thái <b>Báo IT đăng</b>."
+    return (
+        "<b>Cần xác nhận trước khi đồng bộ Notion lên WooCommerce</b>"
+        f"{scope_text}\n\n"
+        "Bot chỉ publish khi tên, nội dung, giá, danh mục và toàn bộ ảnh đều hợp lệ. "
+        "Nhắn <b>xác nhận</b> để bắt đầu, hoặc <b>hủy</b> để bỏ qua."
+    )
+
+
+def prepare_manual_notion_sync_confirmation(chat_id: int) -> str:
+    import notion_sync
+
+    config = notion_sync.load_config()
+    token = config.get("NOTION_TOKEN")
+    database_id = config.get("NOTION_DATABASE_ID")
+    if not token or not database_id:
+        return "<b>Lỗi:</b> Thiếu NOTION_TOKEN hoặc NOTION_DATABASE_ID trong telegram_bot.env."
+    pages = notion_sync.query_notion_pages_to_post(token, database_id)
+    if not pages:
+        PENDING_ACTIONS.pop(chat_id, None)
+        return "Không có sản phẩm nào đang ở trạng thái <b>Báo IT đăng</b>."
+
+    page_ids = []
+    titles = []
+    for page in pages:
+        page_id = page.get("id")
+        title_items = page.get("properties", {}).get("Tên sản phẩm", {}).get("title", [])
+        title = "".join(item.get("plain_text", "") for item in title_items).strip() or "Sản phẩm không tên"
+        if page_id:
+            page_ids.append(str(page_id))
+            titles.append(title)
+    return prepare_notion_sync_confirmation(chat_id, page_ids=page_ids, titles=titles)
+
+
+def trigger_notion_sync(chat_id: int = None, page_ids: list[str] | None = None) -> str:
     try:
         from notion_sync import run_notion_sync_workflow
         
@@ -932,9 +976,9 @@ def trigger_notion_sync(chat_id: int = None) -> str:
             tracker, callback = make_notion_sync_callback(chat_id)
             progress_callback = callback
             
-        res = run_notion_sync_workflow(progress_callback=progress_callback)
+        res = run_notion_sync_workflow(progress_callback=progress_callback, page_ids=page_ids)
         if tracker:
-            if res.get("status") == "success":
+            if res.get("status") in {"success", "warning"}:
                 tracker.update_step(4, 2, details="Đồng bộ hoàn tất!")
             else:
                 for idx in range(len(tracker.steps)):
@@ -943,19 +987,23 @@ def trigger_notion_sync(chat_id: int = None) -> str:
                 tracker.details = f"Lỗi: {res.get('message', 'Không rõ nguyên nhân')}"
                 tracker.send_or_edit()
                 
-        if res.get("status") == "success":
+        if res.get("status") in {"success", "warning"}:
             msg = res.get("message", "Đồng bộ hoàn tất.")
             products = res.get("products", [])
+            lines = [msg]
             if products:
                 # Tự động gửi file txt chứa các link sản phẩm
                 send_notion_sync_links_file(chat_id, products)
-                
-                lines = [msg, ""]
+                lines.append("")
                 for idx, prod in enumerate(products, start=1):
                     warning_text = f" (Cảnh báo: {prod['warning']})" if "warning" in prod else ""
                     lines.append(f"{idx}. <b>{h(prod['title'])}</b>\n• Link: <a href=\"{h(prod['url'])}\">Xem trên web</a>{warning_text}")
-                return "\n".join(lines)
-            return msg
+            errors = res.get("errors", [])
+            if errors:
+                lines.extend(["", "<b>Sản phẩm cần kiểm tra:</b>"])
+                for item in errors:
+                    lines.append(f"• <b>{h(item.get('title') or 'Không rõ')}</b>: {h(item.get('error') or 'Lỗi không xác định')}")
+            return "\n".join(lines)
         else:
             return f"<b>Lỗi đồng bộ Notion:</b>\n{h(res.get('message'))}"
     except Exception as exc:
@@ -2448,9 +2496,12 @@ def apply_pending_action(chat_id: int) -> str:
         try:
             tracker, callback = make_notion_sync_callback(chat_id)
             from notion_sync import run_notion_sync_workflow
-            res = run_notion_sync_workflow(progress_callback=callback)
+            res = run_notion_sync_workflow(
+                progress_callback=callback,
+                page_ids=action.get("page_ids") or None,
+            )
             if tracker:
-                if res.get("status") == "success":
+                if res.get("status") in {"success", "warning"}:
                     tracker.update_step(4, 2, details="Đồng bộ hoàn tất!")
                 else:
                     for idx in range(len(tracker.steps)):
@@ -2459,19 +2510,23 @@ def apply_pending_action(chat_id: int) -> str:
                     tracker.details = f"Lỗi: {res.get('message', 'Không rõ nguyên nhân')}"
                     tracker.send_or_edit()
                     
-            if res.get("status") == "success":
+            if res.get("status") in {"success", "warning"}:
                 msg = res.get("message", "Đồng bộ hoàn tất.")
                 products = res.get("products", [])
+                lines = [msg]
                 if products:
                     # Tự động gửi file txt chứa các link sản phẩm
                     send_notion_sync_links_file(chat_id, products)
-                    
-                    lines = [msg, ""]
+                    lines.append("")
                     for idx, prod in enumerate(products, start=1):
                         warning_text = f" (Cảnh báo: {prod['warning']})" if "warning" in prod else ""
                         lines.append(f"{idx}. <b>{h(prod['title'])}</b>\n• Link: <a href=\"{h(prod['url'])}\">Xem trên web</a>{warning_text}")
-                    return "\n".join(lines)
-                return msg
+                errors = res.get("errors", [])
+                if errors:
+                    lines.extend(["", "<b>Sản phẩm cần kiểm tra:</b>"])
+                    for item in errors:
+                        lines.append(f"• <b>{h(item.get('title') or 'Không rõ')}</b>: {h(item.get('error') or 'Lỗi không xác định')}")
+                return "\n".join(lines)
             else:
                 return f"<b>Lỗi đồng bộ Notion:</b>\n{h(res.get('message'))}"
         except Exception as exc:
@@ -3210,7 +3265,7 @@ def handle_message(chat_id: int, text: str) -> None:
         reply_markup = {
             "inline_keyboard": [
                 [
-                    {"text": "🔄 Đồng bộ Notion nhanh", "callback_data": "đồng bộ notion"}
+                    {"text": "🔄 Kiểm tra bài chờ đăng", "callback_data": "đồng bộ notion"}
                 ],
                 [
                     {"text": "📊 Doanh thu tháng này", "callback_data": "doanh thu tháng này"},
@@ -3258,12 +3313,12 @@ def handle_message(chat_id: int, text: str) -> None:
             "  - <code>[Tên sản phẩm] hết hàng</code> hoặc <code>còn hàng</code>\n"
             "  - <code>sửa phân loại Gel của [Tên sản phẩm] hết hàng</code>\n\n"
             "<b>3. Quản trị & Đăng sản phẩm tự động từ Notion</b>\n"
-            "• <b>Đăng tự động:</b> Chuẩn bị bài trên Notion -> Chuyển Trạng thái sang <b>Báo IT đăng</b>. Bot quét mỗi 3 phút, nhắn tin duyệt bài kèm nút <code>Xác nhận</code>/<code>Hủy</code>.\n"
-            "• <code>đồng bộ notion</code> (Quét Notion thủ công ngay lập tức)\n"
+            "• <b>Đăng có kiểm soát:</b> Chuẩn bị bài trên Notion -> chuyển Trạng thái sang <b>Báo IT đăng</b>. Bot kiểm tra mỗi 15 phút và yêu cầu <code>Xác nhận</code>/<code>Hủy</code> trước khi đăng.\n"
+            "• <code>đồng bộ notion</code> (Tạo yêu cầu xác nhận để quét thủ công ngay)\n"
             "• <code>Xóa sản phẩm [Tên sản phẩm]</code>\n"
             "• <code>Xuất tất cả sản phẩm trên web</code> (Xuất file Excel danh mục)\n\n"
             "<b>4. Duyệt đánh giá sản phẩm</b>\n"
-            "• <b>Duyệt tự động:</b> Bot tự động quét đánh giá mới (chờ duyệt) mỗi 3 phút và gửi nút bấm duyệt/xóa nhanh.\n"
+            "• <b>Duyệt tự động:</b> Bot quét đánh giá mới đang chờ mỗi 30 phút và gửi nút bấm duyệt/xóa nhanh.\n"
             "• <b>Duyệt thủ công:</b> Gõ lệnh trực tiếp: <code>duyệt đánh giá [ID]</code> hoặc <code>xóa [ID]</code> (Ví dụ: <code>duyệt đánh giá 235</code>, <code>xóa 235</code>, <code>từ chối 235</code>).\n"
             "• <code>xóa cache đánh giá</code> (Xóa bộ nhớ đệm để bot quét và duyệt lại từ đầu các đánh giá cũ).\n\n"
             "<b>5. Báo cáo SEO Google (Site Kit)</b>\n"
@@ -3284,9 +3339,8 @@ def handle_message(chat_id: int, text: str) -> None:
             send_typing(chat_id)
             html_text = trigger_cache_refresh()
         elif wants_notion_sync(text):
-            send_message(chat_id, "<b>Đang quét và đồng bộ sản phẩm từ Notion...</b>\n<i>Quá trình tải hình ảnh từ Google Drive và đăng sản phẩm có thể mất vài phút. Bot sẽ gửi thông báo ngay khi hoàn tất.</i>")
             send_typing(chat_id)
-            html_text = trigger_notion_sync(chat_id)
+            html_text = prepare_manual_notion_sync_confirmation(chat_id)
         elif normalized in {"xác nhận", "xac nhan", "ok", "đồng ý", "dong y"}:
             html_text = apply_pending_action(chat_id)
         elif normalized in {"hủy", "huy", "cancel", "không", "khong"} and chat_id in PENDING_ACTIONS:
@@ -3960,29 +4014,23 @@ def check_notion_loop() -> None:
             if not new_pages_detected:
                 continue
                 
-            # Gửi thông báo cho từng sản phẩm mới phát hiện
+            # Gửi một yêu cầu xác nhận theo lô để tránh ghi đè PENDING_ACTIONS
+            # khi nhiều sản phẩm được phát hiện trong cùng một chu kỳ.
             allowed_str = os.environ.get("TELEGRAM_ALLOWED_CHAT_IDS", "")
             allowed_ids = [int(x.strip()) for x in allowed_str.split(",") if x.strip().replace("-", "").isdigit()]
-            
-            for page_id, product_title in new_pages_detected:
-                # Lưu vào danh sách đã thông báo
-                notified_pages.add(page_id)
-                
-                # Gửi thông báo đến toàn bộ chat được phép
-                msg = (
-                    f"🔔 <b>Phát hiện sản phẩm mới từ Notion cần đăng:</b>\n"
-                    f"👉 <b>{h(product_title)}</b>\n\n"
-                    f"Nhắn <b>xác nhận</b> để tự động đăng sản phẩm lên WooCommerce, hoặc nhắn <b>hủy</b>."
-                )
-                for cid in allowed_ids:
-                    try:
-                        send_message(cid, msg)
-                        # Đặt hành động chờ xác nhận
-                        PENDING_ACTIONS[cid] = {
-                            "type": "notion_sync"
-                        }
-                    except Exception as e:
-                        log(f"Loi gui thong bao Notion toi {cid}: {e}")
+            page_ids = [page_id for page_id, _ in new_pages_detected]
+            product_titles = [product_title for _, product_title in new_pages_detected]
+            sent_any = False
+            for cid in allowed_ids:
+                try:
+                    msg = prepare_notion_sync_confirmation(cid, page_ids=page_ids, titles=product_titles)
+                    send_message(cid, "🔔 " + msg)
+                    sent_any = True
+                except Exception as e:
+                    log(f"Loi gui thong bao Notion toi {cid}: {e}")
+
+            if sent_any:
+                notified_pages.update(page_ids)
                         
             # Lưu lại danh sách đã thông báo xuống file
             try:
@@ -4005,16 +4053,16 @@ def main() -> None:
     # Kiem tra tranh chay nhieu phien ban bot cung mot luc
     ensure_single_instance()
 
-    # Khởi động luồng quét Notion tự động (chu kỳ 3 phút)
+    # Khởi động luồng kiểm tra Notion (chu kỳ 15 phút)
     import threading
     t = threading.Thread(target=check_notion_loop, daemon=True)
     t.start()
-    log("Da khoi dong luong quet Notion tu dong (chu ky 3 phut).")
+    log("Da khoi dong luong kiem tra Notion (chu ky 15 phut, can xac nhan truoc khi dang).")
 
-    # Khởi động luồng quét đánh giá WooCommerce tự động (chu kỳ 3 phút)
+    # Khởi động luồng quét đánh giá WooCommerce (chu kỳ 30 phút)
     t_rev = threading.Thread(target=check_reviews_loop, daemon=True)
     t_rev.start()
-    log("Da khoi dong luong quet danh gia tu dong (chu ky 3 phut).")
+    log("Da khoi dong luong quet danh gia tu dong (chu ky 30 phut).")
 
     if "TELEGRAM_BOT_TOKEN" not in os.environ:
         raise RuntimeError("Thieu TELEGRAM_BOT_TOKEN.")

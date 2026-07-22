@@ -20,3 +20,4 @@ telegram_uploads/
 woocommerce_report_*.md
 bot_start_stdout.log
 bot_start_stderr.log
+.notion_sync.lock

@@ -1,41 +1,116 @@
+[CmdletBinding()]
+param(
+    [switch]$ValidateOnly
+)
+
 $OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+[Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false)
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 $env:PYTHONUTF8 = "1"
 $env:PYTHONIOENCODING = "utf-8"
-
 $ErrorActionPreference = "Stop"
 
-$envFile = Join-Path $PSScriptRoot "telegram_bot.env"
-if (-not (Test-Path -LiteralPath $envFile)) {
-    throw "Khong tim thay file cau hinh: $envFile"
+Set-Location -LiteralPath $PSScriptRoot
+
+$requiredFiles = @(
+    "telegram_woocommerce_bot.py",
+    "notion_sync.py",
+    "telegram_bot.env",
+    "requirements.txt"
+)
+foreach ($name in $requiredFiles) {
+    $path = Join-Path $PSScriptRoot $name
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+        throw "Thiếu file bắt buộc: $path"
+    }
 }
 
-Get-Content -LiteralPath $envFile | ForEach-Object {
+$pythonCommand = Get-Command python -ErrorAction SilentlyContinue
+if (-not $pythonCommand) {
+    throw "Chưa tìm thấy Python. Hãy cài Python 3.10 trở lên và chọn Add Python to PATH."
+}
+
+$pythonVersion = & $pythonCommand.Source -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"
+$versionParts = $pythonVersion.Trim().Split(".")
+if ([int]$versionParts[0] -lt 3 -or ([int]$versionParts[0] -eq 3 -and [int]$versionParts[1] -lt 10)) {
+    throw "Bot yêu cầu Python 3.10 trở lên. Phiên bản hiện tại: $pythonVersion"
+}
+
+$envFile = Join-Path $PSScriptRoot "telegram_bot.env"
+Get-Content -Encoding UTF8 -LiteralPath $envFile | ForEach-Object {
     $line = $_.Trim()
     if (-not $line -or $line.StartsWith("#")) {
         return
     }
     $parts = $line.Split("=", 2)
     if ($parts.Count -eq 2) {
-        [Environment]::SetEnvironmentVariable($parts[0].Trim(), $parts[1].Trim(), "Process")
+        $key = $parts[0].Trim()
+        $value = $parts[1].Trim().Trim('"').Trim("'")
+        [Environment]::SetEnvironmentVariable($key, $value, "Process")
     }
 }
 
-Write-Host "Dang khoi dong Telegram WooCommerce Bot..."
-Write-Host "Thu muc: $PSScriptRoot"
-Write-Host "Kiem tra Python:"
-python --version
+$requiredVariables = @(
+    "TELEGRAM_BOT_TOKEN",
+    "TELEGRAM_ALLOWED_CHAT_IDS",
+    "WORDPRESS_SITE_URL",
+    "WORDPRESS_USERNAME",
+    "WORDPRESS_PASSWORD",
+    "WOOCOMMERCE_CONSUMER_KEY",
+    "WOOCOMMERCE_CONSUMER_SECRET",
+    "NOTION_TOKEN",
+    "NOTION_DATABASE_ID"
+)
+$missingVariables = @($requiredVariables | Where-Object { -not [Environment]::GetEnvironmentVariable($_, "Process") })
+if ($missingVariables.Count -gt 0) {
+    throw "Thiếu biến cấu hình trong telegram_bot.env: $($missingVariables -join ', ')"
+}
+
+& $pythonCommand.Source -c "import gdown; import requests; import google.auth; import google_auth_oauthlib"
+if ($LASTEXITCODE -ne 0) {
+    throw "Thiếu thư viện Python. Chạy: python -m pip install -r requirements.txt"
+}
+
+if ($ValidateOnly) {
+    Write-Host "STARTUP_VALIDATION=PASS"
+    Write-Host "Python: $pythonVersion"
+    Write-Host "Các file, biến cấu hình và thư viện bắt buộc đều hợp lệ."
+    exit 0
+}
+
+Write-Host "Khởi động Bot Khải Hoàn Derma"
+Write-Host "Thư mục: $PSScriptRoot"
+Write-Host "Python: $pythonVersion"
+Write-Host "Nhấn Ctrl+C để dừng bot an toàn."
 Write-Host ""
 
+$consecutiveFastCrashes = 0
 while ($true) {
-    python (Join-Path $PSScriptRoot "telegram_woocommerce_bot.py")
+    $startedAt = Get-Date
+    & $pythonCommand.Source (Join-Path $PSScriptRoot "telegram_woocommerce_bot.py")
     $exitCode = $LASTEXITCODE
-    if ($exitCode -eq 99) {
-        $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-        Write-Host "[$timestamp] Phat hien mot bot khac dang chay (Port 52365 da bi chiem). Dung tu dong khoi dong lai."
+    $runSeconds = ((Get-Date) - $startedAt).TotalSeconds
+
+    if ($exitCode -eq 0) {
+        Write-Host "Bot đã dừng bình thường."
         break
     }
+    if ($exitCode -eq 99) {
+        Write-Host "Đã có một bản bot khác đang chạy. Script sẽ không khởi động trùng."
+        break
+    }
+
+    if ($runSeconds -lt 20) {
+        $consecutiveFastCrashes++
+    } else {
+        $consecutiveFastCrashes = 0
+    }
+    if ($consecutiveFastCrashes -ge 5) {
+        throw "Bot lỗi liên tiếp 5 lần. Đã dừng để tránh vòng lặp; kiểm tra bot.log."
+    }
+
+    $delaySeconds = [Math]::Min(60, 10 + ($consecutiveFastCrashes * 10))
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    Write-Host "[$timestamp] Bot vua dung voi exit code $exitCode. Tu khoi dong lai sau 30 giay..."
-    Start-Sleep -Seconds 30
+    Write-Host "[$timestamp] Bot dừng với exit code $exitCode. Khởi động lại sau $delaySeconds giây..."
+    Start-Sleep -Seconds $delaySeconds
 }
