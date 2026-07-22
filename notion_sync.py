@@ -562,6 +562,50 @@ def _woocommerce_api_request(config, method, path, body=None, timeout=30):
         return json.loads(response.read().decode("utf-8"))
 
 
+def find_woocommerce_product_by_page_id(config, page_id):
+    clean_page_id = str(page_id or "").replace("-", "").strip()
+    if not clean_page_id:
+        return None
+    page = 1
+    while True:
+        products = _woocommerce_api_request(
+            config,
+            "GET",
+            f"products?status=any&per_page=100&page={page}&orderby=date&order=desc",
+            timeout=20,
+        )
+        if not isinstance(products, list) or not products:
+            break
+        for product in products:
+            meta = _product_meta_map(product)
+            pid = str(meta.get("_khd_notion_page_id") or "").replace("-", "").strip()
+            if pid and pid == clean_page_id:
+                return product
+            sku = str(product.get("sku") or "").strip()
+            if sku and clean_page_id in sku.replace("-", ""):
+                return product
+        if len(products) < 100:
+            break
+        page += 1
+    return None
+
+
+def find_woocommerce_product_by_page_id_with_retry(config, page_id, attempts=3, delay_seconds=1):
+    last_error = None
+    for attempt in range(max(1, int(attempts))):
+        try:
+            product = find_woocommerce_product_by_page_id(config, page_id)
+            if product:
+                return product
+        except Exception as exc:
+            last_error = exc
+        if attempt + 1 < attempts:
+            time.sleep(delay_seconds)
+    if last_error:
+        raise last_error
+    return None
+
+
 def find_woocommerce_product_by_sku(config, sku):
     encoded_sku = urllib.parse.quote(str(sku), safe="")
     products = _woocommerce_api_request(
@@ -775,8 +819,7 @@ def _run_notion_sync_workflow(progress_callback=None, page_ids=None):
             seo_keywords = ""
         
         try:
-            notion_sku = build_notion_sku(page_id)
-            existing_product = find_woocommerce_product_by_sku(config, notion_sku)
+            existing_product = find_woocommerce_product_by_page_id(config, page_id)
             if existing_product:
                 validate_existing_product_for_recovery(existing_product)
                 existing_meta = _product_meta_map(existing_product)
@@ -794,7 +837,7 @@ def _run_notion_sync_workflow(progress_callback=None, page_ids=None):
                     validate_existing_product_for_recovery(existing_product)
                 elif str(existing_meta.get("_khd_sync_verified")) != "1":
                     raise WorkflowValidationError(
-                        f"Sản phẩm SKU {notion_sku} đã publish nhưng chưa có dấu xác minh an toàn."
+                        f"Sản phẩm Notion page {page_id} đã publish nhưng chưa có dấu xác minh an toàn."
                     )
                 product_url = existing_product.get("permalink", "")
                 update_notion_status(token, page_id, product_url)
@@ -839,7 +882,7 @@ def _run_notion_sync_workflow(progress_callback=None, page_ids=None):
             continue
             
         product_description, category_name, price_val, sale_price_val = parse_notion_blocks(blocks)
-        temp_dir = Path(tempfile.mkdtemp(prefix=f"{notion_sku}-", dir=temp_root))
+        temp_dir = Path(tempfile.mkdtemp(prefix=f"notion-{page_id}-", dir=temp_root))
         uploaded_media_ids = []
         created_product = None
         owns_created_product = False
@@ -887,7 +930,6 @@ def _run_notion_sync_workflow(progress_callback=None, page_ids=None):
             images_payload = [{"id": media_id} for media_id in uploaded_media_ids]
             product_payload = {
                 "name": product_title,
-                "sku": notion_sku,
                 "type": "simple",
                 "description": product_description,
                 "regular_price": str(price_val),
@@ -919,7 +961,7 @@ def _run_notion_sync_workflow(progress_callback=None, page_ids=None):
                 # POST có thể đã thành công trên server nhưng client bị timeout trước
                 # khi nhận response. Chỉ nhận lại bản nháp có đúng mã lượt đồng bộ;
                 # tuyệt đối không chiếm hoặc xóa sản phẩm do máy khác vừa tạo.
-                recovered_draft = find_woocommerce_product_by_sku_with_retry(config, notion_sku)
+                recovered_draft = find_woocommerce_product_by_page_id_with_retry(config, page_id)
                 if recovered_draft:
                     validate_sync_attempt_ownership(recovered_draft, page_id, sync_attempt_id)
                     created_product = recovered_draft
@@ -940,7 +982,7 @@ def _run_notion_sync_workflow(progress_callback=None, page_ids=None):
                 )
             except Exception:
                 # Tương tự, PUT publish có thể hoàn tất trên server dù client timeout.
-                recovered_product = find_woocommerce_product_by_sku_with_retry(config, notion_sku)
+                recovered_product = find_woocommerce_product_by_page_id_with_retry(config, page_id)
                 if (
                     recovered_product
                     and recovered_product.get("id") == created_product.get("id")
