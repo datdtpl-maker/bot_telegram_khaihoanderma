@@ -27,13 +27,13 @@ foreach ($name in $requiredFiles) {
 
 $pythonCommand = Get-Command python -ErrorAction SilentlyContinue
 if (-not $pythonCommand) {
-    throw "Chưa tìm thấy Python. Hãy cài Python 3.10 trở lên và chọn Add Python to PATH."
+    throw "Chua tim thay Python. Hay cai Python 3.10 tro len va chon Add Python to PATH."
 }
 
 $pythonVersion = & $pythonCommand.Source -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"
 $versionParts = $pythonVersion.Trim().Split(".")
 if ([int]$versionParts[0] -lt 3 -or ([int]$versionParts[0] -eq 3 -and [int]$versionParts[1] -lt 10)) {
-    throw "Bot yêu cầu Python 3.10 trở lên. Phiên bản hiện tại: $pythonVersion"
+    throw "Bot yeu cau Python 3.10 tro len. Phien ban hien tai: $pythonVersion"
 }
 
 $envFile = Join-Path $PSScriptRoot "telegram_bot.env"
@@ -63,25 +63,25 @@ $requiredVariables = @(
 )
 $missingVariables = @($requiredVariables | Where-Object { -not [Environment]::GetEnvironmentVariable($_, "Process") })
 if ($missingVariables.Count -gt 0) {
-    throw "Thiếu biến cấu hình trong telegram_bot.env: $($missingVariables -join ', ')"
+    throw "Thieu bien cau hinh trong telegram_bot.env: $($missingVariables -join ', ')"
 }
 
 & $pythonCommand.Source -c "import gdown; import requests; import google.auth; import google_auth_oauthlib"
 if ($LASTEXITCODE -ne 0) {
-    throw "Thiếu thư viện Python. Chạy: python -m pip install -r requirements.txt"
+    throw "Thieu thu vien Python. Chay: python -m pip install -r requirements.txt"
 }
 
 if ($ValidateOnly) {
     Write-Host "STARTUP_VALIDATION=PASS"
     Write-Host "Python: $pythonVersion"
-    Write-Host "Các file, biến cấu hình và thư viện bắt buộc đều hợp lệ."
+    Write-Host "Cac file, bien cau hinh va thu vien bat buộc deu hop le."
     exit 0
 }
 
-Write-Host "Khởi động Bot Khải Hoàn Derma"
-Write-Host "Thư mục: $PSScriptRoot"
+Write-Host "Khoi dong Bot Khai Hoan Derma"
+Write-Host "Thu muc: $PSScriptRoot"
 Write-Host "Python: $pythonVersion"
-Write-Host "Nhấn Ctrl+C để dừng bot an toàn."
+Write-Host "Nhan Ctrl+C de dung bot an toan."
 Write-Host ""
 
 $consecutiveFastCrashes = 0
@@ -92,11 +92,11 @@ while ($true) {
     $runSeconds = ((Get-Date) - $startedAt).TotalSeconds
 
     if ($exitCode -eq 0) {
-        Write-Host "Bot đã dừng bình thường."
+        Write-Host "Bot da dung binh thuong."
         break
     }
     if ($exitCode -eq 99) {
-        Write-Host "Đã có một bản bot khác đang chạy. Script sẽ không khởi động trùng."
+        Write-Host "Da co mot ban bot khac dang chay. Script se khong khoi dong trung."
         break
     }
 
@@ -106,11 +106,11 @@ while ($true) {
         $consecutiveFastCrashes = 0
     }
     if ($consecutiveFastCrashes -ge 5) {
-        throw "Bot lỗi liên tiếp 5 lần. Đã dừng để tránh vòng lặp; kiểm tra bot.log."
+        throw "Bot loi lien tiep 5 lan. Da dung de tranh vong lap; kiem tra bot.log."
     }
 
     $delaySeconds = [Math]::Min(60, 10 + ($consecutiveFastCrashes * 10))
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    Write-Host "[$timestamp] Bot dừng với exit code $exitCode. Khởi động lại sau $delaySeconds giây..."
+    Write-Host "[$timestamp] Bot dung voi exit code $exitCode. Khoi dong lai sau $delaySeconds giay..."
     Start-Sleep -Seconds $delaySeconds
 }
