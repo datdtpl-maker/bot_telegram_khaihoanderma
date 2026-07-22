@@ -408,13 +408,21 @@ def get_page_blocks(token, page_id):
             return results
         cursor = data["next_cursor"]
 
+def _clean_drive_folder_url(url):
+    match = re.search(r"folders/([a-zA-Z0-9_-]+)", str(url or ""))
+    if match:
+        return f"https://drive.google.com/drive/folders/{match.group(1)}"
+    return str(url or "").strip()
+
+
 def download_drive_folder(folder_url, temp_dir):
     import gdown
     os.makedirs(temp_dir, exist_ok=True)
-    log_message(f"Downloading Google Drive: {folder_url}")
+    clean_url = _clean_drive_folder_url(folder_url)
+    log_message(f"Downloading Google Drive: {clean_url}")
     try:
         downloaded_files = gdown.download_folder(
-            url=folder_url,
+            url=clean_url,
             output=str(temp_dir),
             quiet=True,
             use_cookies=False,
@@ -430,11 +438,14 @@ def download_drive_folder(folder_url, temp_dir):
                 p = Path(root) / file
                 if p.suffix.lower() in image_extensions:
                     downloaded_images.append(p)
-        # Sắp xếp danh sách ảnh theo tên tăng dần để ảnh số 1 làm ảnh sản phẩm đại diện, các ảnh tiếp theo làm album
+        if not downloaded_images:
+            raise WorkflowValidationError("Thư mục Google Drive đã tải về nhưng không có file ảnh PNG/JPG/WebP nào.")
         return sort_product_images(downloaded_images, temp_dir)
     except Exception as e:
         log_message(f"Error downloading from Drive: {e}")
-        return []
+        if isinstance(e, WorkflowValidationError):
+            raise
+        raise WorkflowValidationError(f"Lỗi tải thư mục Google Drive: {e}") from e
 
 def wp_upload_media(config, file_path):
     url = f"{config.get('WORDPRESS_SITE_URL', '').rstrip('/')}/wp-json/wp/v2/media"
@@ -1050,7 +1061,7 @@ def _run_notion_sync_workflow(progress_callback=None, page_ids=None):
         return {"status": "success", "message": msg, "count": len(processed_products), "products": processed_products}
     if failed_products:
         err_details = "\n".join(
-            f"• <b>{h(item.get('title') or 'Sản phẩm')}</b>:\n  ↳ {h(item.get('error') or 'Lỗi chưa xác định')}"
+            f"• <b>{html.escape(item.get('title') or 'Sản phẩm')}</b>:\n  ↳ {html.escape(item.get('error') or 'Lỗi chưa xác định')}"
             for item in failed_products
         )
         return {
