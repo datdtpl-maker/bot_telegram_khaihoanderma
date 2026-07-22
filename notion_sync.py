@@ -420,32 +420,79 @@ def download_drive_folder(folder_url, temp_dir):
     os.makedirs(temp_dir, exist_ok=True)
     clean_url = _clean_drive_folder_url(folder_url)
     log_message(f"Downloading Google Drive: {clean_url}")
+
+    image_extensions = {".png", ".jpg", ".jpeg", ".webp"}
+    downloaded_images = []
+
+    # Lan 1: Tải voi clean_url & use_cookies=False, remaining_ok=True
     try:
-        downloaded_files = gdown.download_folder(
+        gdown.download_folder(
             url=clean_url,
             output=str(temp_dir),
             quiet=True,
             use_cookies=False,
+            remaining_ok=True,
         )
-        if not downloaded_files:
-            raise WorkflowValidationError(
-                "Google Drive không trả về file nào; kiểm tra link và quyền 'Bất kỳ ai có đường liên kết'."
-            )
-        image_extensions = {".png", ".jpg", ".jpeg", ".webp"}
-        downloaded_images = []
-        for root, _, files in os.walk(temp_dir):
-            for file in files:
-                p = Path(root) / file
-                if p.suffix.lower() in image_extensions:
-                    downloaded_images.append(p)
-        if not downloaded_images:
-            raise WorkflowValidationError("Thư mục Google Drive đã tải về nhưng không có file ảnh PNG/JPG/WebP nào.")
-        return sort_product_images(downloaded_images, temp_dir)
     except Exception as e:
-        log_message(f"Error downloading from Drive: {e}")
-        if isinstance(e, WorkflowValidationError):
-            raise
-        raise WorkflowValidationError(f"Lỗi tải thư mục Google Drive: {e}") from e
+        log_message(f"Drive download try 1 failed: {e}")
+
+    for root, _, files in os.walk(temp_dir):
+        for file in files:
+            p = Path(root) / file
+            if p.suffix.lower() in image_extensions and p.stat().st_size > 0:
+                downloaded_images.append(p)
+
+    # Lan 2: Neu rong, thu voi use_cookies mac dinh
+    if not downloaded_images:
+        try:
+            gdown.download_folder(
+                url=clean_url,
+                output=str(temp_dir),
+                quiet=True,
+                remaining_ok=True,
+            )
+            for root, _, files in os.walk(temp_dir):
+                for file in files:
+                    p = Path(root) / file
+                    if p.suffix.lower() in image_extensions and p.stat().st_size > 0:
+                        downloaded_images.append(p)
+        except Exception as e:
+            log_message(f"Drive download try 2 failed: {e}")
+
+    # Lan 3: Trich xuất folder_id trực tiếp tu URL
+    if not downloaded_images:
+        match = re.search(r"([a-zA-Z0-9_-]{25,})", str(folder_url or ""))
+        if match:
+            folder_id = match.group(1)
+            direct_url = f"https://drive.google.com/drive/folders/{folder_id}"
+            try:
+                gdown.download_folder(
+                    url=direct_url,
+                    output=str(temp_dir),
+                    quiet=True,
+                    remaining_ok=True,
+                )
+                for root, _, files in os.walk(temp_dir):
+                    for file in files:
+                        p = Path(root) / file
+                        if p.suffix.lower() in image_extensions and p.stat().st_size > 0:
+                            downloaded_images.append(p)
+            except Exception as e:
+                log_message(f"Drive download try 3 failed: {e}")
+
+    # Loai bo trung lap file (neu co)
+    unique_map = {}
+    for p in downloaded_images:
+        unique_map[p.resolve()] = p
+    downloaded_images = list(unique_map.values())
+
+    if not downloaded_images:
+        raise WorkflowValidationError(
+            "Tải ảnh từ Google Drive thất bại (thư mục trống hoặc bị chặn quyền truy cập). "
+            "Vui lòng kiểm tra lại link Drive và bật quyền 'Bất kỳ ai có đường liên kết'."
+        )
+
+    return sort_product_images(downloaded_images, temp_dir)
 
 def wp_upload_media(config, file_path):
     url = f"{config.get('WORDPRESS_SITE_URL', '').rstrip('/')}/wp-json/wp/v2/media"
