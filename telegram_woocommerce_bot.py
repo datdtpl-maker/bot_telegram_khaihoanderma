@@ -1014,7 +1014,7 @@ def build_ping_html() -> str:
         api_key = os.environ.get("GEMINI_API_KEY")
         if not api_key:
             return "Gemini AI: <b>Lỗi</b> - <code>Thiếu GEMINI_API_KEY</code>"
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key={api_key}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key={api_key}"
         body = {
             "contents": [
                 {
@@ -3678,7 +3678,7 @@ def gemini_moderate_review(reviewer: str, content: str) -> tuple[bool, str]:
     if not api_key:
         return True, "Không cấu hình GEMINI_API_KEY, bỏ qua kiểm tra AI"
         
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key={api_key}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key={api_key}"
     prompt = (
         "Bạn là một trợ lý AI thông minh chuyên duyệt đánh giá sản phẩm cho cửa hàng mỹ phẩm Khải Hoàn Derma.\n"
         "Nhiệm vụ của bạn là phân tích đánh giá sản phẩm sau để xem nó là đánh giá tự nhiên của khách mua hàng thật "
