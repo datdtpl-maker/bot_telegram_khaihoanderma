@@ -419,7 +419,7 @@ def download_drive_folder(folder_url, temp_dir):
     import gdown
     os.makedirs(temp_dir, exist_ok=True)
     clean_url = _clean_drive_folder_url(folder_url)
-    log_message(f"Downloading Google Drive: {clean_url}")
+    log_message(f"Đang tải thư mục Google Drive: {clean_url}")
 
     image_extensions = {".png", ".jpg", ".jpeg", ".webp"}
     downloaded_images = []
@@ -431,10 +431,9 @@ def download_drive_folder(folder_url, temp_dir):
             output=str(temp_dir),
             quiet=True,
             use_cookies=False,
-            remaining_ok=True,
         )
     except Exception as e:
-        log_message(f"Drive download try 1 failed: {e}")
+        log_message(f"Lần tải Google Drive thứ nhất thất bại: {e}")
 
     for root, _, files in os.walk(temp_dir):
         for file in files:
@@ -449,7 +448,6 @@ def download_drive_folder(folder_url, temp_dir):
                 url=clean_url,
                 output=str(temp_dir),
                 quiet=True,
-                remaining_ok=True,
             )
             for root, _, files in os.walk(temp_dir):
                 for file in files:
@@ -457,7 +455,7 @@ def download_drive_folder(folder_url, temp_dir):
                     if p.suffix.lower() in image_extensions and p.stat().st_size > 0:
                         downloaded_images.append(p)
         except Exception as e:
-            log_message(f"Drive download try 2 failed: {e}")
+            log_message(f"Lần tải Google Drive thứ hai thất bại: {e}")
 
     # Lan 3: Trich xuất folder_id trực tiếp tu URL
     if not downloaded_images:
@@ -470,7 +468,6 @@ def download_drive_folder(folder_url, temp_dir):
                     url=direct_url,
                     output=str(temp_dir),
                     quiet=True,
-                    remaining_ok=True,
                 )
                 for root, _, files in os.walk(temp_dir):
                     for file in files:
@@ -478,7 +475,7 @@ def download_drive_folder(folder_url, temp_dir):
                         if p.suffix.lower() in image_extensions and p.stat().st_size > 0:
                             downloaded_images.append(p)
             except Exception as e:
-                log_message(f"Drive download try 3 failed: {e}")
+                log_message(f"Lần tải Google Drive thứ ba thất bại: {e}")
 
     # Loai bo trung lap file (neu co)
     unique_map = {}
@@ -517,10 +514,10 @@ def wp_upload_media(config, file_path):
                 raise WorkflowValidationError(
                     f"WordPress trả MIME sai cho {file_path.name}: {returned_mime}"
                 )
-            log_message(f"Uploaded image: {file_path.name} | WP Media ID: {res.get('id')}")
+            log_message(f"Đã tải ảnh lên: {file_path.name} | WP Media ID: {res.get('id')}")
             return res.get("id")
     except Exception as e:
-        log_message(f"Error uploading image {file_path.name}: {e}")
+        log_message(f"Lỗi tải ảnh {file_path.name} lên WordPress: {e}")
         return None
 
 
@@ -543,10 +540,10 @@ def wp_update_media_metadata(config, media_id, alt_text, title):
         if config.get("SSL_NO_VERIFY", "").lower() in {"1", "true", "yes", "on"}:
             ctx = urllib.request.ssl._create_unverified_context()
         with urllib.request.urlopen(req, context=ctx, timeout=15) as resp:
-            log_message(f"Updated media metadata for ID {media_id} -> Alt: '{alt_text}'")
+            log_message(f"Đã cập nhật metadata ảnh ID {media_id} -> Alt: '{alt_text}'")
             return True
     except Exception as e:
-        log_message(f"Error updating media metadata for ID {media_id}: {e}")
+        log_message(f"Lỗi cập nhật metadata ảnh ID {media_id}: {e}")
         return False
 
 
@@ -575,10 +572,10 @@ def find_or_create_category(config, name):
             req = urllib.request.Request(create_url, data=create_data, headers=headers, method="POST")
             with urllib.request.urlopen(req, context=ctx, timeout=15) as resp2:
                 new_cat = json.loads(resp2.read().decode("utf-8"))
-                log_message(f"Created new WooCommerce category: {name} | ID: {new_cat.get('id')}")
+                log_message(f"Đã tạo danh mục WooCommerce: {name} | ID: {new_cat.get('id')}")
                 return new_cat.get("id")
     except Exception as e:
-        log_message(f"Error handling category {name}: {e}")
+        log_message(f"Lỗi xử lý danh mục {name}: {e}")
         return None
 
 def create_woocommerce_product(config, product_data):
@@ -597,13 +594,13 @@ def create_woocommerce_product(config, product_data):
         req = urllib.request.Request(url, data=req_data, headers=headers, method="POST")
         with urllib.request.urlopen(req, context=ctx, timeout=30) as resp:
             product = json.loads(resp.read().decode("utf-8"))
-            log_message(f"Created WooCommerce product: {product.get('name')} | ID: {product.get('id')}")
+            log_message(f"Đã tạo sản phẩm WooCommerce: {product.get('name')} | ID: {product.get('id')}")
             return product
     except Exception as e:
         if hasattr(e, "read"):
-            log_message(f"Error creating product: {e.read().decode('utf-8')}")
+            log_message(f"Lỗi tạo sản phẩm: {e.read().decode('utf-8')}")
         else:
-            log_message(f"Error creating product: {e}")
+            log_message(f"Lỗi tạo sản phẩm: {e}")
         return None
 
 
@@ -834,7 +831,7 @@ def update_notion_status(token, page_id, product_url):
     }
     req = urllib.request.Request(url, headers=headers, method="PATCH", data=json.dumps(update_data).encode("utf-8"))
     with urllib.request.urlopen(req, timeout=15) as resp:
-        log_message(f"Updated Notion page status to 'Đã đăng web' for ID: {page_id}")
+        log_message(f"Đã cập nhật trạng thái Notion thành 'Đã đăng web' cho ID: {page_id}")
 
 def _run_notion_sync_workflow(progress_callback=None, page_ids=None):
     config = load_config()
@@ -871,7 +868,7 @@ def _run_notion_sync_workflow(progress_callback=None, page_ids=None):
         # 1. Product title
         title_list = properties.get("Tên sản phẩm", {}).get("title", [])
         product_title = "".join(item.get("plain_text", "") for item in title_list).strip()
-        log_message(f"Start processing: {product_title}")
+        log_message(f"Bắt đầu xử lý: {product_title}")
         
         if progress_callback:
             progress_callback(f"📦 <b>Sản phẩm: {product_title}</b>\n1️⃣ Đang phân tích thông tin chi tiết trên Notion...")
@@ -913,7 +910,7 @@ def _run_notion_sync_workflow(progress_callback=None, page_ids=None):
                     "url": product_url,
                     "recovered": True,
                 })
-                log_message(f"Recovered existing product for Notion page {page_id}: {product_url}")
+                log_message(f"Đã phục hồi sản phẩm của Notion page {page_id}: {product_url}")
                 continue
         except Exception as exc:
             log_message(f"Không kiểm tra/phục hồi được sản phẩm '{product_title}': {exc}")

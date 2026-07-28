@@ -1,6 +1,8 @@
 import tempfile
 import unittest
 import json
+import sys
+import types
 from pathlib import Path
 from unittest.mock import patch
 
@@ -8,6 +10,25 @@ import notion_sync
 
 
 class ImagePipelineTests(unittest.TestCase):
+    def test_drive_download_is_compatible_with_gdown_6(self):
+        fake_gdown = types.SimpleNamespace()
+
+        def download_folder(**kwargs):
+            self.assertNotIn("remaining_ok", kwargs)
+            image = Path(kwargs["output"]) / "1.png"
+            image.write_bytes(b"image")
+            return [str(image)]
+
+        fake_gdown.download_folder = download_folder
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with patch.dict(sys.modules, {"gdown": fake_gdown}):
+                images = notion_sync.download_drive_folder(
+                    "https://drive.google.com/drive/folders/1234567890123456789012345",
+                    Path(temp_dir),
+                )
+
+        self.assertEqual([image.name for image in images], ["1.png"])
+
     def test_natural_image_sort_keeps_numeric_order(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

@@ -241,7 +241,158 @@ def log_new_product_url(product: dict) -> None:
         with NEW_PRODUCT_URLS_FILE.open("a", encoding="utf-8") as handle:
             handle.write(line)
     except Exception as exc:
-        log(f"Khong ghi duoc new_product_urls.log: {exc}")
+        log(f"Không ghi được new_product_urls.log: {exc}")
+
+
+def indexing_after_publish_html(product: dict) -> str:
+    link = product.get("permalink") or ""
+    log_new_product_url(product)
+    _, ping_status = ping_google_sitemap()
+    sitemap = sitemap_url()
+
+    lines = [
+        "",
+        "<b>Google index</b>",
+        f"• Sitemap: <code>{h(sitemap)}</code>",
+        f"• Tự động ping sitemap: <b>không dùng</b> - {h(ping_status)}",
+    ]
+    if link:
+        lines.append(f'• URL sản phẩm: <a href="{h(link)}">Mở sản phẩm</a>')
+        lines.append(f'• GSC Inspect: <a href="{h(google_inspect_url(link))}">Mở để yêu cầu index tay</a>')
+    lines.append("• Google vẫn quyết định thời gian crawl/index sau khi nhận sitemap.")
+    return "\n".join(lines)
+
+
+def month_bounds(month: str) -> tuple[str, str]:
+    if not re.fullmatch(r"\d{4}-\d{2}", month):
+        raise ValueError("Thang phai co dinh dang YYYY-MM, vi du 2026-05.")
+    year, mon = map(int, month.split("-"))
+    start = datetime(year, mon, 1)
+    if mon == 12:
+        end = datetime(year + 1, 1, 1)
+    else:
+        end = datetime(year, mon + 1, 1)
+    return start.strftime("%Y-%m-%dT00:00:00"), end.strftime("%Y-%m-%dT00:00:00")
+
+
+def fetch_orders(month: str) -> list[dict]:
+    after, before = month_bounds(month)
+    orders: list[dict] = []
+    page = 1
+    while True:
+        batch = wc_get(
+            "orders",
+            {
+                "after": after,
+                "before": before,
+                "per_page": 100,
+                "page": page,
+                "orderby": "date",
+                "order": "asc",
+                "status": "any",
+            },
+        )
+        if not isinstance(batch, list):
+            raise RuntimeError("WooCommerce tra ve du lieu don hang khong hop le.")
+        orders.extend(batch)
+        if len(batch) < 100:
+            return orders
+        page += 1
+
+
+def summarize_orders(orders: list[dict]) -> tuple[list[dict], list[dict], dict[str, int], float, float, dict[str, int]]:
+    product_map: dict[str, dict] = {}
+    statuses: dict[str, int] = defaultdict(int)
+    sources: dict[str, int] = defaultdict(int)
+    total_revenue = 0.0
+    line_revenue = 0.0
+
+    for order in orders:
+        statuses[str(order.get("status", ""))] += 1
+        source = order.get("created_via") or "checkout"
+        sources[str(source)] += 1
+        total_revenue += float(order.get("total") or 0)
+        for item in order.get("line_items", []):
+            key = f"{item.get('product_id')}-{item.get('variation_id') or 0}"
+            if key not in product_map:
+                product_map[key] = {
+                    "product_id": item.get("product_id"),
+                    "variation_id": item.get("variation_id"),
+                    "name": item.get("name", ""),
+                    "quantity": 0,
+                    "subtotal": 0.0,
+                    "total": 0.0,
+                    "tax": 0.0,
+                    "order_count": 0,
+                }
+            row = product_map[key]
+            row["quantity"] += int(item.get("quantity") or 0)
+            row["subtotal"] += float(item.get("subtotal") or 0)
+            row["total"] += float(item.get("total") or 0)
+            row["tax"] += float(item.get("total_tax") or 0)
+            row["order_count"] += 1
+            line_revenue += float(item.get("total") or 0)
+
+    order_rows = []
+    for order in orders:
+        billing = order.get("billing", {})
+        items = "; ".join(f"{item.get('name')} x{item.get('quantity')}" for item in order.get("line_items", []))
+        order_rows.append(
+            {
+                "id": order.get("id"),
+                "number": order.get("number"),
+                "date_created": order.get("date_created"),
+                "status": order.get("status"),
+                "customer": f"{billing.get('first_name', '')} {billing.get('last_name', '')}".strip(),
+                "phone": billing.get("phone", ""),
+                "email": billing.get("email", ""),
+                "payment_method": order.get("payment_method_title", ""),
+                "currency": order.get("currency", ""),
+                "shipping_total": order.get("shipping_total", ""),
+                "discount_total": order.get("discount_total", ""),
+                "total": order.get("total", ""),
+                "items": items,
+            }
+        )
+
+    products = sorted(product_map.values(), key=lambda row: row["total"], reverse=True)
+    return order_rows, products, dict(statuses), total_revenue, line_revenue, dict(sources)
+
+
+def money(value: float | str) -> str:
+    if value == "" or value is None:
+        return "Liên hệ"
+    try:
+        val_float = float(value)
+        if val_float == 0:
+            return "Liên hệ"
+        return f"{round(val_float):,.0f}".replace(",", ".")
+    except ValueError:
+        return str(value)
+
+
+def h(value: object) -> str:
+    return html.escape(str(value), quote=False)
+
+
+def normalize_text(text: str) -> str:
+    return text.strip().lower()
+
+
+def current_month() -> str:
+    return datetime.now().strftime("%Y-%m")
+
+
+def day_bounds(day: datetime) -> tuple[str, str]:
+    start = datetime(day.year, day.month, day.day)
+    end = start + timedelta(days=1)
+    return start.strftime("%Y-%m-%dT00:00:00"), end.strftime("%Y-%m-%dT00:00:00")
+
+
+def extract_day(text: str) -> datetime | None:
+    normalized = normalize_text(text)
+    # Lấy mốc thời gian hiện tại làm gốc để so sánh
+    now = datetime.now()
 
 
 def indexing_after_publish_html(product: dict) -> str:
@@ -418,14 +569,11 @@ def extract_day(text: str) -> datetime | None:
     return None
 
 
-
 def make_date(year: int, month: int, day: int) -> datetime | None:
     try:
         return datetime(year, month, day)
     except ValueError:
         return None
-
-
 def extract_date_range(text: str) -> tuple[datetime, datetime] | None:
     normalized = normalize_text(text)
 
@@ -486,6 +634,7 @@ def extract_date_range(text: str) -> tuple[datetime, datetime] | None:
 
     return None
 
+
 def extract_month(text: str) -> str:
     normalized = normalize_text(text)
     match = re.search(r"\b(20\d{2})[-/.](0?[1-9]|1[0-2])\b", normalized)
@@ -507,19 +656,19 @@ def extract_month(text: str) -> str:
 def wants_woocommerce(text: str) -> bool:
     normalized = normalize_text(text)
     keywords = [
-        "\u0111\u01a1n h\u00e0ng",
+        "đơn hàng",
         "don hang",
         "doanh thu",
-        "b\u00e1o c\u00e1o",
+        "báo cáo",
         "bao cao",
-        "s\u1ea3n ph\u1ea9m",
+        "sản phẩm",
         "san pham",
         "woocommerce",
         "shop",
     ]
     if any(keyword in normalized for keyword in keywords):
         return True
-    asks_orders = any(keyword in normalized for keyword in ["\u0111\u01a1n", "don"])
+    asks_orders = any(keyword in normalized for keyword in ["đơn", "don"])
     has_period = bool(extract_date_range_to_now(text) or extract_date_range(text) or extract_day(text))
     return asks_orders and has_period
 
@@ -538,11 +687,20 @@ def parse_order_detail_request(text: str) -> str | None:
 
 def wants_order_details_export(text: str) -> bool:
     normalized = normalize_text(text)
-    has_order = any(keyword in normalized for keyword in ["đơn hàng", "don hang", "đơn", "don"])
+    has_order = any(keyword in normalized for keyword in ["đơn hàng", "don hang", "đơn", "don", "doanh thu"])
     has_detail = any(keyword in normalized for keyword in ["chi tiết", "chi tiet", "đầy đủ", "day du", "file", "excel", "xuất", "xuat"])
-    has_range = bool(extract_date_range(text))
-    has_period = has_range or bool(extract_day(text)) or "tháng" in normalized or "thang" in normalized or re.search(r"\b20\d{2}[-/.](0?[1-9]|1[0-2])\b", normalized)
-    return has_order and bool(has_period) and (has_detail or has_range)
+    has_range = bool(extract_date_range(text) or extract_date_range_to_now(text))
+    has_period = (
+        has_range
+        or bool(extract_day(text))
+        or bool(extract_year(text))
+        or "tháng" in normalized
+        or "thang" in normalized
+        or "năm" in normalized
+        or "nam" in normalized
+        or re.search(r"\b20\d{2}[-/.](0?[1-9]|1[0-2])\b", normalized)
+    )
+    return (has_order or "doanh thu" in normalized) and bool(has_period) and (has_detail or "excel" in normalized or "file" in normalized)
 
 
 def wants_today_orders(text: str) -> bool:
@@ -576,10 +734,23 @@ def fetch_orders_between(after: str, before: str) -> list[dict]:
         page += 1
 
 
+def extract_year(text: str) -> int | None:
+    normalized = normalize_text(text)
+    if "năm nay" in normalized or "nam nay" in normalized:
+        return datetime.now().year
+    match = re.search(r"\b(?:năm|nam)\s*(20\d{2})\b", normalized)
+    if match:
+        return int(match.group(1))
+    match_pure_year = re.search(r"\b(20\d{2})\b", normalized)
+    if match_pure_year and not re.search(r"\b(tháng|thang|ngày|ngay|/|-|\.)", normalized):
+        return int(match_pure_year.group(1))
+    return None
+
+
 def extract_date_range_to_now(text: str) -> tuple[datetime, datetime] | None:
     normalized = normalize_text(text)
     match = re.search(
-        "(?:t\u1eeb|tu|from)\\s*(?:(?:ng\u00e0y|ngay)\\s*)?(0?[1-9]|[12]\\d|3[01])[-/.](0?[1-9]|1[0-2])(?:[-/.](20\\d{2}))?\\s*(?:\u0111\u1ebfn|den|t\u1edbi|toi|to)\\s*(?:h\u00f4m nay|hom nay|nay|hi\u1ec7n t\u1ea1i|hien tai|b\u00e2y gi\u1edd|bay gio|today|now)",
+        r"(?:từ|tu|from)\s*(?:(?:ngày|ngay)\s*)?(0?[1-9]|[12]\d|3[01])[-/.](0?[1-9]|1[0-2])(?:[-/.](20\d{2}))?\s*(?:đến|den|tới|toi|to)\s*(?:hôm nay|hom nay|nay|hiện tại|hien tai|bây giờ|bay gio|today|now)",
         normalized,
     )
     if not match:
@@ -592,30 +763,65 @@ def extract_date_range_to_now(text: str) -> tuple[datetime, datetime] | None:
 
 
 def report_period_from_text(text: str) -> tuple[str, str, str]:
+    now = datetime.now()
+    today_start = datetime(now.year, now.month, now.day)
+    today_end = today_start + timedelta(days=1)
+
     to_now = extract_date_range_to_now(text)
     if to_now:
         start_day, end_day = to_now
-        after, before = day_bounds(start_day)
+        if end_day > now:
+            end_day = now
+        after, _ = day_bounds(start_day)
         _, before = day_bounds(end_day)
-        label = f"t\u1eeb ng\u00e0y {start_day.strftime('%d/%m/%Y')} \u0111\u1ebfn ng\u00e0y {end_day.strftime('%d/%m/%Y')}"
+        label = f"từ ngày {start_day.strftime('%d/%m/%Y')} đến ngày {end_day.strftime('%d/%m/%Y')}"
         return after, before, label
 
     date_range = extract_date_range(text)
     if date_range:
         start_day, end_day = date_range
+        if end_day > now and start_day <= now:
+            end_day = now
         after, _ = day_bounds(start_day)
         _, before = day_bounds(end_day)
-        label = f"t\u1eeb ng\u00e0y {start_day.strftime('%d/%m/%Y')} \u0111\u1ebfn ng\u00e0y {end_day.strftime('%d/%m/%Y')}"
+        label = f"từ ngày {start_day.strftime('%d/%m/%Y')} đến ngày {end_day.strftime('%d/%m/%Y')}"
+        return after, before, label
+
+    year = extract_year(text)
+    if year:
+        if year == now.year:
+            start_dt = datetime(year, 1, 1)
+            after = start_dt.strftime("%Y-%m-%dT00:00:00")
+            before = today_end.strftime("%Y-%m-%dT00:00:00")
+            label = f"năm {year} (từ ngày 01/01/{year} đến ngày {now.strftime('%d/%m/%Y')})"
+        else:
+            start_dt = datetime(year, 1, 1)
+            end_dt = datetime(year + 1, 1, 1)
+            after = start_dt.strftime("%Y-%m-%dT00:00:00")
+            before = end_dt.strftime("%Y-%m-%dT00:00:00")
+            label = f"năm {year} (từ ngày 01/01/{year} đến ngày 31/12/{year})"
         return after, before, label
 
     day = extract_day(text)
-    if day and any(word in normalize_text(text) for word in ["ng\u00e0y", "ngay", "h\u00f4m nay", "hom nay", "h\u00f4m qua", "hom qua", "today", "yesterday"]):
+    if day and any(word in normalize_text(text) for word in ["ngày", "ngay", "hôm nay", "hom nay", "hôm qua", "hom qua", "today", "yesterday"]):
         after, before = day_bounds(day)
-        return after, before, f"ng\u00e0y {day.strftime('%d/%m/%Y')}"
+        return after, before, f"ngày {day.strftime('%d/%m/%Y')}"
 
-    month = extract_month(text)
-    after, before = month_bounds(month)
-    return after, before, f"th\u00e1ng {month}"
+    month_str = extract_month(text)
+    m_year, m_mon = map(int, month_str.split("-"))
+    if m_year == now.year and m_mon == now.month:
+        start_dt = datetime(m_year, m_mon, 1)
+        after = start_dt.strftime("%Y-%m-%dT00:00:00")
+        before = today_end.strftime("%Y-%m-%dT00:00:00")
+        label = f"tháng {month_str} (từ ngày 01/{m_mon:02d}/{m_year} đến ngày {now.strftime('%d/%m/%Y')})"
+    else:
+        after, before = month_bounds(month_str)
+        if m_mon == 12:
+            last_day = 31
+        else:
+            last_day = (datetime(m_year, m_mon + 1, 1) - timedelta(days=1)).day
+        label = f"tháng {month_str} (từ ngày 01/{m_mon:02d}/{m_year} đến ngày {last_day:02d}/{m_mon:02d}/{m_year})"
+    return after, before, label
 
 
 def build_woocommerce_html(text: str) -> str:
@@ -625,50 +831,17 @@ def build_woocommerce_html(text: str) -> str:
     fee_diff = total_revenue - line_revenue
 
     lines = [
-        f"<b>B\u00e1o c\u00e1o WooCommerce {h(label)}</b>",
+        f"<b>Báo cáo WooCommerce {h(label)}</b>",
         "",
-        "<b>T\u1ed5ng quan</b>",
-        f"\u2022 T\u1ed5ng \u0111\u01a1n: <b>{len(orders)}</b>",
-        f"\u2022 T\u1ed5ng doanh thu: <b>{money(total_revenue)} VND</b>",
-        f"\u2022 Doanh thu s\u1ea3n ph\u1ea9m: <b>{money(line_revenue)} VND</b>",
-        f"\u2022 Ch\u00eanh l\u1ec7ch v\u1eadn chuy\u1ec3n/ph\u1ee5 ph\u00ed/gi\u1ea3m gi\u00e1: <b>{money(fee_diff)} VND</b>",
+        "<b>Tổng quan</b>",
+        f"• Tổng đơn: <b>{len(orders)}</b>",
+        f"• Tổng doanh thu: <b>{money(total_revenue)} VND</b>",
+        f"• Doanh thu sản phẩm: <b>{money(line_revenue)} VND</b>",
+        f"• Chênh lệch vận chuyển/phụ phí/giảm giá: <b>{money(fee_diff)} VND</b>",
     ]
 
-    if sources:
-        lines.extend(["", "<b>Nguồn đơn hàng</b>"])
-        for src, count in sorted(sources.items(), key=lambda item: item[0]):
-            src_label = "Web (Checkout)" if src == "checkout" else ("Tạo thủ công (Admin)" if src == "admin" else ("REST API" if src == "rest-api" else src))
-            lines.append(f"\u2022 <code>{h(src_label)}</code>: <b>{count}</b>")
-
-    if statuses:
-        lines.extend(["", "<b>Trạng thái đơn</b>"])
-        for status, count in sorted(statuses.items(), key=lambda item: item[0]):
-            lines.append(f"\u2022 <code>{h(order_status_label(status or 'unknown'))}</code>: <b>{count}</b>")
-
-    if products:
-        lines.extend(["", "<b>S\u1ea3n ph\u1ea9m b\u00e1n ra</b>"])
-        for row in products[:10]:
-            lines.append(
-                f"\u2022 <b>{h(row.get('name', 'S\u1ea3n ph\u1ea9m'))}</b> - "
-                f"SL: <b>{h(row.get('quantity', 0))}</b> - "
-                f"Doanh thu: <b>{money(row.get('total') or 0)} VND</b>"
-            )
-        if len(products) > 10:
-            lines.append(f"... v\u00e0 {len(products) - 10} s\u1ea3n ph\u1ea9m kh\u00e1c.")
-
-    if order_rows:
-        lines.extend(["", "<b>\u0110\u01a1n h\u00e0ng g\u1ea7n \u0111\u00e2y</b>"])
-        for row in order_rows[-10:]:
-            date_text = str(row.get("date_created") or "").replace("T", " ")[:16]
-            customer = row.get("customer") or "Ch\u01b0a c\u00f3 t\u00ean"
-            lines.append(
-                f"\u2022 <b>#{h(row.get('number'))}</b> - {h(date_text)} - "
-                f"{h(customer)} - <b>{money(row.get('total') or 0)} VND</b> - "
-                f"<code>{h(order_status_label(row.get('status') or ''))}</code>"
-            )
-
     if not orders:
-        lines.append("\nKh\u00f4ng c\u00f3 \u0111\u01a1n h\u00e0ng trong kho\u1ea3ng th\u1eddi gian n\u00e0y.")
+        lines.append("\nKhông có đơn hàng trong khoảng thời gian này.")
     return "\n".join(lines)
 
 
@@ -815,31 +988,10 @@ def export_order_details_report_between(label: str, after: str, before: str, fil
 
 
 def export_order_details_report_from_text(text: str) -> tuple[str, Path]:
-    to_now = extract_date_range_to_now(text)
-    if to_now:
-        start_day, end_day = to_now
-        after, _ = day_bounds(start_day)
-        _, before = day_bounds(end_day)
-        label = f"từ ngày {start_day.strftime('%d/%m/%Y')} đến ngày {end_day.strftime('%d/%m/%Y')}"
-        prefix = f"chi_tiet_don_hang_{start_day.strftime('%Y%m%d')}_{end_day.strftime('%Y%m%d')}"
-        return export_order_details_report_between(label, after, before, prefix)
-
-    date_range = extract_date_range(text)
-    if date_range:
-        start_day, end_day = date_range
-        after, _ = day_bounds(start_day)
-        _, before = day_bounds(end_day)
-        label = f"từ ngày {start_day.strftime('%d/%m/%Y')} đến ngày {end_day.strftime('%d/%m/%Y')}"
-        prefix = f"chi_tiet_don_hang_{start_day.strftime('%Y%m%d')}_{end_day.strftime('%Y%m%d')}"
-        return export_order_details_report_between(label, after, before, prefix)
-
-    day = extract_day(text)
-    if day:
-        after, before = day_bounds(day)
-        label = f"ng\u00e0y {day.strftime('%d/%m/%Y')}"
-        return export_order_details_report_between(label, after, before, f"chi_tiet_don_hang_{day.strftime('%Y-%m-%d')}")
-    month = extract_month(text)
-    return export_order_details_report(month)
+    after, before, label = report_period_from_text(text)
+    safe_label = re.sub(r"[^A-Za-z0-9_-]+", "_", plain_ascii(label)).strip("_")
+    prefix = f"chi_tiet_don_hang_{safe_label}"
+    return export_order_details_report_between(label, after, before, prefix)
 
 
 def wants_product_catalog_report(text: str) -> bool:
@@ -919,9 +1071,7 @@ def send_notion_sync_links_file(chat_id: int, products: list) -> None:
             if temp_file_path.exists():
                 temp_file_path.unlink()
     except Exception as e:
-        log(f"Loi khi tao hoac gui file links.txt: {e}")
-
-
+        log(f"Lỗi khi tạo hoặc gửi file links.txt: {e}")
 def prepare_notion_sync_confirmation(chat_id: int, page_ids: list[str] | None = None, titles: list[str] | None = None) -> str:
     selected_page_ids = [str(page_id) for page_id in (page_ids or []) if page_id]
     PENDING_ACTIONS[chat_id] = {
@@ -1541,13 +1691,13 @@ def get_cached_all_products() -> list[dict]:
     now = time.time()
     with _ALL_PRODUCTS_CACHE_LOCK:
         if not _ALL_PRODUCTS_CACHE or (now - _ALL_PRODUCTS_CACHE_TIME) > 600:
-            log("Tai danh sach tat ca san pham tu WooCommerce de cap nhat cache...")
+            log("Tải danh sách tất cả sản phẩm từ WooCommerce để cập nhật cache...")
             try:
                 _ALL_PRODUCTS_CACHE = fetch_all_products()
                 _ALL_PRODUCTS_CACHE_TIME = now
-                log(f"Da tai va cache {len(_ALL_PRODUCTS_CACHE)} san pham.")
+                log(f"Đã tải và cache {len(_ALL_PRODUCTS_CACHE)} sản phẩm.")
             except Exception as e:
-                log(f"Loi khi tai tat ca san pham: {e}")
+                log(f"Lỗi khi tải tất cả sản phẩm: {e}")
                 if not _ALL_PRODUCTS_CACHE:
                     _ALL_PRODUCTS_CACHE = []
         return _ALL_PRODUCTS_CACHE
@@ -2958,7 +3108,7 @@ def duckduckgo_search(query: str, limit: int = 5) -> list[dict[str, str]]:
             try:
                 all_results.extend(searcher(search_query, limit * 2))
             except Exception as exc:
-                log(f"Bo qua nguon tra cuu web {searcher.__name__}: {exc}")
+                log(f"Bỏ qua nguồn tra cứu web {searcher.__name__}: {exc}")
                 continue
         cleaned = clean_search_results(all_results, query, limit)
         if len(cleaned) >= min(2, limit):
@@ -3441,7 +3591,7 @@ def handle_message(chat_id: int, text: str) -> None:
     send_message(chat_id, html_text)
     elapsed = time.time() - started_at
     if elapsed >= 3:
-        log(f"Xu ly tin nhan mat {elapsed:.1f}s: {text[:80]}")
+        log(f"Xử lý tin nhắn mất {elapsed:.1f}s: {text[:80]}")
 
 
 def handle_document(chat_id: int, document: dict, caption: str = "") -> None:
@@ -3522,13 +3672,13 @@ def process_update(update: dict) -> None:
 
 def process_chat_message(chat_id: int, text: str, document: dict | None, caption: str = "") -> None:
     if chat_id and text:
-        log(f"Nhan tin nhan tu {chat_id}: {text[:120]}")
+        log(f"Nhận tin nhắn từ {chat_id}: {text[:120]}")
         handle_message(int(chat_id), text)
-        log(f"Da xu ly tin nhan tu {chat_id}")
+        log(f"Đã xử lý tin nhắn từ {chat_id}")
     elif chat_id and document:
-        log(f"Nhan file tu {chat_id}: {document.get('file_name')}")
+        log(f"Nhận file từ {chat_id}: {document.get('file_name')}")
         handle_document(int(chat_id), document, caption)
-        log(f"Da xu ly file tu {chat_id}")
+        log(f"Đã xử lý file từ {chat_id}")
 
 
 def cleanup_old_uploads() -> None:
@@ -3545,9 +3695,9 @@ def cleanup_old_uploads() -> None:
                     item.unlink()
                     count += 1
             if count > 0:
-                log(f"Da don dep {count} file docx cu trong thu muc upload.")
+                log(f"Đã dọn dẹp {count} file docx cũ trong thư mục upload.")
         except Exception as exc:
-            log(f"Loi khi don dep file docx: {exc}")
+            log(f"Lỗi khi dọn dẹp file docx: {exc}")
 
     # 2. Dọn dẹp các tệp Excel báo cáo xuất ra từ trước
     try:
@@ -3558,9 +3708,9 @@ def cleanup_old_uploads() -> None:
                     item.unlink()
                     count_xlsx += 1
         if count_xlsx > 0:
-            log(f"Da don dep {count_xlsx} tep Excel bao cao cu de giai phong bo nho.")
+            log(f"Đã dọn dẹp {count_xlsx} tệp Excel báo cáo cũ để giải phóng bộ nhớ.")
     except Exception as exc:
-        log(f"Loi khi don dep tep Excel cu: {exc}")
+        log(f"Lỗi khi dọn dẹp tệp Excel cũ: {exc}")
 
 
 _singleton_socket = None
@@ -3586,10 +3736,10 @@ def kill_process_on_port(port: int) -> None:
         my_pid = os.getpid()
         for pid in pids:
             if pid != my_pid:
-                log(f"Phat hien phien ban bot cu dang chay ngam (PID: {pid}) chiem cong {port}. Dang tien hanh giai phong...")
+                log(f"Phát hiện phiên bản bot cũ đang chạy ngầm (PID: {pid}) chiếm cổng {port}. Đang tiến hành giải phóng...")
                 subprocess.run(f"taskkill /F /T /PID {pid}", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except Exception as exc:
-        log(f"Khong the tu dong giai phong cong {port}: {exc}")
+        log(f"Không thể tự động giải phóng cổng {port}: {exc}")
 
 
 def ensure_single_instance() -> None:
@@ -3599,15 +3749,15 @@ def ensure_single_instance() -> None:
         _singleton_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         _singleton_socket.bind(("127.0.0.1", port))
     except OSError:
-        log(f"Phat hien cong {port} da bi chiem. Dang tu dong don dep phien ban bot cu dang chay ngam...")
+        log(f"Phát hiện cổng {port} đã bị chiếm. Đang tự động dọn dẹp phiên bản bot cũ chạy ngầm...")
         kill_process_on_port(port)
         time.sleep(1.5)  # Cho 1.5 giay de Windows giai phong socket
         try:
             _singleton_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             _singleton_socket.bind(("127.0.0.1", port))
-            log("Da giai phong cong va khoi chay phien ban moi thanh cong.")
+            log("Đã giải phóng cổng và khởi chạy phiên bản mới thành công.")
         except OSError:
-            log(f"Loi: Cong {port} van bi chiem sau khi quet. Vui long kiem tra lai. Bot se tu thoat.")
+            log(f"Lỗi: Cổng {port} vẫn bị chiếm sau khi quét. Vui lòng kiểm tra lại. Bot sẽ tự thoát.")
             sys.exit(99)
 
 
@@ -3656,7 +3806,7 @@ def find_product_name_by_id(product_id: int) -> str:
             PRODUCT_NAME_CACHE[product_id] = name
             return name
     except Exception as e:
-        log(f"Loi lay ten san pham {product_id}: {e}")
+        log(f"Lỗi lấy tên sản phẩm {product_id}: {e}")
     return f"Sản phẩm #{product_id}"
 
 
@@ -3692,7 +3842,7 @@ def execute_review_action_text(chat_id: int, review_action: dict) -> str:
             else:
                 return f"❌ Không thể xóa đánh giá #{review_id}. Phản hồi lỗi từ WooCommerce."
     except Exception as e:
-        log(f"Loi khi thuc thi hanh dong danh gia #{review_id}: {e}")
+        log(f"Lỗi khi thực thi hành động đánh giá #{review_id}: {e}")
         return f"❌ <b>Gặp lỗi khi xử lý đánh giá #{review_id}:</b>\n<code>{h(e)}</code>"
 
 
@@ -3714,7 +3864,7 @@ def execute_review_callback(chat_id: int, msg_id: int, original_text: str, revie
             else:
                 status_text = "<b>[LỖI XÓA]</b>"
     except Exception as e:
-        log(f"Loi callback danh gia #{review_id}: {e}")
+        log(f"Lỗi callback đánh giá #{review_id}: {e}")
         status_text = f"<b>[LỖI: {h(e)}]</b>"
         
     new_text = original_text
@@ -3785,7 +3935,7 @@ def gemini_moderate_review(reviewer: str, content: str) -> tuple[bool, str]:
                     reason = str(parsed.get("reason") or "AI xác thực thành công")
                     return is_genuine, reason
     except Exception as e:
-        log(f"Loi khi goi API Gemini: {e}")
+        log(f"Lỗi khi gọi API Gemini: {e}")
         return False, f"Lỗi gọi AI (yêu cầu duyệt tay): {e}"
         
     return False, "Không nhận được phản hồi từ AI"
@@ -3861,13 +4011,13 @@ def check_reviews_loop() -> None:
         is_first_run = False
         
         try:
-            log("Dang quet WooCommerce de kiem tra danh gia moi...")
+            log("Đang quét WooCommerce để kiểm tra đánh giá mới...")
             reviews = wc_get("products/reviews", {"status": "hold", "per_page": 100})
             if not isinstance(reviews, list):
-                log("Loi: Ket qua tra ve tu WooCommerce reviews khong phai danh sach.")
+                log("Lỗi: Kết quả trả về từ WooCommerce reviews không phải danh sách.")
                 continue
             
-            log(f"Tim thay {len(reviews)} danh gia cho duyet (hold) tren WooCommerce.")
+            log(f"Tìm thấy {len(reviews)} đánh giá chờ duyệt (hold) trên WooCommerce.")
             if not reviews:
                 continue
                 
@@ -3877,7 +4027,7 @@ def check_reviews_loop() -> None:
                 if rev_id not in NOTIFIED_REVIEWS:
                     new_reviews_detected.append(rev)
                     
-            log(f"Phat hien {len(new_reviews_detected)} danh gia moi chua thong bao.")
+            log(f"Phát hiện {len(new_reviews_detected)} đánh giá mới chưa thông báo.")
             if not new_reviews_detected:
                 continue
                 
@@ -3891,7 +4041,7 @@ def check_reviews_loop() -> None:
                 
                 # Chi tiết đánh giá
                 reviewer = rev.get("reviewer") or "Ẩn danh"
-                log(f"-> Dang xu ly danh gia #{rev_id} cua {reviewer}...")
+                log(f"-> Đang xử lý đánh giá #{rev_id} của {reviewer}...")
                 reviewer_email = rev.get("reviewer_email") or ""
                 rating = rev.get("rating") or 0
                 review_content = plain_text_from_html(rev.get("review") or "")
@@ -3905,7 +4055,7 @@ def check_reviews_loop() -> None:
                     # Tiến hành duyệt tự động đánh giá này trên WooCommerce
                     try:
                         wc_put(f"products/reviews/{rev_id}", {"status": "approved"})
-                        log(f"Tu dong duyet danh gia #{rev_id} thanh cong. Ly do: {moderate_reason}")
+                        log(f"Tự động duyệt đánh giá #{rev_id} thành công. Lý do: {moderate_reason}")
                         
                         # Gửi thông báo ngắn gọn về cho Admin
                         msg = (
@@ -3919,13 +4069,13 @@ def check_reviews_loop() -> None:
                             try:
                                 send_message(cid, msg)
                             except Exception as e:
-                                log(f"Loi gui thong bao tu dong duyet toi {cid}: {e}")
+                                log(f"Lỗi gửi thông báo tự động duyệt tới {cid}: {e}")
                     except Exception as e:
-                        log(f"Loi khi thuc hien tu dong duyet danh gia #{rev_id}: {e}")
+                        log(f"Lỗi khi thực hiện tự động duyệt đánh giá #{rev_id}: {e}")
                         is_auto = False  # Chuyển về duyệt thủ công nếu gọi API lỗi
                         
                 if not is_auto:
-                    log(f"Yeu cau kiem duyet thu cong danh gia #{rev_id}. Ly do: {moderate_reason}")
+                    log(f"Yêu cầu kiểm duyệt thủ công đánh giá #{rev_id}. Lý do: {moderate_reason}")
                     # Gửi thông báo duyệt thủ công kèm nút bấm
                     stars = "★" * rating + "☆" * (5 - rating)
                     msg = (
@@ -3951,17 +4101,17 @@ def check_reviews_loop() -> None:
                         try:
                             send_message(cid, msg, reply_markup=reply_markup)
                         except Exception as e:
-                            log(f"Loi gui thong bao danh gia toi {cid}: {e}")
+                            log(f"Lỗi gửi thông báo đánh giá tới {cid}: {e}")
                         
             # Lưu danh sách đã thông báo xuống file
             try:
                 with notified_file.open("w", encoding="utf-8") as f:
                     json.dump(list(NOTIFIED_REVIEWS), f, indent=2, ensure_ascii=False)
             except Exception as e:
-                log(f"Loi ghi file notified_reviews.json: {e}")
+                log(f"Lỗi ghi file notified_reviews.json: {e}")
                 
         except Exception as e:
-            log(f"Loi khi quet danh gia tu dong: {e}")
+            log(f"Lỗi khi quét đánh giá tự động: {e}")
 
 
 def check_notion_loop() -> None:
@@ -4027,7 +4177,7 @@ def check_notion_loop() -> None:
                     send_message(cid, "🔔 " + msg)
                     sent_any = True
                 except Exception as e:
-                    log(f"Loi gui thong bao Notion toi {cid}: {e}")
+                    log(f"Lỗi gửi thông báo Notion tới {cid}: {e}")
 
             if sent_any:
                 notified_pages.update(page_ids)
@@ -4037,10 +4187,10 @@ def check_notion_loop() -> None:
                 with notified_file.open("w", encoding="utf-8") as f:
                     json.dump(list(notified_pages), f, indent=2, ensure_ascii=False)
             except Exception as e:
-                log(f"Loi ghi file notified_pages.json: {e}")
+                log(f"Lỗi ghi file notified_pages.json: {e}")
                 
         except Exception as e:
-            log(f"Loi khi quét Notion tu dong: {e}")
+            log(f"Lỗi khi quét Notion tự động: {e}")
 
 
 def main() -> None:
@@ -4057,12 +4207,12 @@ def main() -> None:
     import threading
     t = threading.Thread(target=check_notion_loop, daemon=True)
     t.start()
-    log("Da khoi dong luong kiem tra Notion (chu ky 15 phut, can xac nhan truoc khi dang).")
+    log("Đã khởi động luồng kiểm tra Notion (chu kỳ 15 phút, cần xác nhận trước khi đăng).")
 
     # Khởi động luồng quét đánh giá WooCommerce (chu kỳ 30 phút)
     t_rev = threading.Thread(target=check_reviews_loop, daemon=True)
     t_rev.start()
-    log("Da khoi dong luong quet danh gia tu dong (chu ky 30 phut).")
+    log("Đã khởi động luồng quét đánh giá tự động (chu kỳ 30 phút).")
 
     if "TELEGRAM_BOT_TOKEN" not in os.environ:
         raise RuntimeError("Thieu TELEGRAM_BOT_TOKEN.")
@@ -4072,33 +4222,33 @@ def main() -> None:
         import ctypes
         # ES_CONTINUOUS (0x80000000) | ES_SYSTEM_REQUIRED (0x00000001)
         ctypes.windll.kernel32.SetThreadExecutionState(0x80000000 | 0x00000001)
-        log("Che do ngan Windows ngu dong da duoc kich hoat thanh cong.")
+        log("Chế độ ngăn Windows ngủ đông đã được kích hoạt thành công.")
     except Exception as exc:
-        log(f"Khong the kich hoat che do ngan Windows ngu dong (co the khong chay tren Windows): {exc}")
+        log(f"Không thể kích hoạt chế độ ngăn Windows ngủ đông (có thể không chạy trên Windows): {exc}")
 
     # Don dep file docx cu nguoi dung tung upload tu truoc
     cleanup_old_uploads()
 
-    log("Bot dang khoi dong...")
-    log(f"Thu muc chay bot: {OUT_DIR}")
-    log(f"Chat ID duoc phep: {os.environ.get('TELEGRAM_ALLOWED_CHAT_IDS', '')}")
+    log("Bot đang khởi động...")
+    log(f"Thư mục chạy bot: {OUT_DIR}")
+    log(f"Chat ID được phép: {os.environ.get('TELEGRAM_ALLOWED_CHAT_IDS', '')}")
 
     while True:
         try:
             me = telegram_api("getMe", {})
             bot = me.get("result", {})
             bot_name = plain_ascii(str(bot.get('first_name') or ''))
-            log(f"Ket noi Telegram OK: @{bot.get('username')} - {bot_name}")
+            log(f"Kết nối Telegram OK: @{bot.get('username')} - {bot_name}")
             break
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")
-            log(f"Khong ket noi duoc Telegram HTTP {exc.code}: {detail[:500]}")
+            log(f"Không kết nối được Telegram HTTP {exc.code}: {detail[:500]}")
             time.sleep(30)
         except urllib.error.URLError as exc:
-            log(f"Khong ket noi duoc Telegram do loi mang/DNS: {exc}. Thu lai sau 30 giay.")
+            log(f"Không kết nối được Telegram do lỗi mạng/DNS: {exc}. Thử lại sau 30 giây.")
             time.sleep(30)
         except Exception as exc:
-            log(f"Khong ket noi duoc Telegram: {exc}. Thu lai sau 30 giay.")
+            log(f"Không kết nối được Telegram: {exc}. Thử lại sau 30 giây.")
             time.sleep(30)
 
     offset = 0
@@ -4111,15 +4261,15 @@ def main() -> None:
                 executor.submit(process_update, update)
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")
-            log(f"Loi Telegram HTTP {exc.code}: {detail[:500]}")
+            log(f"Lỗi Telegram HTTP {exc.code}: {detail[:500]}")
             if exc.code == 409:
-                log("Co the dang co mot bot khac cung token dang chay. Hay tat bot o may cu/tiến trinh cu.")
+                log("Có thể đang có một bot khác cùng token chạy. Hãy tắt bot trên máy hoặc tiến trình cũ.")
             time.sleep(10)
         except urllib.error.URLError:
-            log("Loi mang Telegram, thu lai sau 5 giay.")
+            log("Lỗi mạng Telegram, thử lại sau 5 giây.")
             time.sleep(5)
         except Exception as exc:
-            log(f"Loi khong mong doi: {exc}")
+            log(f"Lỗi không mong đợi: {exc}")
             time.sleep(10)
 
 
