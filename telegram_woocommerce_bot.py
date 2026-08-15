@@ -1114,7 +1114,8 @@ def build_ping_html() -> str:
         api_key = os.environ.get("GEMINI_API_KEY")
         if not api_key:
             return "Gemini AI: <b>Chưa cấu hình</b> (thiếu GEMINI_API_KEY)"
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+        model = os.environ.get("GEMINI_MODEL", "gemini-3.7-flash").strip()
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
         body = {
             "contents": [
                 {
@@ -1136,7 +1137,13 @@ def build_ping_html() -> str:
             )
             ms = int((time.time() - t0) * 1000)
             if res.status_code == 200:
-                return f"Gemini AI: <b>OK</b> ({ms}ms - Gemini 2.5 Flash)"
+                return f"Gemini AI: <b>OK</b> ({ms}ms - Gemini 3.7 Flash)"
+            if res.status_code == 404 and model != "gemini-2.5-flash":
+                fb_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+                res_fb = HTTP_SESSION.post(fb_url, json=body, timeout=PING_CHECK_TIMEOUT_SECONDS, verify=verify_ssl)
+                ms = int((time.time() - t0) * 1000)
+                if res_fb.status_code == 200:
+                    return f"Gemini AI: <b>OK</b> ({ms}ms - Gemini 2.5 Flash)"
             return f"Gemini AI: <b>Lỗi HTTP {res.status_code}</b> ({ms}ms)"
         except Exception as exc:
             ms = int((time.time() - t0) * 1000)
@@ -3786,8 +3793,9 @@ def gemini_moderate_review(reviewer: str, content: str) -> tuple[bool, str]:
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
         return True, "Không cấu hình GEMINI_API_KEY, bỏ qua kiểm tra AI"
-        
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key={api_key}"
+
+    model = os.environ.get("GEMINI_MODEL", "gemini-3.7-flash").strip()
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
     prompt = (
         "Bạn là một trợ lý AI thông minh chuyên duyệt đánh giá sản phẩm cho cửa hàng mỹ phẩm Khải Hoàn Derma.\n"
         "Nhiệm vụ của bạn là phân tích đánh giá sản phẩm sau để xem nó là đánh giá tự nhiên của khách mua hàng thật "
@@ -3802,7 +3810,7 @@ def gemini_moderate_review(reviewer: str, content: str) -> tuple[bool, str]:
         '  "reason": "Lý do ngắn gọn bằng tiếng Việt"\n'
         "}"
     )
-    
+
     body = {
         "contents": [
             {
@@ -3815,34 +3823,41 @@ def gemini_moderate_review(reviewer: str, content: str) -> tuple[bool, str]:
             "responseMimeType": "application/json"
         }
     }
-    
+
     try:
-        data = json.dumps(body).encode("utf-8")
-        req = urllib.request.Request(
+        verify_ssl = not (os.environ.get("SSL_NO_VERIFY", "").strip().lower() in {"1", "true", "yes", "on"})
+        response = HTTP_SESSION.post(
             url,
-            data=data,
+            json=body,
             headers={
                 "Content-Type": "application/json",
                 "User-Agent": "Codex Telegram Bot Gemini Moderator"
             },
-            method="POST"
+            timeout=15,
+            verify=verify_ssl
         )
-        with urllib.request.urlopen(req, timeout=15, context=ssl_context()) as response:
-            res_data = json.loads(response.read().decode("utf-8"))
-            candidates = res_data.get("candidates") or []
-            if candidates:
-                content_obj = candidates[0].get("content") or {}
-                parts = content_obj.get("parts") or []
-                if parts:
-                    text_out = parts[0].get("text") or ""
-                    parsed = json.loads(text_out.strip())
-                    is_genuine = bool(parsed.get("is_genuine"))
-                    reason = str(parsed.get("reason") or "AI xác thực thành công")
-                    return is_genuine, reason
+        if response.status_code == 404 and model != "gemini-2.5-flash":
+            fb_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+            response = HTTP_SESSION.post(fb_url, json=body, headers={"Content-Type": "application/json"}, timeout=15, verify=verify_ssl)
+
+        if response.status_code != 200:
+            return False, f"Lỗi API Gemini HTTP {response.status_code}"
+
+        res_data = response.json()
+        candidates = res_data.get("candidates") or []
+        if candidates:
+            content_obj = candidates[0].get("content") or {}
+            parts = content_obj.get("parts") or []
+            if parts:
+                text_out = parts[0].get("text") or ""
+                parsed = json.loads(text_out.strip())
+                is_genuine = bool(parsed.get("is_genuine"))
+                reason = str(parsed.get("reason") or "AI xác thực thành công")
+                return is_genuine, reason
     except Exception as e:
         log(f"Lỗi khi gọi API Gemini: {e}")
         return False, f"Lỗi gọi AI (yêu cầu duyệt tay): {e}"
-        
+
     return False, "Không nhận được phản hồi từ AI"
 
 
