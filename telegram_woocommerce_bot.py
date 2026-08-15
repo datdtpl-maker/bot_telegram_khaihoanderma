@@ -55,7 +55,7 @@ GSC_SCOPE = "https://www.googleapis.com/auth/webmasters.readonly"
 DEFAULT_API_TIMEOUT_SECONDS = 15
 UPLOAD_TIMEOUT_SECONDS = 120
 LONG_POLL_TIMEOUT_SECONDS = 60
-PING_CHECK_TIMEOUT_SECONDS = 4
+PING_CHECK_TIMEOUT_SECONDS = 8
 
 
 def _read_config_text() -> str:
@@ -1123,7 +1123,10 @@ def build_ping_html() -> str:
                         {"text": "OK"}
                     ]
                 }
-            ]
+            ],
+            "generationConfig": {
+                "maxOutputTokens": 1
+            }
         }
         t0 = time.time()
         try:
