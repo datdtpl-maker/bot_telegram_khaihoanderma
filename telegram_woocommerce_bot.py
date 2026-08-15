@@ -24,7 +24,10 @@ from urllib.parse import quote_plus
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util import Retry
+import urllib3
 from bot_modules.google_reports import build_google_report_html, wants_google_report
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 def create_resilient_session() -> requests.Session:
@@ -3075,6 +3078,35 @@ def duckduckgo_search(query: str, limit: int = 5) -> list[dict[str, str]]:
 
 def remove_search_prefix(text: str) -> str:
     return re.sub(r"^(tìm|tim|tra cứu|tra cuu|google|search)\s+", "", text.strip(), flags=re.IGNORECASE).strip()
+
+
+def telegram_api(method: str, payload: dict, timeout: int = DEFAULT_API_TIMEOUT_SECONDS) -> dict:
+    token = os.environ["TELEGRAM_BOT_TOKEN"]
+    url = f"https://api.telegram.org/bot{token}/{method}"
+    verify_ssl = not (os.environ.get("SSL_NO_VERIFY", "").strip().lower() in {"1", "true", "yes", "on"})
+    response = HTTP_SESSION.post(url, data=payload, timeout=timeout, verify=verify_ssl)
+    return response.json()
+
+
+def telegram_get_file_url(file_id: str) -> str:
+    token = os.environ["TELEGRAM_BOT_TOKEN"]
+    result = telegram_api("getFile", {"file_id": file_id})
+    file_path = result.get("result", {}).get("file_path")
+    if not file_path:
+        raise RuntimeError("Telegram không trả về đường dẫn file.")
+    return f"https://api.telegram.org/file/bot{token}/{file_path}"
+
+
+def download_telegram_file(file_id: str, file_name: str) -> Path:
+    safe_name = re.sub(r"[^A-Za-z0-9._ -]+", "_", file_name).strip() or "document.docx"
+    target = OUT_DIR / "telegram_uploads" / f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{safe_name}"
+    target.parent.mkdir(exist_ok=True)
+    url = telegram_get_file_url(file_id)
+    verify_ssl = not (os.environ.get("SSL_NO_VERIFY", "").strip().lower() in {"1", "true", "yes", "on"})
+    response = HTTP_SESSION.get(url, headers={"User-Agent": "Codex Telegram Bot"}, timeout=60, verify=verify_ssl)
+    response.raise_for_status()
+    target.write_bytes(response.content)
+    return target
 
 
 def send_document(chat_id: int, path: Path, caption: str = "") -> None:
