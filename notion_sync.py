@@ -1087,6 +1087,12 @@ def _run_notion_sync_workflow(progress_callback=None, page_ids=None):
                 progress_callback(f"❌ Không đăng '{product_title}': {exc}")
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
+
+    try:
+        if temp_root.exists():
+            shutil.rmtree(temp_root, ignore_errors=True)
+    except Exception:
+        pass
                         
     if processed_products and failed_products:
         msg = (

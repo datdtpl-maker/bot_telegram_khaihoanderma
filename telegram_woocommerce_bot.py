@@ -1,5 +1,6 @@
 import base64
 import csv
+import difflib
 import html
 import json
 import os
@@ -20,9 +21,27 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from threading import Lock
 from urllib.parse import quote_plus
+import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util import Retry
 from bot_modules.google_reports import build_google_report_html, wants_google_report
 
 
+def create_resilient_session() -> requests.Session:
+    session = requests.Session()
+    retries = Retry(
+        total=3,
+        backoff_factor=1.0,
+        status_forcelist=[500, 502, 503, 504],
+        raise_on_status=False,
+    )
+    adapter = HTTPAdapter(max_retries=retries, pool_connections=20, pool_maxsize=40)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    return session
+
+
+HTTP_SESSION = create_resilient_session()
 CODEX_CONFIG = Path(os.environ.get("CODEX_CONFIG", r"C:\Users\datdt\.codex\config.toml"))
 OUT_DIR = Path(__file__).resolve().parent
 LOG_FILE = OUT_DIR / "bot.log"
@@ -58,6 +77,7 @@ def load_woocommerce_credentials() -> tuple[str, str, str]:
     custom_headers = _extract_config_value(text, "CUSTOM_HEADERS")
 
     if not wp_api_url or not custom_headers:
+
         raise RuntimeError("Khong tim thay cau hinh WooCommerce MCP trong config.toml.")
 
     parsed = urllib.parse.urlparse(wp_api_url)
@@ -95,8 +115,6 @@ def load_wordpress_credentials() -> tuple[str, str, str]:
 PENDING_ACTIONS: dict[int, dict] = {}
 CHAT_LOCKS: defaultdict[int, Lock] = defaultdict(Lock)
 NOTIFIED_REVIEWS: set[int] = set()
-
-
 LOG_LOCK = Lock()
 
 
@@ -106,7 +124,6 @@ def log(message: str) -> None:
     print(line, flush=True)
     try:
         with LOG_LOCK:
-            # Giới hạn file log ở mức 5MB, nếu vượt quá sẽ tự động xoay log
             if LOG_FILE.exists() and LOG_FILE.stat().st_size > 5 * 1024 * 1024:
                 backup_log = LOG_FILE.with_suffix(".log.bak")
                 if backup_log.exists():
@@ -133,27 +150,24 @@ def wc_request(
     timeout: int = DEFAULT_API_TIMEOUT_SECONDS,
 ) -> object:
     site_url, consumer_key, consumer_secret = load_woocommerce_credentials()
-    query = urllib.parse.urlencode(params or {})
     url = f"{site_url}/wp-json/wc/v3/{path.lstrip('/')}"
-    if query:
-        url = f"{url}?{query}"
-    token = base64.b64encode(f"{consumer_key}:{consumer_secret}".encode("ascii")).decode("ascii")
-    data = None
     headers = {
-        "Authorization": f"Basic {token}",
         "User-Agent": "Codex Telegram WooCommerce Bot",
     }
-    if body is not None:
-        data = json.dumps(body).encode("utf-8")
-        headers["Content-Type"] = "application/json; charset=utf-8"
-    request = urllib.request.Request(
-        url,
-        data=data,
-        headers=headers,
+    auth = (consumer_key, consumer_secret)
+    verify_ssl = not (os.environ.get("SSL_NO_VERIFY", "").strip().lower() in {"1", "true", "yes", "on"})
+    response = HTTP_SESSION.request(
         method=method,
+        url=url,
+        params=params,
+        json=body if body is not None else None,
+        headers=headers,
+        auth=auth,
+        timeout=timeout,
+        verify=verify_ssl,
     )
-    with urllib.request.urlopen(request, timeout=timeout, context=ssl_context()) as response:
-        return json.loads(response.read().decode("utf-8"))
+    response.raise_for_status()
+    return response.json()
 
 
 def wc_get(path: str, params: dict[str, str | int], timeout: int = DEFAULT_API_TIMEOUT_SECONDS) -> object:
@@ -174,23 +188,23 @@ def wc_delete(path: str, params: dict[str, str | int] | None = None) -> object:
 
 def wp_request(path: str, method: str = "GET", body: dict | None = None, timeout: int = DEFAULT_API_TIMEOUT_SECONDS) -> object:
     site_url, username, password = load_wordpress_credentials()
-    token = base64.b64encode(f"{username}:{password}".encode("utf-8")).decode("ascii")
-    data = None
+    url = f"{site_url}/wp-json/wp/v2/{path.lstrip('/')}"
     headers = {
-        "Authorization": f"Basic {token}",
         "User-Agent": "Codex Telegram WordPress Bot",
     }
-    if body is not None:
-        data = json.dumps(body).encode("utf-8")
-        headers["Content-Type"] = "application/json; charset=utf-8"
-    request = urllib.request.Request(
-        f"{site_url}/wp-json/wp/v2/{path.lstrip('/')}",
-        data=data,
-        headers=headers,
+    auth = (username, password)
+    verify_ssl = not (os.environ.get("SSL_NO_VERIFY", "").strip().lower() in {"1", "true", "yes", "on"})
+    response = HTTP_SESSION.request(
         method=method,
+        url=url,
+        json=body if body is not None else None,
+        headers=headers,
+        auth=auth,
+        timeout=timeout,
+        verify=verify_ssl,
     )
-    with urllib.request.urlopen(request, timeout=timeout, context=ssl_context()) as response:
-        return json.loads(response.read().decode("utf-8"))
+    response.raise_for_status()
+    return response.json()
 
 
 def wp_create_post(title: str, content: str, excerpt: str = "", status: str = "draft") -> dict:
@@ -204,6 +218,8 @@ def wp_create_post(title: str, content: str, excerpt: str = "", status: str = "d
             "status": status,
         },
     )
+
+
 def site_base_url() -> str:
     site_url = os.environ.get("WORDPRESS_SITE_URL")
     if site_url:
@@ -224,8 +240,6 @@ def google_inspect_url(page_url: str) -> str:
 
 
 def ping_google_sitemap() -> tuple[bool, str]:
-    # Google removed the public sitemap ping endpoint. Keep this helper as a
-    # no-network status provider so old call sites stay simple and truthful.
     return False, "Google đã bỏ sitemap ping; dùng GSC Inspect để yêu cầu index."
 
 
@@ -395,155 +409,7 @@ def extract_day(text: str) -> datetime | None:
     now = datetime.now()
 
 
-def indexing_after_publish_html(product: dict) -> str:
-    link = product.get("permalink") or ""
-    log_new_product_url(product)
-    _, ping_status = ping_google_sitemap()
-    sitemap = sitemap_url()
 
-    lines = [
-        "",
-        "<b>Google index</b>",
-        f"• Sitemap: <code>{h(sitemap)}</code>",
-        f"• Tự động ping sitemap: <b>không dùng</b> - {h(ping_status)}",
-    ]
-    if link:
-        lines.append(f'• URL sản phẩm: <a href="{h(link)}">Mở sản phẩm</a>')
-        lines.append(f'• GSC Inspect: <a href="{h(google_inspect_url(link))}">Mở để yêu cầu index tay</a>')
-    lines.append("• Google vẫn quyết định thời gian crawl/index sau khi nhận sitemap.")
-    return "\n".join(lines)
-
-
-def month_bounds(month: str) -> tuple[str, str]:
-    if not re.fullmatch(r"\d{4}-\d{2}", month):
-        raise ValueError("Thang phai co dinh dang YYYY-MM, vi du 2026-05.")
-    year, mon = map(int, month.split("-"))
-    start = datetime(year, mon, 1)
-    if mon == 12:
-        end = datetime(year + 1, 1, 1)
-    else:
-        end = datetime(year, mon + 1, 1)
-    return start.strftime("%Y-%m-%dT00:00:00"), end.strftime("%Y-%m-%dT00:00:00")
-
-
-def fetch_orders(month: str) -> list[dict]:
-    after, before = month_bounds(month)
-    orders: list[dict] = []
-    page = 1
-    while True:
-        batch = wc_get(
-            "orders",
-            {
-                "after": after,
-                "before": before,
-                "per_page": 100,
-                "page": page,
-                "orderby": "date",
-                "order": "asc",
-                "status": "any",
-            },
-        )
-        if not isinstance(batch, list):
-            raise RuntimeError("WooCommerce tra ve du lieu don hang khong hop le.")
-        orders.extend(batch)
-        if len(batch) < 100:
-            return orders
-        page += 1
-
-
-def summarize_orders(orders: list[dict]) -> tuple[list[dict], list[dict], dict[str, int], float, float, dict[str, int]]:
-    product_map: dict[str, dict] = {}
-    statuses: dict[str, int] = defaultdict(int)
-    sources: dict[str, int] = defaultdict(int)
-    total_revenue = 0.0
-    line_revenue = 0.0
-
-    for order in orders:
-        statuses[str(order.get("status", ""))] += 1
-        source = order.get("created_via") or "checkout"
-        sources[str(source)] += 1
-        total_revenue += float(order.get("total") or 0)
-        for item in order.get("line_items", []):
-            key = f"{item.get('product_id')}-{item.get('variation_id') or 0}"
-            if key not in product_map:
-                product_map[key] = {
-                    "product_id": item.get("product_id"),
-                    "variation_id": item.get("variation_id"),
-                    "name": item.get("name", ""),
-                    "quantity": 0,
-                    "subtotal": 0.0,
-                    "total": 0.0,
-                    "tax": 0.0,
-                    "order_count": 0,
-                }
-            row = product_map[key]
-            row["quantity"] += int(item.get("quantity") or 0)
-            row["subtotal"] += float(item.get("subtotal") or 0)
-            row["total"] += float(item.get("total") or 0)
-            row["tax"] += float(item.get("total_tax") or 0)
-            row["order_count"] += 1
-            line_revenue += float(item.get("total") or 0)
-
-    order_rows = []
-    for order in orders:
-        billing = order.get("billing", {})
-        items = "; ".join(f"{item.get('name')} x{item.get('quantity')}" for item in order.get("line_items", []))
-        order_rows.append(
-            {
-                "id": order.get("id"),
-                "number": order.get("number"),
-                "date_created": order.get("date_created"),
-                "status": order.get("status"),
-                "customer": f"{billing.get('first_name', '')} {billing.get('last_name', '')}".strip(),
-                "phone": billing.get("phone", ""),
-                "email": billing.get("email", ""),
-                "payment_method": order.get("payment_method_title", ""),
-                "currency": order.get("currency", ""),
-                "shipping_total": order.get("shipping_total", ""),
-                "discount_total": order.get("discount_total", ""),
-                "total": order.get("total", ""),
-                "items": items,
-            }
-        )
-
-    products = sorted(product_map.values(), key=lambda row: row["total"], reverse=True)
-    return order_rows, products, dict(statuses), total_revenue, line_revenue, dict(sources)
-
-
-def money(value: float | str) -> str:
-    if value == "" or value is None:
-        return "Liên hệ"
-    try:
-        val_float = float(value)
-        if val_float == 0:
-            return "Liên hệ"
-        return f"{round(val_float):,.0f}".replace(",", ".")
-    except ValueError:
-        return str(value)
-
-
-def h(value: object) -> str:
-    return html.escape(str(value), quote=False)
-
-
-def normalize_text(text: str) -> str:
-    return text.strip().lower()
-
-
-def current_month() -> str:
-    return datetime.now().strftime("%Y-%m")
-
-
-def day_bounds(day: datetime) -> tuple[str, str]:
-    start = datetime(day.year, day.month, day.day)
-    end = start + timedelta(days=1)
-    return start.strftime("%Y-%m-%dT00:00:00"), end.strftime("%Y-%m-%dT00:00:00")
-
-
-def extract_day(text: str) -> datetime | None:
-    normalized = normalize_text(text)
-    # Lấy mốc thời gian hiện tại làm gốc để so sánh
-    now = datetime.now()
     if "hôm nay" in normalized or "hom nay" in normalized or "today" in normalized:
         return now
     if "hôm qua" in normalized or "hom qua" in normalized or "yesterday" in normalized:
@@ -671,6 +537,24 @@ def wants_woocommerce(text: str) -> bool:
     asks_orders = any(keyword in normalized for keyword in ["đơn", "don"])
     has_period = bool(extract_date_range_to_now(text) or extract_date_range(text) or extract_day(text))
     return asks_orders and has_period
+
+
+def revenue_inline_keyboard(query_text: str = "") -> dict:
+    export_cmd = f"chi tiết {query_text}".strip()
+    if not query_text or len(export_cmd.encode("utf-8")) > 60:
+        export_cmd = "chi tiết đơn hàng"
+    return {
+        "inline_keyboard": [
+            [
+                {"text": "📥 Xuất file Excel chi tiết", "callback_data": export_cmd}
+            ],
+            [
+                {"text": "📅 Hôm nay", "callback_data": "doanh thu hôm nay"},
+                {"text": "📊 Tháng này", "callback_data": "doanh thu tháng này"},
+                {"text": "📈 Năm nay", "callback_data": "doanh thu năm nay"},
+            ],
+        ]
+    }
 
 
 def parse_order_detail_request(text: str) -> str | None:
@@ -1006,8 +890,16 @@ def wants_ping(text: str) -> bool:
     return normalized in {
         "ping",
         "/ping",
+        "health",
+        "/health",
+        "status",
+        "/status",
         "kiem tra bot",
         "kiểm tra bot",
+        "kiem tra ket noi",
+        "kiểm tra kết nối",
+        "kiem tra he thong",
+        "kiểm tra hệ thống",
         "bot còn chạy không",
         "bot con chay khong",
         "bot hoạt động không",
@@ -1195,86 +1087,111 @@ def format_uptime() -> str:
 
 def build_ping_html() -> str:
     def check_woocommerce() -> str:
+        t0 = time.time()
         try:
             products = wc_get("products", {"per_page": 1, "page": 1}, timeout=PING_CHECK_TIMEOUT_SECONDS)
-            return f"WooCommerce: <b>OK</b> ({len(products) if isinstance(products, list) else 0} mẫu)"
+            ms = int((time.time() - t0) * 1000)
+            count = len(products) if isinstance(products, list) else 0
+            return f"WooCommerce: <b>OK</b> ({ms}ms - kết nối tốt)"
         except Exception as exc:
-            return f"WooCommerce: <b>Lỗi</b> - <code>{h(exc)}</code>"
+            ms = int((time.time() - t0) * 1000)
+            return f"WooCommerce: <b>Lỗi</b> ({ms}ms) - <code>{h(exc)}</code>"
 
     def check_wordpress() -> str:
+        t0 = time.time()
         try:
             wp_request("users/me", timeout=PING_CHECK_TIMEOUT_SECONDS)
-            return "WordPress: <b>OK</b>"
+            ms = int((time.time() - t0) * 1000)
+            return f"WordPress: <b>OK</b> ({ms}ms - REST API sẵn sàng)"
         except Exception as exc:
-            return f"WordPress: <b>Lỗi</b> - <code>{h(exc)}</code>"
+            ms = int((time.time() - t0) * 1000)
+            return f"WordPress: <b>Lỗi</b> ({ms}ms) - <code>{h(exc)}</code>"
 
     def check_gemini() -> str:
         api_key = os.environ.get("GEMINI_API_KEY")
         if not api_key:
-            return "Gemini AI: <b>Lỗi</b> - <code>Thiếu GEMINI_API_KEY</code>"
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key={api_key}"
+            return "Gemini AI: <b>Chưa cấu hình</b> (thiếu GEMINI_API_KEY)"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
         body = {
             "contents": [
                 {
                     "parts": [
-                        {"text": "Hãy trả lời đúng từ: OK"}
+                        {"text": "OK"}
                     ]
                 }
             ]
         }
+        t0 = time.time()
         try:
-            data = json.dumps(body).encode("utf-8")
-            req = urllib.request.Request(
+            verify_ssl = not (os.environ.get("SSL_NO_VERIFY", "").strip().lower() in {"1", "true", "yes", "on"})
+            res = HTTP_SESSION.post(
                 url,
-                data=data,
+                json=body,
                 headers={"Content-Type": "application/json", "User-Agent": "Codex Telegram Bot Ping Check"},
-                method="POST"
+                timeout=PING_CHECK_TIMEOUT_SECONDS,
+                verify=verify_ssl,
             )
-            ctx = None
-            if os.environ.get("SSL_NO_VERIFY", "").strip().lower() in {"1", "true", "yes", "on"}:
-                ctx = urllib.request.ssl._create_unverified_context()
-            with urllib.request.urlopen(req, timeout=PING_CHECK_TIMEOUT_SECONDS, context=ctx) as response:
-                res_data = json.loads(response.read().decode("utf-8"))
-                candidates = res_data.get("candidates") or []
-                if candidates:
-                    content_obj = candidates[0].get("content") or {}
-                    parts = content_obj.get("parts") or []
-                    if parts:
-                        return "Gemini AI: <b>OK</b>"
-                return "Gemini AI: <b>Lỗi</b> - <code>Không nhận được phản hồi từ Gemini</code>"
+            ms = int((time.time() - t0) * 1000)
+            if res.status_code == 200:
+                return f"Gemini AI: <b>OK</b> ({ms}ms - Gemini 2.5 Flash)"
+            return f"Gemini AI: <b>Lỗi HTTP {res.status_code}</b> ({ms}ms)"
         except Exception as exc:
-            return f"Gemini AI: <b>Lỗi</b> - <code>{h(exc)}</code>"
+            ms = int((time.time() - t0) * 1000)
+            return f"Gemini AI: <b>Lỗi</b> ({ms}ms) - <code>{h(exc)}</code>"
 
-    checks = ["Telegram: <b>OK</b> (đã nhận được tin nhắn)"]
-    executor = ThreadPoolExecutor(max_workers=3)
+    def check_notion() -> str:
+        notion_token = os.environ.get("NOTION_TOKEN")
+        database_id = os.environ.get("NOTION_DATABASE_ID")
+        if not notion_token or not database_id:
+            return "Notion Sync: <b>Chưa cấu hình</b> (chưa đặt token/database)"
+        t0 = time.time()
+        try:
+            verify_ssl = not (os.environ.get("SSL_NO_VERIFY", "").strip().lower() in {"1", "true", "yes", "on"})
+            url = f"https://api.notion.com/v1/databases/{database_id}"
+            headers = {
+                "Authorization": f"Bearer {notion_token}",
+                "Notion-Version": "2022-06-28",
+                "User-Agent": "Codex Telegram Bot Ping Check",
+            }
+            res = HTTP_SESSION.get(url, headers=headers, timeout=PING_CHECK_TIMEOUT_SECONDS, verify=verify_ssl)
+            ms = int((time.time() - t0) * 1000)
+            if res.status_code == 200:
+                return f"Notion Sync: <b>OK</b> ({ms}ms - Database đã kết nối)"
+            return f"Notion Sync: <b>Lỗi HTTP {res.status_code}</b> ({ms}ms)"
+        except Exception as exc:
+            ms = int((time.time() - t0) * 1000)
+            return f"Notion Sync: <b>Lỗi</b> ({ms}ms) - <code>{h(exc)}</code>"
+
+    checks = ["Telegram: <b>OK</b> (kết nối trực tiếp)"]
+    executor = ThreadPoolExecutor(max_workers=4)
     futures = {
         executor.submit(check_woocommerce): "WooCommerce",
         executor.submit(check_wordpress): "WordPress",
         executor.submit(check_gemini): "Gemini AI",
+        executor.submit(check_notion): "Notion Sync",
     }
-    done, pending = wait(futures, timeout=PING_CHECK_TIMEOUT_SECONDS + 1)
+    done, pending = wait(futures, timeout=PING_CHECK_TIMEOUT_SECONDS + 2)
     for future, name in futures.items():
         if future in done:
             checks.append(future.result())
         else:
-            checks.append(f"{name}: <b>Chậm</b> - quá {PING_CHECK_TIMEOUT_SECONDS + 1} giây chưa phản hồi")
+            checks.append(f"{name}: <b>Chậm</b> - quá {PING_CHECK_TIMEOUT_SECONDS + 2}s chưa phản hồi")
     executor.shutdown(wait=False, cancel_futures=True)
 
-    # Sắp xếp thứ tự các check cho đẹp mắt
     sorted_checks = []
-    for prefix in ["Telegram:", "WooCommerce:", "WordPress:", "Gemini AI:"]:
+    for prefix in ["Telegram:", "WooCommerce:", "WordPress:", "Gemini AI:", "Notion Sync:"]:
         for line in checks:
             if line.startswith(prefix):
                 sorted_checks.append(line)
                 break
     for line in checks:
-        if not any(line.startswith(p) for p in ["Telegram:", "WooCommerce:", "WordPress:", "Gemini AI:"]):
+        if not any(line.startswith(p) for p in ["Telegram:", "WooCommerce:", "WordPress:", "Gemini AI:", "Notion Sync:"]):
             sorted_checks.append(line)
 
     return (
-        "<b>Trạng thái bot</b>\n\n"
-        f"• Bot: <b>đang hoạt động</b>\n"
-        f"• Thời gian chạy: <b>{h(format_uptime())}</b>\n"
+        "<b>Trạng thái hệ thống & kết nối</b>\n\n"
+        f"• Trạng thái bot: <b>Đang hoạt động</b>\n"
+        f"• Thời gian chạy (Uptime): <b>{h(format_uptime())}</b>\n"
         f"• Thời điểm kiểm tra: <code>{h(datetime.now().strftime('%Y-%m-%d %H:%M:%S'))}</code>\n\n"
         + "\n".join(f"• {line}" for line in sorted_checks)
     )
@@ -1637,12 +1554,45 @@ def variation_search_text(variation: dict) -> str:
 
 def find_matching_variations(variations: list[dict], query: str) -> list[dict]:
     target = normalize_product_name(query)
+    target_plain = plain_ascii(target)
     if not target:
         return []
-    exact = [variation for variation in variations if variation_search_text(variation) == target]
+
+    # 1. Exact or Option match
+    exact = []
+    for var in variations:
+        v_label = normalize_product_name(variation_label(var))
+        v_plain = plain_ascii(v_label)
+        options = [normalize_product_name(str(a.get("option") or "")) for a in (var.get("attributes") or [])]
+        options_plain = [plain_ascii(opt) for opt in options]
+        if target == v_label or target_plain == v_plain or target in options or target_plain in options_plain:
+            exact.append(var)
     if exact:
         return exact
-    return [variation for variation in variations if target in variation_search_text(variation)]
+
+    # 2. Substring match
+    substring = []
+    for var in variations:
+        v_text = variation_search_text(var)
+        v_plain = plain_ascii(v_text)
+        if target in v_text or target_plain in v_plain or v_text in target or v_plain in target_plain:
+            substring.append(var)
+    if substring:
+        return substring
+
+    # 3. Fuzzy matching qua difflib
+    scored = []
+    for var in variations:
+        v_text = variation_search_text(var)
+        v_plain = plain_ascii(v_text)
+        r1 = difflib.SequenceMatcher(None, target_plain, v_plain).ratio()
+        r2 = difflib.SequenceMatcher(None, target_plain, plain_ascii(variation_label(var))).ratio()
+        opts = [difflib.SequenceMatcher(None, target_plain, plain_ascii(str(a.get("option") or ""))).ratio() for a in (var.get("attributes") or [])]
+        best_ratio = max([r1, r2] + opts) if opts else max(r1, r2)
+        if best_ratio >= 0.5:
+            scored.append((var, best_ratio))
+    scored.sort(key=lambda x: x[1], reverse=True)
+    return [item[0] for item in scored]
 
 
 def normalize_product_name(value: str) -> str:
@@ -1704,43 +1654,51 @@ def get_cached_all_products() -> list[dict]:
 
 
 def find_products_by_fuzzy_name(name: str) -> list[dict]:
-    # 1. Tim kiem bang API WooCommerce truoc
-    products = search_products(name, limit=20)
     target_normalized = normalize_product_name(name)
     if not target_normalized:
         return []
 
-    # Loc/Kiem tra de dam bao ket qua search API co chua cum tu nguoi dung go
+    # 1. Tìm kiếm bằng API WooCommerce trước
+    products = search_products(name, limit=20)
+
+    # Lọc/Kiểm tra để đảm bảo kết quả search API có chứa cụm từ hoặc tương đồng cao
     matched_products = []
     for product in products:
         p_name = normalize_product_name(product.get("name", ""))
         if target_normalized in p_name or p_name in target_normalized:
             matched_products.append(product)
+        elif difflib.SequenceMatcher(None, target_normalized, p_name).ratio() >= 0.6:
+            matched_products.append(product)
 
-    # 2. Neu API search khong ra, tien hanh do tim tu cache (fuzzy search)
+    # 2. Nếu API search không ra, tiến hành dò tìm từ cache (fuzzy search với SequenceMatcher & token)
     if not matched_products:
         all_products = get_cached_all_products()
         matches = []
-        name_tokens = product_tokens(name)
+        name_tokens = set(product_tokens(name))
 
         for product in all_products:
             p_name = product.get("name", "")
             p_normalized = normalize_product_name(p_name)
 
-            # Khop chuoi con
+            # Khớp chuỗi con
             if target_normalized in p_normalized or p_normalized in target_normalized:
                 matches.append((product, 1.0))
                 continue
 
-            # Khop theo tu (token)
-            p_tokens = product_tokens(p_name)
-            if not p_tokens:
-                continue
-            matched = [t for t in p_tokens if t in name_tokens]
-            if matched:
-                score = len(matched) / max(len(p_tokens), len(name_tokens))
-                if score >= 0.3:
-                    matches.append((product, score))
+            # Khớp độ tương đồng chuỗi difflib
+            sim_ratio = difflib.SequenceMatcher(None, target_normalized, p_normalized).ratio()
+
+            # Khớp theo từ (token)
+            p_tokens = set(product_tokens(p_name))
+            token_score = 0.0
+            if p_tokens and name_tokens:
+                intersect = p_tokens.intersection(name_tokens)
+                if intersect:
+                    token_score = len(intersect) / max(len(p_tokens), len(name_tokens))
+
+            best_score = max(sim_ratio, token_score)
+            if best_score >= 0.4:
+                matches.append((product, best_score))
 
         matches.sort(key=lambda item: item[1], reverse=True)
         matched_products = [item[0] for item in matches[:5]]
@@ -2941,7 +2899,6 @@ def looks_vietnamese(value: str) -> bool:
     vietnamese_marks = "\u00e0\u00e1\u1ea3\u00e3\u1ea1\u0103\u1eb1\u1eaf\u1eb3\u1eb5\u1eb7\u00e2\u1ea7\u1ea5\u1ea9\u1eab\u1ead\u00e8\u00e9\u1ebb\u1ebd\u1eb9\u00ea\u1ec1\u1ebf\u1ec3\u1ec5\u1ec7\u00ec\u00ed\u1ec9\u0129\u1ecb\u00f2\u00f3\u1ecf\u00f5\u1ecd\u00f4\u1ed3\u1ed1\u1ed5\u1ed7\u1ed9\u01a1\u1edd\u1edb\u1edf\u1ee1\u1ee3\u00f9\u00fa\u1ee7\u0169\u1ee5\u01b0\u1eeb\u1ee9\u1eed\u1eef\u1ef1\u1ef3\u00fd\u1ef7\u1ef9\u1ef5\u0111"
     if any(ch in normalized for ch in vietnamese_marks):
         return True
-
     common_words = [
         " la ", " cua ", " va ", " trong ", " dieu tri ", " tri ",
         " thuoc ", " san pham ", " lam dep ", " cham soc ", " mun ", " da ", " kem ", " serum ",
@@ -3117,115 +3074,22 @@ def duckduckgo_search(query: str, limit: int = 5) -> list[dict[str, str]]:
 
 
 def remove_search_prefix(text: str) -> str:
-    return re.sub(r"^(t\u00ecm|tim|tra c\u1ee9u|tra cuu|google|search)\s+", "", text.strip(), flags=re.IGNORECASE).strip()
-
-
-def vietnamese_context_note(query: str, result_count: int) -> str:
-    if is_health_or_skincare_query(query):
-        return (
-            "Bot \u01b0u ti\u00ean ngu\u1ed3n ti\u1ebfng Vi\u1ec7t v\u1ec1 d\u01b0\u1ee3c, da li\u1ec5u v\u00e0 ch\u0103m s\u00f3c da. "
-            "Th\u00f4ng tin ch\u1ec9 d\u00f9ng \u0111\u1ec3 tham kh\u1ea3o, kh\u00f4ng thay th\u1ebf t\u01b0 v\u1ea5n c\u1ee7a b\u00e1c s\u0129 ho\u1eb7c d\u01b0\u1ee3c s\u0129."
-        )
-    return "Bot \u01b0u ti\u00ean k\u1ebft qu\u1ea3 ti\u1ebfng Vi\u1ec7t v\u00e0 ngu\u1ed3n ph\u00f9 h\u1ee3p v\u1edbi n\u1ed9i dung b\u1ea1n h\u1ecfi."
-
-
-def build_web_search_html(text: str) -> str:
-    query = remove_search_prefix(text)
-    results = duckduckgo_search(query)
-    if not results:
-        return (
-            "<b>Tra c\u1ee9u web</b>\n\n"
-            f"<b>T\u1eeb kh\u00f3a:</b> <code>{h(query)}</code>\n"
-            "Kh\u00f4ng t\u00ecm th\u1ea5y k\u1ebft qu\u1ea3 ti\u1ebfng Vi\u1ec7t ph\u00f9 h\u1ee3p. B\u1ea1n c\u00f3 th\u1ec3 h\u1ecfi l\u1ea1i b\u1eb1ng t\u1eeb kh\u00f3a c\u1ee5 th\u1ec3 h\u01a1n."
-        )
-
-    lines = [
-        "<b>Tra c\u1ee9u web</b>",
-        f"<b>T\u1eeb kh\u00f3a:</b> <code>{h(query)}</code>",
-        f"<i>{h(vietnamese_context_note(query, len(results)))}</i>",
-        "",
-        "<b>K\u1ebft qu\u1ea3 ph\u00f9 h\u1ee3p</b>",
-    ]
-    for idx, result in enumerate(results, start=1):
-        title = result.get("title", "").strip()
-        snippet = result.get("snippet", "").strip()
-        link = result.get("link", "").strip()
-        domain = source_domain(link)
-        if snippet and not looks_vietnamese(snippet) and is_health_or_skincare_query(query):
-            snippet = "Ngu\u1ed3n n\u00e0y c\u00f3 th\u00f4ng tin li\u00ean quan b\u1eb1ng ti\u1ebfng Vi\u1ec7t. M\u1edf ngu\u1ed3n \u0111\u1ec3 xem n\u1ed9i dung \u0111\u1ea7y \u0111\u1ee7."
-        lines.append(
-            f"<b>{idx}. {h(title)}</b>\n"
-            + (f"{h(snippet)}\n" if snippet else "")
-            + (f"<code>{h(domain)}</code>\n" if domain else "")
-            + f"<a href=\"{h(link)}\">M\u1edf ngu\u1ed3n</a>"
-        )
-    return "\n\n".join(lines)
-
-
-def telegram_api(method: str, payload: dict, timeout: int = DEFAULT_API_TIMEOUT_SECONDS) -> dict:
-    token = os.environ["TELEGRAM_BOT_TOKEN"]
-    data = urllib.parse.urlencode(payload).encode("utf-8")
-    request = urllib.request.Request(f"https://api.telegram.org/bot{token}/{method}", data=data)
-    with urllib.request.urlopen(request, timeout=timeout, context=ssl_context()) as response:
-        return json.loads(response.read().decode("utf-8"))
-
-
-def telegram_get_file_url(file_id: str) -> str:
-    token = os.environ["TELEGRAM_BOT_TOKEN"]
-    result = telegram_api("getFile", {"file_id": file_id})
-    file_path = result.get("result", {}).get("file_path")
-    if not file_path:
-        raise RuntimeError("Telegram không trả về đường dẫn file.")
-    return f"https://api.telegram.org/file/bot{token}/{file_path}"
-
-
-def download_telegram_file(file_id: str, file_name: str) -> Path:
-    safe_name = re.sub(r"[^A-Za-z0-9._ -]+", "_", file_name).strip() or "document.docx"
-    target = OUT_DIR / "telegram_uploads" / f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{safe_name}"
-    target.parent.mkdir(exist_ok=True)
-    url = telegram_get_file_url(file_id)
-    request = urllib.request.Request(url, headers={"User-Agent": "Codex Telegram Bot"})
-    with urllib.request.urlopen(request, timeout=60, context=ssl_context()) as response:
-        target.write_bytes(response.read())
-    return target
+    return re.sub(r"^(tìm|tim|tra cứu|tra cuu|google|search)\s+", "", text.strip(), flags=re.IGNORECASE).strip()
 
 
 def send_document(chat_id: int, path: Path, caption: str = "") -> None:
     token = os.environ["TELEGRAM_BOT_TOKEN"]
-    boundary = f"----CodexTelegramBoundary{int(time.time() * 1000)}"
-    fields = {
+    url = f"https://api.telegram.org/bot{token}/sendDocument"
+    verify_ssl = not (os.environ.get("SSL_NO_VERIFY", "").strip().lower() in {"1", "true", "yes", "on"})
+    data = {
         "chat_id": str(chat_id),
         "caption": caption,
         "parse_mode": "HTML",
     }
-    body = bytearray()
-    for name, value in fields.items():
-        body.extend(f"--{boundary}\r\n".encode("utf-8"))
-        body.extend(f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode("utf-8"))
-        body.extend(str(value).encode("utf-8"))
-        body.extend(b"\r\n")
-    body.extend(f"--{boundary}\r\n".encode("utf-8"))
-    body.extend(
-        f'Content-Disposition: form-data; name="document"; filename="{path.name}"\r\n'.encode("utf-8")
-    )
-    if path.suffix.lower() == ".xlsx":
-        content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    elif path.suffix.lower() == ".csv":
-        content_type = "text/csv"
-    else:
-        content_type = "application/octet-stream"
-    body.extend(f"Content-Type: {content_type}\r\n\r\n".encode("utf-8"))
-    body.extend(path.read_bytes())
-    body.extend(b"\r\n")
-    body.extend(f"--{boundary}--\r\n".encode("utf-8"))
-
-    request = urllib.request.Request(
-        f"https://api.telegram.org/bot{token}/sendDocument",
-        data=bytes(body),
-        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
-    )
-    with urllib.request.urlopen(request, timeout=UPLOAD_TIMEOUT_SECONDS, context=ssl_context()) as response:
-        json.loads(response.read().decode("utf-8"))
+    with open(path, "rb") as f:
+        files = {"document": (path.name, f)}
+        response = HTTP_SESSION.post(url, data=data, files=files, timeout=UPLOAD_TIMEOUT_SECONDS, verify=verify_ssl)
+        response.raise_for_status()
 
 
 def send_message(chat_id: int, text: str, reply_markup: dict | None = None) -> dict:
@@ -3543,6 +3407,9 @@ def handle_message(chat_id: int, text: str) -> None:
         elif wants_today_orders(text):
             send_typing(chat_id)
             html_text = build_today_orders_html()
+            reply_markup = revenue_inline_keyboard("hôm nay")
+            send_message(chat_id, html_text, reply_markup=reply_markup)
+            return
         elif (order_id := parse_order_detail_request(text)):
             send_typing(chat_id)
             html_text = build_order_detail_html(order_id)
@@ -3550,6 +3417,9 @@ def handle_message(chat_id: int, text: str) -> None:
             send_typing(chat_id)
             _, month = re.match(r"^/(report|orders|products)\s+(\d{4}-\d{2})$", text.strip()).groups()
             html_text = build_woocommerce_html(f"báo cáo {month}")
+            reply_markup = revenue_inline_keyboard(f"tháng {month}")
+            send_message(chat_id, html_text, reply_markup=reply_markup)
+            return
         elif wants_product_catalog_report(text):
             send_typing(chat_id)
             caption, report_path = export_product_catalog_report()
@@ -3558,6 +3428,9 @@ def handle_message(chat_id: int, text: str) -> None:
         elif wants_woocommerce(text):
             send_typing(chat_id)
             html_text = build_woocommerce_html(text)
+            reply_markup = revenue_inline_keyboard(text)
+            send_message(chat_id, html_text, reply_markup=reply_markup)
+            return
         elif wants_google_report(text):
             send_typing(chat_id)
             html_text = build_google_report_html(text)
