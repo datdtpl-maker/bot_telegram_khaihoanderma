@@ -1114,7 +1114,7 @@ def build_ping_html() -> str:
         api_key = os.environ.get("GEMINI_API_KEY")
         if not api_key:
             return "Gemini AI: <b>Chưa cấu hình</b> (thiếu GEMINI_API_KEY)"
-        model = os.environ.get("GEMINI_MODEL", "gemini-3.7-flash").strip()
+        model = os.environ.get("GEMINI_MODEL", "gemini-3.8-flash").strip()
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
         body = {
             "contents": [
@@ -1140,7 +1140,14 @@ def build_ping_html() -> str:
             )
             ms = int((time.time() - t0) * 1000)
             if res.status_code == 200:
-                return f"Gemini AI: <b>OK</b> ({ms}ms - Gemini 3.7 Flash)"
+                display_name = "Gemini 3.8 Flash" if model == "gemini-3.8-flash" else ("Gemini 3.7 Flash" if model == "gemini-3.7-flash" else model)
+                return f"Gemini AI: <b>OK</b> ({ms}ms - {display_name})"
+            if res.status_code == 404 and model != "gemini-3.7-flash":
+                fb_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.7-flash:generateContent?key={api_key}"
+                res_fb = HTTP_SESSION.post(fb_url, json=body, timeout=PING_CHECK_TIMEOUT_SECONDS, verify=verify_ssl)
+                ms = int((time.time() - t0) * 1000)
+                if res_fb.status_code == 200:
+                    return f"Gemini AI: <b>OK</b> ({ms}ms - Gemini 3.7 Flash)"
             if res.status_code == 404 and model != "gemini-2.5-flash":
                 fb_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
                 res_fb = HTTP_SESSION.post(fb_url, json=body, timeout=PING_CHECK_TIMEOUT_SECONDS, verify=verify_ssl)
@@ -3797,7 +3804,7 @@ def gemini_moderate_review(reviewer: str, content: str) -> tuple[bool, str]:
     if not api_key:
         return True, "Không cấu hình GEMINI_API_KEY, bỏ qua kiểm tra AI"
 
-    model = os.environ.get("GEMINI_MODEL", "gemini-3.7-flash").strip()
+    model = os.environ.get("GEMINI_MODEL", "gemini-3.8-flash").strip()
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
     prompt = (
         "Bạn là một trợ lý AI thông minh chuyên duyệt đánh giá sản phẩm cho cửa hàng mỹ phẩm Khải Hoàn Derma.\n"
@@ -3839,6 +3846,9 @@ def gemini_moderate_review(reviewer: str, content: str) -> tuple[bool, str]:
             timeout=15,
             verify=verify_ssl
         )
+        if response.status_code == 404 and model != "gemini-3.7-flash":
+            fb_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.7-flash:generateContent?key={api_key}"
+            response = HTTP_SESSION.post(fb_url, json=body, headers={"Content-Type": "application/json"}, timeout=15, verify=verify_ssl)
         if response.status_code == 404 and model != "gemini-2.5-flash":
             fb_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
             response = HTTP_SESSION.post(fb_url, json=body, headers={"Content-Type": "application/json"}, timeout=15, verify=verify_ssl)

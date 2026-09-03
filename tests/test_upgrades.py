@@ -82,12 +82,14 @@ class UpgradesTestSuite(unittest.TestCase):
     def test_build_ping_html_reports_latency(self):
         with patch.object(bot, "wc_get", return_value=[{"id": 1}]), \
              patch.object(bot, "wp_request", return_value={"id": 1}), \
+             patch.dict("os.environ", {"GEMINI_API_KEY": "dummy-key"}), \
              patch.object(bot.HTTP_SESSION, "post", return_value=MagicMock(status_code=200)):
             html = bot.build_ping_html()
             self.assertIn("Trạng thái hệ thống & kết nối", html)
             self.assertIn("WooCommerce: <b>OK</b>", html)
             self.assertIn("WordPress: <b>OK</b>", html)
             self.assertIn("Telegram: <b>OK</b>", html)
+            self.assertIn("Gemini 3.8 Flash", html)
             self.assertIn("ms", html)
 
 
