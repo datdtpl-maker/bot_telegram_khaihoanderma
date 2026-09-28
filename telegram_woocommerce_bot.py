@@ -3409,7 +3409,14 @@ def handle_message(chat_id: int, text: str) -> None:
         elif normalized in {"hủy", "huy", "cancel", "không", "khong"} and chat_id in PENDING_ACTIONS:
             PENDING_ACTIONS.pop(chat_id, None)
             html_text = "Đã hủy thao tác đang chờ."
-        elif normalized in {"xóa cache đánh giá", "xoa cache danh gia", "reset đánh giá", "reset danh gia"}:
+        elif normalized in {
+            "xóa cache đánh giá", "xoa cache danh gia",
+            "reset đánh giá", "reset danh gia",
+            "quét đánh giá", "quet danh gia",
+            "kiểm tra đánh giá", "kiem tra danh gia",
+            "check review", "check đánh giá"
+        }:
+            send_typing(chat_id)
             global NOTIFIED_REVIEWS
             NOTIFIED_REVIEWS.clear()
             notified_file = OUT_DIR / "notified_reviews.json"
@@ -3418,7 +3425,18 @@ def handle_message(chat_id: int, text: str) -> None:
                     notified_file.unlink()
                 except Exception:
                     pass
-            html_text = "🔄 <b>Đã xóa bộ nhớ cache đánh giá thành công!</b>\nBot sẽ tự động quét lại toàn bộ các đánh giá chờ duyệt ở chu kỳ tiếp theo."
+            new_count = scan_and_notify_reviews()
+            if new_count > 0:
+                html_text = (
+                    f"🔄 <b>Đã xóa cache và quét xong ngay!</b>\n"
+                    f"Phát hiện <b>{new_count}</b> đánh giá chờ duyệt (hold). "
+                    f"Bot đã tiến hành xử lý và gửi thông báo lên hệ thống."
+                )
+            else:
+                html_text = (
+                    "🔄 <b>Đã xóa cache và quét xong ngay!</b>\n"
+                    "Hiện tại không tìm thấy đánh giá nào đang ở trạng thái chờ duyệt (status: hold) trên WooCommerce."
+                )
         elif normalized in {"hướng dẫn cú pháp", "huong dan cu phap", "cú pháp mẫu", "cu phap mau"}:
             html_text = (
                 "<b>💡 HƯỚNG DẪN CÁC CÚ PHÁP LỆNH CHỈNH SỬA NHANH</b>\n\n"
@@ -3936,6 +3954,117 @@ def auto_moderate_review(rev: dict) -> tuple[bool, str]:
     return True, f"Thỏa mãn tất cả các tiêu chuẩn duyệt tự động. {ai_reason}"
 
 
+def scan_and_notify_reviews() -> int:
+    global NOTIFIED_REVIEWS
+    notified_file = OUT_DIR / "notified_reviews.json"
+    new_reviews_count = 0
+    try:
+        log("Đang quét WooCommerce để kiểm tra đánh giá mới...")
+        reviews = wc_get("products/reviews", {"status": "hold", "per_page": 100})
+        if not isinstance(reviews, list):
+            log("Lỗi: Kết quả trả về từ WooCommerce reviews không phải danh sách.")
+            return 0
+        
+        log(f"Tìm thấy {len(reviews)} đánh giá chờ duyệt (hold) trên WooCommerce.")
+        if not reviews:
+            return 0
+            
+        new_reviews_detected = []
+        for rev in reviews:
+            rev_id = rev.get("id")
+            if rev_id not in NOTIFIED_REVIEWS:
+                new_reviews_detected.append(rev)
+                
+        log(f"Phát hiện {len(new_reviews_detected)} đánh giá mới chưa thông báo.")
+        if not new_reviews_detected:
+            return 0
+            
+        # Lấy danh sách admin chat IDs
+        allowed_str = os.environ.get("TELEGRAM_ALLOWED_CHAT_IDS", "")
+        allowed_ids = [int(x.strip()) for x in allowed_str.split(",") if x.strip().replace("-", "").isdigit()]
+        
+        for rev in new_reviews_detected:
+            rev_id = rev.get("id")
+            NOTIFIED_REVIEWS.add(rev_id)
+            new_reviews_count += 1
+            
+            # Chi tiết đánh giá
+            reviewer = rev.get("reviewer") or "Ẩn danh"
+            log(f"-> Đang xử lý đánh giá #{rev_id} của {reviewer}...")
+            reviewer_email = rev.get("reviewer_email") or ""
+            rating = rev.get("rating") or 0
+            review_content = plain_text_from_html(rev.get("review") or "")
+            product_id = rev.get("product_id")
+            product_name = find_product_name_by_id(product_id)
+            
+            # Chạy cơ chế duyệt tự động
+            is_auto, moderate_reason = auto_moderate_review(rev)
+            
+            if is_auto:
+                # Tiến hành duyệt tự động đánh giá này trên WooCommerce
+                try:
+                    wc_put(f"products/reviews/{rev_id}", {"status": "approved"})
+                    log(f"Tự động duyệt đánh giá #{rev_id} thành công. Lý do: {moderate_reason}")
+                    
+                    # Gửi thông báo ngắn gọn về cho Admin
+                    msg = (
+                        f"🔔 <b>Tự động duyệt đánh giá 5★ thành công:</b>\n"
+                        f"• <b>Sản phẩm:</b> <a href=\"{site_base_url()}/?p={product_id}\">{h(product_name)}</a>\n"
+                        f"• <b>Khách hàng:</b> {h(reviewer)} ({h(reviewer_email)})\n"
+                        f"• <b>Nội dung:</b> <i>{h(review_content)}</i>\n"
+                        f"• <b>Chi tiết:</b> {h(moderate_reason)}"
+                    )
+                    for cid in allowed_ids:
+                        try:
+                            send_message(cid, msg)
+                        except Exception as e:
+                            log(f"Lỗi gửi thông báo tự động duyệt tới {cid}: {e}")
+                except Exception as e:
+                    log(f"Lỗi khi thực hiện tự động duyệt đánh giá #{rev_id}: {e}")
+                    is_auto = False  # Chuyển về duyệt thủ công nếu gọi API lỗi
+                    
+            if not is_auto:
+                log(f"Yêu cầu kiểm duyệt thủ công đánh giá #{rev_id}. Lý do: {moderate_reason}")
+                # Gửi thông báo duyệt thủ công kèm nút bấm
+                stars = "★" * rating + "☆" * (5 - rating)
+                msg = (
+                    f"⭐ <b>Có đánh giá sản phẩm mới cần duyệt:</b>\n"
+                    f"• <b>Sản phẩm:</b> <a href=\"{site_base_url()}/?p={product_id}\">{h(product_name)}</a>\n"
+                    f"• <b>Người đánh giá:</b> {h(reviewer)} ({h(reviewer_email)})\n"
+                    f"• <b>Đánh giá:</b> {stars} ({rating}/5)\n"
+                    f"• <b>Nội dung:</b> <i>{h(review_content)}</i>\n"
+                    f"• <b>Lý do không tự duyệt:</b> <i>{h(moderate_reason)}</i>\n\n"
+                    f"Bạn muốn duyệt hay xóa đánh giá này?"
+                )
+                
+                reply_markup = {
+                    "inline_keyboard": [
+                        [
+                            {"text": "✅ Duyệt", "callback_data": f"duyệt đánh giá {rev_id}"},
+                            {"text": "❌ Xóa", "callback_data": f"xóa đánh giá {rev_id}"}
+                        ]
+                    ]
+                }
+                
+                for cid in allowed_ids:
+                    try:
+                        send_message(cid, msg, reply_markup=reply_markup)
+                    except Exception as e:
+                        log(f"Lỗi gửi thông báo đánh giá tới {cid}: {e}")
+                    
+        # Lưu danh sách đã thông báo xuống file
+        try:
+            with notified_file.open("w", encoding="utf-8") as f:
+                json.dump(list(NOTIFIED_REVIEWS), f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            log(f"Lỗi ghi file notified_reviews.json: {e}")
+            
+    except Exception as e:
+        log(f"Lỗi khi quét đánh giá tự động: {e}")
+
+    return new_reviews_count
+
+
 def check_reviews_loop() -> None:
     global NOTIFIED_REVIEWS
     notified_file = OUT_DIR / "notified_reviews.json"
@@ -3956,109 +4085,7 @@ def check_reviews_loop() -> None:
             # Ngủ 30 phút (1800 giây) trước các chu kỳ quét tiếp theo
             time.sleep(1800)
         is_first_run = False
-        
-        try:
-            log("Đang quét WooCommerce để kiểm tra đánh giá mới...")
-            reviews = wc_get("products/reviews", {"status": "hold", "per_page": 100})
-            if not isinstance(reviews, list):
-                log("Lỗi: Kết quả trả về từ WooCommerce reviews không phải danh sách.")
-                continue
-            
-            log(f"Tìm thấy {len(reviews)} đánh giá chờ duyệt (hold) trên WooCommerce.")
-            if not reviews:
-                continue
-                
-            new_reviews_detected = []
-            for rev in reviews:
-                rev_id = rev.get("id")
-                if rev_id not in NOTIFIED_REVIEWS:
-                    new_reviews_detected.append(rev)
-                    
-            log(f"Phát hiện {len(new_reviews_detected)} đánh giá mới chưa thông báo.")
-            if not new_reviews_detected:
-                continue
-                
-            # Lấy danh sách admin chat IDs
-            allowed_str = os.environ.get("TELEGRAM_ALLOWED_CHAT_IDS", "")
-            allowed_ids = [int(x.strip()) for x in allowed_str.split(",") if x.strip().replace("-", "").isdigit()]
-            
-            for rev in new_reviews_detected:
-                rev_id = rev.get("id")
-                NOTIFIED_REVIEWS.add(rev_id)
-                
-                # Chi tiết đánh giá
-                reviewer = rev.get("reviewer") or "Ẩn danh"
-                log(f"-> Đang xử lý đánh giá #{rev_id} của {reviewer}...")
-                reviewer_email = rev.get("reviewer_email") or ""
-                rating = rev.get("rating") or 0
-                review_content = plain_text_from_html(rev.get("review") or "")
-                product_id = rev.get("product_id")
-                product_name = find_product_name_by_id(product_id)
-                
-                # Chạy cơ chế duyệt tự động
-                is_auto, moderate_reason = auto_moderate_review(rev)
-                
-                if is_auto:
-                    # Tiến hành duyệt tự động đánh giá này trên WooCommerce
-                    try:
-                        wc_put(f"products/reviews/{rev_id}", {"status": "approved"})
-                        log(f"Tự động duyệt đánh giá #{rev_id} thành công. Lý do: {moderate_reason}")
-                        
-                        # Gửi thông báo ngắn gọn về cho Admin
-                        msg = (
-                            f"🔔 <b>Tự động duyệt đánh giá 5★ thành công:</b>\n"
-                            f"• <b>Sản phẩm:</b> <a href=\"{site_base_url()}/?p={product_id}\">{h(product_name)}</a>\n"
-                            f"• <b>Khách hàng:</b> {h(reviewer)} ({h(reviewer_email)})\n"
-                            f"• <b>Nội dung:</b> <i>{h(review_content)}</i>\n"
-                            f"• <b>Chi tiết:</b> {h(moderate_reason)}"
-                        )
-                        for cid in allowed_ids:
-                            try:
-                                send_message(cid, msg)
-                            except Exception as e:
-                                log(f"Lỗi gửi thông báo tự động duyệt tới {cid}: {e}")
-                    except Exception as e:
-                        log(f"Lỗi khi thực hiện tự động duyệt đánh giá #{rev_id}: {e}")
-                        is_auto = False  # Chuyển về duyệt thủ công nếu gọi API lỗi
-                        
-                if not is_auto:
-                    log(f"Yêu cầu kiểm duyệt thủ công đánh giá #{rev_id}. Lý do: {moderate_reason}")
-                    # Gửi thông báo duyệt thủ công kèm nút bấm
-                    stars = "★" * rating + "☆" * (5 - rating)
-                    msg = (
-                        f"⭐ <b>Có đánh giá sản phẩm mới cần duyệt:</b>\n"
-                        f"• <b>Sản phẩm:</b> <a href=\"{site_base_url()}/?p={product_id}\">{h(product_name)}</a>\n"
-                        f"• <b>Người đánh giá:</b> {h(reviewer)} ({h(reviewer_email)})\n"
-                        f"• <b>Đánh giá:</b> {stars} ({rating}/5)\n"
-                        f"• <b>Nội dung:</b> <i>{h(review_content)}</i>\n"
-                        f"• <b>Lý do không tự duyệt:</b> <i>{h(moderate_reason)}</i>\n\n"
-                        f"Bạn muốn duyệt hay xóa đánh giá này?"
-                    )
-                    
-                    reply_markup = {
-                        "inline_keyboard": [
-                            [
-                                {"text": "✅ Duyệt", "callback_data": f"duyệt đánh giá {rev_id}"},
-                                {"text": "❌ Xóa", "callback_data": f"xóa đánh giá {rev_id}"}
-                            ]
-                        ]
-                    }
-                    
-                    for cid in allowed_ids:
-                        try:
-                            send_message(cid, msg, reply_markup=reply_markup)
-                        except Exception as e:
-                            log(f"Lỗi gửi thông báo đánh giá tới {cid}: {e}")
-                        
-            # Lưu danh sách đã thông báo xuống file
-            try:
-                with notified_file.open("w", encoding="utf-8") as f:
-                    json.dump(list(NOTIFIED_REVIEWS), f, indent=2, ensure_ascii=False)
-            except Exception as e:
-                log(f"Lỗi ghi file notified_reviews.json: {e}")
-                
-        except Exception as e:
-            log(f"Lỗi khi quét đánh giá tự động: {e}")
+        scan_and_notify_reviews()
 
 
 def check_notion_loop() -> None:

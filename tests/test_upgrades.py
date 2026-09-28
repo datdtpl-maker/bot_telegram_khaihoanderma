@@ -92,6 +92,30 @@ class UpgradesTestSuite(unittest.TestCase):
             self.assertIn("Gemini 3.8 Flash", html)
             self.assertIn("ms", html)
 
+    def test_scan_and_notify_reviews_on_demand(self):
+        fake_reviews = [
+            {
+                "id": 9999,
+                "reviewer": "Khách Test",
+                "reviewer_email": "test@example.com",
+                "rating": 5,
+                "review": "<p>Sản phẩm rất tốt</p>",
+                "product_id": 123
+            }
+        ]
+        bot.NOTIFIED_REVIEWS.clear()
+        with patch.object(bot, "wc_get", return_value=fake_reviews), \
+             patch.object(bot, "auto_moderate_review", return_value=(True, "Đánh giá tốt")), \
+             patch.object(bot, "wc_put") as mock_put, \
+             patch.object(bot, "send_message") as mock_send, \
+             patch.dict("os.environ", {"TELEGRAM_ALLOWED_CHAT_IDS": "12345"}):
+            count = bot.scan_and_notify_reviews()
+            self.assertEqual(count, 1)
+            mock_put.assert_called_once_with("products/reviews/9999", {"status": "approved"})
+            self.assertTrue(mock_send.called)
+            self.assertIn(9999, bot.NOTIFIED_REVIEWS)
+
 
 if __name__ == "__main__":
     unittest.main()
+
