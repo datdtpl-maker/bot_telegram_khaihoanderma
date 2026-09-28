@@ -417,6 +417,7 @@ def _clean_drive_folder_url(url):
 
 def download_drive_folder(folder_url, temp_dir):
     import gdown
+    import requests
     os.makedirs(temp_dir, exist_ok=True)
     clean_url = _clean_drive_folder_url(folder_url)
     log_message(f"Đang tải thư mục Google Drive: {clean_url}")
@@ -424,30 +425,34 @@ def download_drive_folder(folder_url, temp_dir):
     image_extensions = {".png", ".jpg", ".jpeg", ".webp"}
     downloaded_images = []
 
-    # Lan 1: Tải voi clean_url & use_cookies=False, remaining_ok=True
+    # Chiến lược 1: Lấy danh sách file và tải trực tiếp qua CDN Google Drive (ổn định nhất, không bị lỗi anti-bot gdown)
     try:
-        gdown.download_folder(
-            url=clean_url,
-            output=str(temp_dir),
-            quiet=True,
-            use_cookies=False,
-        )
+        folder_files = gdown.download_folder(url=clean_url, skip_download=True, quiet=True)
+        if folder_files:
+            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+            for f in folder_files:
+                f_name = Path(f.path).name
+                if Path(f_name).suffix.lower() in image_extensions:
+                    dest_file = Path(temp_dir) / f_name
+                    dl_url = f"https://drive.usercontent.google.com/download?id={f.id}"
+                    try:
+                        r = requests.get(dl_url, headers=headers, timeout=30)
+                        if r.status_code == 200 and len(r.content) > 0 and "text/html" not in r.headers.get("Content-Type", ""):
+                            dest_file.write_bytes(r.content)
+                            downloaded_images.append(dest_file)
+                    except Exception as err:
+                        log_message(f"Không thể tải file {f_name} trực tiếp: {err}")
     except Exception as e:
-        log_message(f"Lần tải Google Drive thứ nhất thất bại: {e}")
+        log_message(f"Chiến lược tải trực tiếp danh sách file gặp lỗi: {e}")
 
-    for root, _, files in os.walk(temp_dir):
-        for file in files:
-            p = Path(root) / file
-            if p.suffix.lower() in image_extensions and p.stat().st_size > 0:
-                downloaded_images.append(p)
-
-    # Lan 2: Neu rong, thu voi use_cookies mac dinh
+    # Chiến lược 2: Nếu chưa tải được, thử tải toàn bộ thư mục qua gdown chuẩn
     if not downloaded_images:
         try:
             gdown.download_folder(
                 url=clean_url,
                 output=str(temp_dir),
                 quiet=True,
+                use_cookies=False,
             )
             for root, _, files in os.walk(temp_dir):
                 for file in files:
@@ -455,9 +460,9 @@ def download_drive_folder(folder_url, temp_dir):
                     if p.suffix.lower() in image_extensions and p.stat().st_size > 0:
                         downloaded_images.append(p)
         except Exception as e:
-            log_message(f"Lần tải Google Drive thứ hai thất bại: {e}")
+            log_message(f"Lần tải Google Drive qua gdown thất bại: {e}")
 
-    # Lan 3: Trich xuất folder_id trực tiếp tu URL
+    # Chiến lược 3: Trích xuất folder_id trực tiếp từ URL
     if not downloaded_images:
         match = re.search(r"([a-zA-Z0-9_-]{25,})", str(folder_url or ""))
         if match:
@@ -475,9 +480,9 @@ def download_drive_folder(folder_url, temp_dir):
                         if p.suffix.lower() in image_extensions and p.stat().st_size > 0:
                             downloaded_images.append(p)
             except Exception as e:
-                log_message(f"Lần tải Google Drive thứ ba thất bại: {e}")
+                log_message(f"Lần tải Google Drive bằng folder_id thất bại: {e}")
 
-    # Loai bo trung lap file (neu co)
+    # Loại bỏ trùng lặp file (nếu có)
     unique_map = {}
     for p in downloaded_images:
         unique_map[p.resolve()] = p
