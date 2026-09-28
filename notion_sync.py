@@ -159,8 +159,8 @@ def inspect_image_for_upload(file_path):
     actual_suffix = path.suffix.lower()
     valid_suffixes = {".jpg", ".jpeg"} if expected_suffix == ".jpg" else {expected_suffix}
     if actual_suffix not in valid_suffixes:
-        raise WorkflowValidationError(
-            f"Đuôi file không khớp nội dung ảnh: {path.name} ({mime_type})"
+        log_message(
+            f"Tự động chuẩn hóa đuôi ảnh {path.name} thành {expected_suffix} theo định dạng thực tế ({mime_type})"
         )
 
     return ImageUploadInfo(

@@ -48,13 +48,15 @@ class ImagePipelineTests(unittest.TestCase):
             self.assertEqual(upload.mime_type, "image/webp")
             self.assertEqual(upload.filename, "anh-san-pham-1.webp")
 
-    def test_rejects_extension_that_does_not_match_image_content(self):
+    def test_auto_corrects_extension_that_does_not_match_image_content(self):
         with tempfile.TemporaryDirectory() as temp_dir:
-            image = Path(temp_dir) / "1.jpg"
-            image.write_bytes(b"RIFF\x04\x00\x00\x00WEBPVP8 ")
+            # File có đuôi .png nhưng nội dung là JPEG
+            image = Path(temp_dir) / "1.png"
+            image.write_bytes(b"\xff\xd8\xff\xe0\x00\x10JFIF")
 
-            with self.assertRaises(notion_sync.WorkflowValidationError):
-                notion_sync.inspect_image_for_upload(image)
+            info = notion_sync.inspect_image_for_upload(image)
+            self.assertEqual(info.mime_type, "image/jpeg")
+            self.assertEqual(info.filename, "1.jpg")
 
     @patch("notion_sync.urllib.request.urlopen")
     def test_wordpress_upload_uses_verified_mime_and_safe_filename(self, urlopen):
