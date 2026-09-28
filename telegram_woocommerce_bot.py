@@ -3641,9 +3641,24 @@ _singleton_socket = None
 def kill_process_on_port(port: int) -> None:
     try:
         import subprocess
-        # Chạy netstat tìm PID đang chiếm port trên Windows
+        my_pid = os.getpid()
+
+        # 1. Tìm và diệt các tiến trình python đang chạy cùng bot script này
+        try:
+            ps_cmd = (
+                f"powershell -NoProfile -ExecutionPolicy Bypass -Command \""
+                f"Get-CimInstance Win32_Process | "
+                f"Where-Object {{ $_.ProcessId -ne {my_pid} -and ($_.CommandLine -like '*telegram_woocommerce_bot.py*' -or $_.CommandLine -like '*run_telegram_bot.ps1*') }} | "
+                f"ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force; Write-Host ('Killed PID: ' + $_.ProcessId) }}\""
+            )
+            subprocess.run(ps_cmd, shell=True, capture_output=True, text=True)
+        except Exception:
+            pass
+
+        # 2. Tìm PID đang chiếm port qua netstat (dùng subprocess.run an toàn không ném lỗi exit code 1)
         cmd = f"netstat -ano | findstr :{port}"
-        output = subprocess.check_output(cmd, shell=True).decode("utf-8", errors="replace")
+        proc = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+        output = proc.stdout or ""
         pids: set[int] = set()
         for line in output.strip().split("\n"):
             line = line.strip()
@@ -3655,9 +3670,8 @@ def kill_process_on_port(port: int) -> None:
                 if pid_str.isdigit():
                     pids.add(int(pid_str))
         
-        my_pid = os.getpid()
         for pid in pids:
-            if pid != my_pid:
+            if pid != my_pid and pid > 0:
                 log(f"Phát hiện phiên bản bot cũ đang chạy ngầm (PID: {pid}) chiếm cổng {port}. Đang tiến hành giải phóng...")
                 subprocess.run(f"taskkill /F /T /PID {pid}", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except Exception as exc:
@@ -3673,7 +3687,7 @@ def ensure_single_instance() -> None:
     except OSError:
         log(f"Phát hiện cổng {port} đã bị chiếm. Đang tự động dọn dẹp phiên bản bot cũ chạy ngầm...")
         kill_process_on_port(port)
-        time.sleep(1.5)  # Cho 1.5 giay de Windows giai phong socket
+        time.sleep(2.0)  # Chờ 2 giây để Windows giải phóng socket hoàn toàn
         try:
             _singleton_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             _singleton_socket.bind(("127.0.0.1", port))
