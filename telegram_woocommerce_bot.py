@@ -3325,8 +3325,17 @@ def handle_message(chat_id: int, text: str) -> None:
         return
 
     if text.startswith("/start") or text.startswith("/help"):
+        mini_app_url = os.environ.get("MINI_APP_URL", "").strip()
+        top_button = (
+            {"text": "📱 Mở Bảng Điều Khiển (Mini App)", "web_app": {"url": mini_app_url}}
+            if mini_app_url
+            else {"text": "📱 Mở Mini App (Bảng điều khiển)", "callback_data": "hướng dẫn mini app"}
+        )
         reply_markup = {
             "inline_keyboard": [
+                [
+                    top_button
+                ],
                 [
                     {"text": "🔄 Kiểm tra bài chờ đăng", "callback_data": "đồng bộ notion"}
                 ],
@@ -3436,6 +3445,34 @@ def handle_message(chat_id: int, text: str) -> None:
                 html_text = (
                     "🔄 <b>Đã xóa cache và quét xong ngay!</b>\n"
                     "Hiện tại không tìm thấy đánh giá nào đang ở trạng thái chờ duyệt (status: hold) trên WooCommerce."
+                )
+        elif normalized in {"app", "/app", "mini app", "miniapp", "bảng điều khiển", "bang dieu khien", "mở app", "mo app", "hướng dẫn mini app", "huong dan mini app"}:
+            mini_app_url = os.environ.get("MINI_APP_URL", "").strip()
+            if mini_app_url:
+                reply_markup = {
+                    "inline_keyboard": [
+                        [
+                            {"text": "🚀 Mở Bảng Điều Khiển (Mini App)", "web_app": {"url": mini_app_url}}
+                        ]
+                    ]
+                }
+                send_message(
+                    chat_id,
+                    "📱 <b>Bảng điều khiển Mini App Khải Hoàn Derma</b>\n"
+                    "Bấm nút bên dưới để mở giao diện quản trị trực quan ngay trong Telegram:",
+                    reply_markup=reply_markup
+                )
+                return
+            else:
+                html_text = (
+                    "📱 <b>HƯỚNG DẪN MỞ TELEGRAM MINI APP</b>\n\n"
+                    "1. Máy chủ Mini App nội bộ đang chạy trên cổng <code>8088</code>.\n"
+                    "2. Telegram yêu cầu Mini App phải có đường dẫn bảo mật <b>HTTPS</b>.\n"
+                    "3. Bạn chỉ cần chạy Cloudflare Tunnel để nhận URL HTTPS miễn phí:\n"
+                    "   <code>cloudflared tunnel --url http://localhost:8088</code>\n\n"
+                    "4. Điền URL nhận được vào file <code>telegram_bot.env</code>:\n"
+                    "   <code>MINI_APP_URL=https://tên-tunnel.trycloudflare.com</code>\n"
+                    "5. Khởi động lại bot. Nút bấm <b>📱 App Quản Trị</b> sẽ tự động xuất hiện ở góc dưới bên trái khung chat!"
                 )
         elif normalized in {"hướng dẫn cú pháp", "huong dan cu phap", "cú pháp mẫu", "cu phap mau"}:
             html_text = (
@@ -3564,7 +3601,15 @@ def handle_document(chat_id: int, document: dict, caption: str = "") -> None:
 
 def is_lock_free_text(text: str) -> bool:
     stripped = text.strip()
-    return stripped.startswith("/start") or stripped.startswith("/help") or stripped.startswith("/whoami") or wants_ping(text) or bool(parse_review_action(text))
+    return (
+        stripped.startswith("/start") or
+        stripped.startswith("/help") or
+        stripped.startswith("/whoami") or
+        stripped.startswith("/app") or
+        stripped in {"app", "mini app", "miniapp"} or
+        wants_ping(text) or
+        bool(parse_review_action(text))
+    )
 
 
 def process_update(update: dict) -> None:
@@ -4188,6 +4233,20 @@ def main() -> None:
     t_rev.start()
     log("Đã khởi động luồng quét đánh giá tự động (chu kỳ 30 phút).")
 
+    # Khởi động Telegram Mini App server (FastAPI + Uvicorn)
+    mini_app_port = int(os.environ.get("MINI_APP_PORT", 8088))
+    try:
+        import mini_app_server
+        t_app = threading.Thread(
+            target=mini_app_server.start_mini_app_server,
+            kwargs={"host": "0.0.0.0", "port": mini_app_port},
+            daemon=True
+        )
+        t_app.start()
+        log(f"Đã khởi động Telegram Mini App Server tại http://0.0.0.0:{mini_app_port}")
+    except Exception as exc:
+        log(f"Không thể khởi động Telegram Mini App Server: {exc}")
+
     if "TELEGRAM_BOT_TOKEN" not in os.environ:
         raise RuntimeError("Thieu TELEGRAM_BOT_TOKEN.")
 
@@ -4213,6 +4272,21 @@ def main() -> None:
             bot = me.get("result", {})
             bot_name = plain_ascii(str(bot.get('first_name') or ''))
             log(f"Kết nối Telegram OK: @{bot.get('username')} - {bot_name}")
+
+            # Đăng ký Telegram Menu Button Mini App nếu có cấu hình MINI_APP_URL
+            mini_app_url = os.environ.get("MINI_APP_URL", "").strip()
+            if mini_app_url:
+                try:
+                    telegram_api("setChatMenuButton", {
+                        "menu_button": {
+                            "type": "web_app",
+                            "text": "📱 App Quản Trị",
+                            "web_app": {"url": mini_app_url}
+                        }
+                    })
+                    log(f"Đã kích hoạt Telegram Menu Button cho Mini App: {mini_app_url}")
+                except Exception as exc:
+                    log(f"Không thể đặt Telegram Menu Button: {exc}")
             break
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")

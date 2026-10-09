@@ -1,0 +1,102 @@
+:root {
+  --tg-theme-bg-color: #f8fafc;
+  --tg-theme-text-color: #0f172a;
+  --tg-theme-hint-color: #64748b;
+  --tg-theme-link-color: #2563eb;
+  --tg-theme-button-color: #2563eb;
+  --tg-theme-button-text-color: #ffffff;
+  --tg-theme-secondary-bg-color: #ffffff;
+  --tg-theme-header-bg-color: #ffffff;
+  --tg-theme-accent-text-color: #1d4ed8;
+  --tg-theme-section-bg-color: #ffffff;
+  --tg-theme-section-header-text-color: #64748b;
+  --tg-theme-subtitle-text-color: #94a3b8;
+  --tg-theme-destructive-text-color: #ef4444;
+}
+
+body.dark-mode {
+  --tg-theme-bg-color: #090d16;
+  --tg-theme-text-color: #f1f5f9;
+  --tg-theme-hint-color: #94a3b8;
+  --tg-theme-link-color: #38bdf8;
+  --tg-theme-button-color: #38bdf8;
+  --tg-theme-button-text-color: #0f172a;
+  --tg-theme-secondary-bg-color: #131c2e;
+  --tg-theme-header-bg-color: #131c2e;
+  --tg-theme-section-bg-color: #131c2e;
+}
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background-color: var(--tg-theme-bg-color);
+  color: var(--tg-theme-text-color);
+  user-select: none;
+  -webkit-user-select: none;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Glassmorphism & Cards */
+.card-theme {
+  background-color: var(--tg-theme-secondary-bg-color);
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  box-shadow: 0 4px 12px -2px rgba(0, 0, 0, 0.05);
+}
+
+.bottom-nav {
+  background-color: var(--tg-theme-header-bg-color);
+  border-top: 1px solid rgba(148, 163, 184, 0.2);
+  padding-bottom: max(10px, env(safe-area-inset-bottom));
+}
+
+/* Button & Active States */
+.btn-primary {
+  background-color: var(--tg-theme-button-color);
+  color: var(--tg-theme-button-text-color);
+  transition: all 0.15s ease-in-out;
+}
+.btn-primary:active {
+  transform: scale(0.97);
+  opacity: 0.9;
+}
+
+/* Smooth transitions */
+.fade-enter-active, .fade-leave-active {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+.fade-enter-from, .fade-leave-to {
+  opacity: 0;
+  transform: translateY(6px);
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.3);
+  border-radius: 4px;
+}
+
+/* Loading Shimmer */
+.shimmer {
+  background: linear-gradient(90deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.03) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}

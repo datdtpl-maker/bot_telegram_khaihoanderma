@@ -106,6 +106,7 @@ class UpgradesTestSuite(unittest.TestCase):
         bot.NOTIFIED_REVIEWS.clear()
         with patch.object(bot, "wc_get", return_value=fake_reviews), \
              patch.object(bot, "auto_moderate_review", return_value=(True, "Đánh giá tốt")), \
+             patch.object(bot, "site_base_url", return_value="https://khaihoanderma.com"), \
              patch.object(bot, "wc_put") as mock_put, \
              patch.object(bot, "send_message") as mock_send, \
              patch.dict("os.environ", {"TELEGRAM_ALLOWED_CHAT_IDS": "12345"}):

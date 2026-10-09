@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Khải Hoàn Derma - Telegram Mini App</title>
+  <!-- Telegram WebApp JS SDK -->
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <!-- Vue.js 3 Production CDN -->
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="/static/style.css">
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            primary: '#2563eb',
+            'primary-dark': '#1d4ed8',
+          }
+        }
+      }
+    }
+  </script>
+</head>
+<body class="bg-slate-50 text-slate-800 antialiased selection:bg-blue-500 selection:text-white pb-24">
+  <div id="app" class="min-h-screen flex flex-col max-w-lg mx-auto w-full">
+
+    <!-- Toast Notification -->
+    <transition name="fade">
+      <div v-if="toast.show" 
+           :class="{'bg-emerald-600': toast.type === 'success', 'bg-rose-600': toast.type === 'error', 'bg-blue-600': toast.type === 'info'}"
+           class="fixed top-4 left-4 right-4 z-50 text-white px-4 py-3 rounded-xl shadow-lg flex items-center justify-between text-sm font-medium">
+        <span>{{ toast.message }}</span>
+        <button @click="toast.show = false" class="ml-2 text-white/80 hover:text-white font-bold">&times;</button>
+      </div>
+    </transition>
+
+    <!-- Header Section -->
+    <header class="sticky top-0 z-40 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-4 py-3 flex items-center justify-between">
+      <div class="flex items-center space-x-2.5">
+        <div class="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-sm shadow-sm">
+          KD
+        </div>
+        <div>
+          <h1 class="text-base font-bold text-slate-900 dark:text-white leading-tight">Khải Hoàn Derma</h1>
+          <p class="text-xs text-slate-500 dark:text-slate-400">Mini App Quản Trị & Bán Hàng</p>
+        </div>
+      </div>
+      <div class="flex items-center space-x-2">
+        <span v-if="user" class="text-xs bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 font-semibold px-2.5 py-1 rounded-full border border-blue-100 dark:border-blue-900">
+          Admin
+        </span>
+      </div>
+    </header>
+
+    <!-- Dev / Auth Banner if not authenticated in standalone browser -->
+    <div v-if="!isAuthenticated && !isLoading" class="m-4 p-4 card-theme rounded-2xl border border-amber-200 bg-amber-50 dark:bg-amber-950/20 text-amber-900 dark:text-amber-200">
+      <div class="flex items-start space-x-2">
+        <span class="text-xl">⚠️</span>
+        <div>
+          <h3 class="font-bold text-sm">Chưa đăng nhập qua Telegram WebApp</h3>
+          <p class="text-xs mt-1 text-amber-700 dark:text-amber-300">
+            Ứng dụng cần mở trực tiếp từ Telegram để tự động nhận diện tài khoản Admin. Nếu mở trên trình duyệt thường, vui lòng nhập mã Admin Token:
+          </p>
+          <div class="mt-3 flex space-x-2">
+            <input v-model="devToken" type="password" placeholder="Nhập Admin Token..." 
+                   class="text-xs px-3 py-2 border rounded-lg flex-1 bg-white dark:bg-slate-800 text-slate-900 dark:text-white border-amber-300 dark:border-amber-700">
+            <button @click="saveDevToken" class="text-xs bg-amber-600 hover:bg-amber-700 text-white font-semibold px-3 py-2 rounded-lg">
+              Xác nhận
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main Content Area -->
+    <main class="flex-1 p-4 space-y-4">
+
+      <!-- ================= TAB 1: DASHBOARD ================= -->
+      <section v-if="currentTab === 'dashboard'" class="space-y-4">
+        <!-- Revenue Cards Grid -->
+        <div class="grid grid-cols-2 gap-3">
+          <!-- Today Revenue -->
+          <div class="card-theme p-4 rounded-2xl relative overflow-hidden bg-gradient-to-br from-blue-500/5 to-blue-500/10">
+            <div class="text-xs font-semibold text-slate-500 dark:text-slate-400">Doanh thu hôm nay</div>
+            <div class="text-lg font-black text-blue-600 dark:text-blue-400 mt-1">
+              {{ formatMoney(stats.today_revenue) }}
+            </div>
+            <div class="text-xs text-slate-500 dark:text-slate-400 mt-2 flex items-center">
+              <span class="w-2 h-2 rounded-full bg-emerald-500 mr-1.5"></span>
+              {{ stats.today_orders }} đơn hàng
+            </div>
+          </div>
+
+          <!-- Month Revenue -->
+          <div class="card-theme p-4 rounded-2xl relative overflow-hidden bg-gradient-to-br from-indigo-500/5 to-indigo-500/10">
+            <div class="text-xs font-semibold text-slate-500 dark:text-slate-400">Doanh thu tháng này</div>
+            <div class="text-lg font-black text-indigo-600 dark:text-indigo-400 mt-1">
+              {{ formatMoney(stats.month_revenue) }}
+            </div>
+            <div class="text-xs text-slate-500 dark:text-slate-400 mt-2 flex items-center">
+              <span class="w-2 h-2 rounded-full bg-blue-500 mr-1.5"></span>
+              {{ stats.month_orders }} đơn hàng
+            </div>
+          </div>
+        </div>
+
+        <!-- Pending Badges Grid -->
+        <div class="grid grid-cols-2 gap-3">
+          <!-- Reviews Pending -->
+          <div @click="switchTab('reviews')" class="card-theme p-3.5 rounded-2xl cursor-pointer hover:border-amber-300 transition-all flex items-center justify-between">
+            <div class="flex items-center space-x-2.5">
+              <div class="w-9 h-9 rounded-xl bg-amber-100 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 flex items-center justify-center font-bold text-base">
+                ⭐
+              </div>
+              <div>
+                <div class="text-xs font-bold text-slate-700 dark:text-slate-200">Đánh giá chờ</div>
+                <div class="text-xs text-slate-400">Cần phê duyệt</div>
+              </div>
+            </div>
+            <span :class="stats.pending_reviews > 0 ? 'bg-rose-500 text-white' : 'bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300'" 
+                  class="text-xs font-bold px-2 py-0.5 rounded-full">
+              {{ stats.pending_reviews }}
+            </span>
+          </div>
+
+          <!-- Notion Pending -->
+          <div @click="switchTab('tools')" class="card-theme p-3.5 rounded-2xl cursor-pointer hover:border-blue-300 transition-all flex items-center justify-between">
+            <div class="flex items-center space-x-2.5">
+              <div class="w-9 h-9 rounded-xl bg-purple-100 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400 flex items-center justify-center font-bold text-base">
+                📝
+              </div>
+              <div>
+                <div class="text-xs font-bold text-slate-700 dark:text-slate-200">Notion chờ đăng</div>
+                <div class="text-xs text-slate-400">Báo IT đăng</div>
+              </div>
+            </div>
+            <span class="text-xs font-bold px-2 py-0.5 rounded-full bg-purple-500 text-white">
+              {{ stats.notion_queue }}
+            </span>
+          </div>
+        </div>
+
+        <!-- Quick Excel Export Actions -->
+        <div class="card-theme p-4 rounded-2xl space-y-3">
+          <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400">Xuất Báo Cáo Excel</h3>
+          <div class="grid grid-cols-2 gap-2">
+            <button @click="exportExcel('today')" class="w-full py-2.5 px-3 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300 rounded-xl text-xs font-bold border border-emerald-200 dark:border-emerald-800 flex items-center justify-center space-x-1.5 active:scale-95 transition-all">
+              <span>📊</span>
+              <span>Đơn hôm nay</span>
+            </button>
+            <button @click="exportExcel('month')" class="w-full py-2.5 px-3 bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-300 rounded-xl text-xs font-bold border border-blue-200 dark:border-blue-800 flex items-center justify-center space-x-1.5 active:scale-95 transition-all">
+              <span>📈</span>
+              <span>Đơn tháng này</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- System Health Pills -->
+        <div class="card-theme p-4 rounded-2xl space-y-2.5">
+          <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400">Trạng Thái Hệ Thống</h3>
+          <div class="grid grid-cols-2 gap-2 text-xs">
+            <div class="flex items-center space-x-2 p-2 rounded-lg bg-slate-50 dark:bg-slate-800/50">
+              <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+              <span class="font-medium">WooCommerce: <b>Kết nối tốt</b></span>
+            </div>
+            <div class="flex items-center space-x-2 p-2 rounded-lg bg-slate-50 dark:bg-slate-800/50">
+              <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+              <span class="font-medium">Gemini 3.8 Flash: <b>Sẵn sàng</b></span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= TAB 2: ORDERS ================= -->
+      <section v-if="currentTab === 'orders'" class="space-y-3">
+        <!-- Filter Pills -->
+        <div class="flex space-x-1.5 overflow-x-auto pb-1 text-xs font-semibold no-scrollbar">
+          <button v-for="filter in [{id: 'all', label: 'Tất cả'}, {id: 'processing', label: 'Đang xử lý'}, {id: 'completed', label: 'Hoàn thành'}, {id: 'on-hold', label: 'Tạm giữ'}]"
+                  :key="filter.id"
+                  @click="ordersFilter = filter.id; fetchOrders()"
+                  :class="ordersFilter === filter.id ? 'bg-blue-600 text-white shadow-sm' : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300'"
+                  class="px-3 py-1.5 rounded-full whitespace-nowrap transition-all">
+            {{ filter.label }}
+          </button>
+        </div>
+
+        <!-- Orders Loading Skeleton -->
+        <div v-if="isOrdersLoading" class="space-y-2.5">
+          <div v-for="i in 4" :key="i" class="card-theme p-4 rounded-2xl h-24 shimmer"></div>
+        </div>
+
+        <!-- Orders List -->
+        <div v-else-if="orders.length > 0" class="space-y-2.5">
+          <div v-for="ord in orders" :key="ord.id" 
+               @click="selectedOrder = ord"
+               class="card-theme p-4 rounded-2xl cursor-pointer hover:border-blue-400 transition-all space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="font-black text-sm text-slate-900 dark:text-white">#{{ ord.id }}</span>
+              <span :class="{
+                'bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300': ord.status === 'processing',
+                'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300': ord.status === 'completed',
+                'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300': ord.status === 'on-hold'
+              }" class="text-[11px] font-bold px-2 py-0.5 rounded-full uppercase">
+                {{ ord.status }}
+              </span>
+            </div>
+
+            <div class="text-xs text-slate-600 dark:text-slate-300 font-medium">
+              Khách hàng: <b>{{ ord.billing?.first_name }} {{ ord.billing?.last_name }}</b> ({{ ord.billing?.phone || 'Chưa có SĐT' }})
+            </div>
+
+            <div class="flex items-center justify-between pt-1 border-t border-slate-100 dark:border-slate-800 text-xs">
+              <span class="text-slate-400">{{ formatDate(ord.date_created) }}</span>
+              <span class="font-black text-blue-600 dark:text-blue-400 text-sm">{{ formatMoney(ord.total) }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Empty State -->
+        <div v-else class="card-theme p-8 rounded-2xl text-center text-slate-400 text-xs">
+          Không có đơn hàng nào trong danh mục này.
+        </div>
+      </section>
+
+      <!-- ================= TAB 3: PRODUCTS ================= -->
+      <section v-if="currentTab === 'products'" class="space-y-3">
+        <!-- Search Input -->
+        <div class="relative">
+          <input v-model="productSearch" @input="onSearchInput" type="text" placeholder="Tìm tên sản phẩm, SKU..." 
+                 class="w-full pl-9 pr-4 py-2.5 bg-white dark:bg-slate-800 text-slate-900 dark:text-white border border-slate-200 dark:border-slate-700 rounded-xl text-xs focus:outline-none focus:border-blue-500 shadow-sm">
+          <span class="absolute left-3 top-2.5 text-slate-400 text-sm">🔍</span>
+          <button v-if="productSearch" @click="productSearch = ''; fetchProducts()" class="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 font-bold">&times;</button>
+        </div>
+
+        <!-- Products Loading -->
+        <div v-if="isProductsLoading" class="space-y-2.5">
+          <div v-for="i in 5" :key="i" class="card-theme p-4 rounded-2xl h-28 shimmer"></div>
+        </div>
+
+        <!-- Products List -->
+        <div v-else-if="products.length > 0" class="space-y-3">
+          <div v-for="prod in products" :key="prod.id" class="card-theme p-4 rounded-2xl space-y-3">
+            <div class="flex space-x-3">
+              <img :src="prod.images && prod.images[0] ? prod.images[0].src : 'https://placehold.co/100x100?text=No+Img'" 
+                   class="w-16 h-16 rounded-xl object-cover bg-slate-100 border border-slate-200 dark:border-slate-700 flex-shrink-0" alt="">
+              <div class="flex-1 min-w-0">
+                <h4 class="font-bold text-xs text-slate-900 dark:text-white truncate">{{ prod.name }}</h4>
+                <div class="text-[11px] text-slate-400 mt-0.5">ID: #{{ prod.id }} | SKU: {{ prod.sku || 'N/A' }}</div>
+                
+                <!-- Price Display -->
+                <div class="flex items-baseline space-x-2 mt-1.5">
+                  <span class="font-extrabold text-blue-600 dark:text-blue-400 text-xs">
+                    {{ formatMoney(prod.sale_price || prod.regular_price || prod.price) }}
+                  </span>
+                  <span v-if="prod.sale_price && prod.regular_price" class="text-[10px] text-slate-400 line-through">
+                    {{ formatMoney(prod.regular_price) }}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Stock Toggle & Quick Edit Price -->
+            <div class="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-slate-800">
+              <button @click="toggleStock(prod)" 
+                      :class="prod.stock_status === 'instock' ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800' : 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300 border-rose-200 dark:border-rose-800'"
+                      class="text-[11px] font-bold px-2.5 py-1 rounded-lg border flex items-center space-x-1">
+                <span>{{ prod.stock_status === 'instock' ? '🟢 Còn hàng' : '🔴 Hết hàng' }}</span>
+              </button>
+
+              <button @click="openEditPriceModal(prod)" class="text-[11px] font-bold px-3 py-1 bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400 rounded-lg border border-blue-200 dark:border-blue-800 active:scale-95 transition-all">
+                ✏️ Sửa giá
+              </button>
+            </div>
+
+            <!-- Variations List if exists -->
+            <div v-if="prod.variations && prod.variations.length > 0" class="mt-2 pt-2 border-t border-slate-100 dark:border-slate-800 space-y-1.5">
+              <div class="text-[11px] font-bold text-slate-400">Các phân loại (biến thể):</div>
+              <div v-for="v in prod.variations" :key="v.id" class="flex items-center justify-between p-2 rounded-xl bg-slate-50 dark:bg-slate-800/40 text-xs">
+                <div>
+                  <span class="font-bold text-slate-800 dark:text-slate-200">{{ v.name_label || ('Phân loại #' + v.id) }}</span>
+                  <div class="text-[10px] text-blue-600 font-bold">{{ formatMoney(v.sale_price || v.regular_price || v.price) }}</div>
+                </div>
+                <div class="flex space-x-1">
+                  <button @click="toggleStock(prod, v)" :class="v.stock_status === 'instock' ? 'text-emerald-600' : 'text-rose-600'" class="px-2 py-0.5 text-[10px] font-bold rounded bg-white dark:bg-slate-700 border">
+                    {{ v.stock_status === 'instock' ? 'Còn' : 'Hết' }}
+                  </button>
+                  <button @click="openEditPriceModal(prod, v)" class="px-2 py-0.5 text-[10px] font-bold rounded bg-blue-50 text-blue-600 border border-blue-200">
+                    Sửa giá
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Empty Products -->
+        <div v-else class="card-theme p-8 rounded-2xl text-center text-slate-400 text-xs">
+          Không tìm thấy sản phẩm phù hợp.
+        </div>
+      </section>
+
+      <!-- ================= TAB 4: REVIEWS ================= -->
+      <section v-if="currentTab === 'reviews'" class="space-y-3">
+        <div class="flex items-center justify-between">
+          <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400">Đánh Giá Chờ Duyệt (Hold)</h3>
+          <button @click="fetchReviews" class="text-xs text-blue-600 font-semibold">🔄 Làm mới</button>
+        </div>
+
+        <!-- Reviews Loading -->
+        <div v-if="isReviewsLoading" class="space-y-2.5">
+          <div v-for="i in 3" :key="i" class="card-theme p-4 rounded-2xl h-32 shimmer"></div>
+        </div>
+
+        <!-- Reviews List -->
+        <div v-else-if="reviews.length > 0" class="space-y-3">
+          <div v-for="rev in reviews" :key="rev.id" class="card-theme p-4 rounded-2xl space-y-2.5">
+            <div class="flex items-start justify-between">
+              <div>
+                <h4 class="font-bold text-xs text-slate-900 dark:text-white">{{ rev.reviewer || 'Ẩn danh' }}</h4>
+                <div class="text-[10px] text-slate-400">{{ rev.reviewer_email }}</div>
+              </div>
+              <div class="text-amber-400 text-xs font-black">
+                {{ '★'.repeat(rev.rating || 5) }}{{ '☆'.repeat(5 - (rev.rating || 5)) }}
+              </div>
+            </div>
+
+            <!-- Product Name -->
+            <div class="text-[11px] font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 px-2.5 py-1 rounded-lg">
+              Sản phẩm: {{ rev.product_name || ('#' + rev.product_id) }}
+            </div>
+
+            <!-- Review Content -->
+            <p class="text-xs text-slate-700 dark:text-slate-300 italic bg-slate-50 dark:bg-slate-800/40 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800">
+              "{{ rev.review_text || rev.review }}"
+            </p>
+
+            <!-- Action Buttons -->
+            <div class="flex space-x-2 pt-1">
+              <button @click="approveReview(rev.id)" class="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center justify-center space-x-1 shadow-sm active:scale-95 transition-all">
+                <span>✅</span>
+                <span>Phê duyệt</span>
+              </button>
+              <button @click="deleteReview(rev.id)" class="flex-1 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold flex items-center justify-center space-x-1 shadow-sm active:scale-95 transition-all">
+                <span>🗑️</span>
+                <span>Xóa bỏ</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Empty Reviews -->
+        <div v-else class="card-theme p-8 rounded-2xl text-center text-slate-400 text-xs">
+          Tuyệt vời! Hiện không còn đánh giá nào đang chờ duyệt.
+        </div>
+      </section>
+
+      <!-- ================= TAB 5: NOTION & AI TOOLS ================= -->
+      <section v-if="currentTab === 'tools'" class="space-y-4">
+        <!-- Notion Sync Section -->
+        <div class="card-theme p-4 rounded-2xl space-y-3">
+          <div class="flex items-center justify-between">
+            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400">Đồng Bộ Bài Viết Notion</h3>
+            <span class="text-xs font-bold px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 dark:bg-purple-950/50 dark:text-purple-300">
+              {{ notionPages.length }} bài chờ đăng
+            </span>
+          </div>
+
+          <p class="text-xs text-slate-500 dark:text-slate-400">
+            Các bài viết có trạng thái <b>Báo IT đăng</b> trên Notion sẽ tự động tải hình ảnh Google Drive và xuất bản lên WooCommerce.
+          </p>
+
+          <!-- Sync Progress or Trigger Button -->
+          <div v-if="isSyncRunning" class="p-3 bg-purple-50 dark:bg-purple-950/30 rounded-xl space-y-2 border border-purple-200 dark:border-purple-800">
+            <div class="flex items-center space-x-2 text-xs font-bold text-purple-700 dark:text-purple-300">
+              <span class="animate-spin text-base">⏳</span>
+              <span>{{ syncStatusText }}</span>
+            </div>
+            <div class="w-full bg-purple-200 dark:bg-purple-900 h-1.5 rounded-full overflow-hidden">
+              <div class="bg-purple-600 h-full w-2/3 animate-pulse"></div>
+            </div>
+          </div>
+
+          <button v-else @click="triggerNotionSync" :disabled="notionPages.length === 0"
+                  class="w-full py-2.5 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white font-bold rounded-xl text-xs flex items-center justify-center space-x-1.5 shadow-sm active:scale-95 transition-all">
+            <span>🚀</span>
+            <span>Bắt đầu đăng sản phẩm ngay</span>
+          </button>
+        </div>
+
+        <!-- Gemini AI Assistant Chat -->
+        <div class="card-theme p-4 rounded-2xl space-y-3">
+          <div class="flex items-center justify-between">
+            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400">Trợ Lý AI Gemini 3.8 Flash</h3>
+            <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300">
+              3.8 Flash
+            </span>
+          </div>
+
+          <!-- Chat Window -->
+          <div class="max-h-60 overflow-y-auto space-y-2.5 p-2 bg-slate-50 dark:bg-slate-900/50 rounded-xl text-xs">
+            <div v-for="(msg, idx) in aiMessages" :key="idx" 
+                 :class="msg.role === 'user' ? 'justify-end' : 'justify-start'" class="flex">
+              <div :class="msg.role === 'user' ? 'bg-blue-600 text-white rounded-br-none' : 'bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-bl-none border border-slate-200 dark:border-slate-700'"
+                   class="max-w-[85%] px-3.5 py-2 rounded-2xl text-xs leading-relaxed shadow-sm whitespace-pre-wrap">
+                {{ msg.text }}
+              </div>
+            </div>
+            <div v-if="isAiThinking" class="flex justify-start">
+              <div class="bg-white dark:bg-slate-800 px-3 py-2 rounded-2xl text-xs text-slate-400 flex items-center space-x-1 border">
+                <span class="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce"></span>
+                <span class="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce delay-100"></span>
+                <span class="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce delay-200"></span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Quick Suggestion Chips -->
+          <div class="flex space-x-1.5 overflow-x-auto text-[11px] pb-1 no-scrollbar">
+            <button @click="aiPrompt = 'Tóm tắt tình hình doanh thu hôm nay'; askGemini()" class="px-2.5 py-1 bg-slate-100 dark:bg-slate-800 rounded-full whitespace-nowrap text-slate-600 dark:text-slate-300">
+              💡 Báo cáo hôm nay
+            </button>
+            <button @click="aiPrompt = 'Viết mô tả ngắn hấp dẫn cho Serum B5 phục hồi da'; askGemini()" class="px-2.5 py-1 bg-slate-100 dark:bg-slate-800 rounded-full whitespace-nowrap text-slate-600 dark:text-slate-300">
+              ✨ Viết mô tả Serum B5
+            </button>
+          </div>
+
+          <!-- Prompt Input -->
+          <div class="flex space-x-2">
+            <input v-model="aiPrompt" @keydown.enter="askGemini" type="text" placeholder="Hỏi AI về sản phẩm, viết bài..." 
+                   class="flex-1 px-3 py-2 bg-white dark:bg-slate-800 text-slate-900 dark:text-white border border-slate-200 dark:border-slate-700 rounded-xl text-xs focus:outline-none focus:border-blue-500">
+            <button @click="askGemini" :disabled="isAiThinking || !aiPrompt.trim()"
+                    class="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold rounded-xl text-xs active:scale-95 transition-all">
+              Gửi
+            </button>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- ================= EDIT PRICE MODAL ================= -->
+    <div v-if="editPriceModal.show" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+      <div class="card-theme w-full max-w-sm rounded-t-3xl sm:rounded-2xl p-5 space-y-4 animate-in slide-in-from-bottom duration-200 bg-white dark:bg-slate-900">
+        <div class="flex items-center justify-between">
+          <h3 class="font-bold text-sm text-slate-900 dark:text-white">
+            Chỉnh Sửa Giá {{ editPriceModal.variation ? '(Biến thể)' : '' }}
+          </h3>
+          <button @click="editPriceModal.show = false" class="text-slate-400 hover:text-slate-600 font-bold text-lg">&times;</button>
+        </div>
+
+        <div class="text-xs text-slate-500 truncate">
+          {{ editPriceModal.product?.name }}
+          <span v-if="editPriceModal.variation" class="font-semibold text-blue-600">
+            ({{ editPriceModal.variation.name_label || '#' + editPriceModal.variation.id }})
+          </span>
+        </div>
+
+        <div class="space-y-3">
+          <div>
+            <label class="text-[11px] font-bold text-slate-500">Giá thường (VND):</label>
+            <input v-model="editPriceModal.regular_price" type="number" placeholder="Ví dụ: 350000" 
+                   class="w-full mt-1 px-3 py-2 bg-slate-50 dark:bg-slate-800 border rounded-xl text-xs text-slate-900 dark:text-white">
+          </div>
+          <div>
+            <label class="text-[11px] font-bold text-slate-500">Giá khuyến mãi (Sale VND):</label>
+            <input v-model="editPriceModal.sale_price" type="number" placeholder="Để trống nếu không sale" 
+                   class="w-full mt-1 px-3 py-2 bg-slate-50 dark:bg-slate-800 border rounded-xl text-xs text-slate-900 dark:text-white">
+          </div>
+        </div>
+
+        <div class="flex space-x-2 pt-2">
+          <button @click="editPriceModal.show = false" class="flex-1 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold rounded-xl text-xs">
+            Hủy
+          </button>
+          <button @click="saveProductPrice" :disabled="editPriceModal.isSaving" 
+                  class="flex-1 py-2.5 bg-blue-600 text-white font-bold rounded-xl text-xs flex items-center justify-center space-x-1">
+            <span>{{ editPriceModal.isSaving ? 'Đang lưu...' : 'Lưu Thay Đổi' }}</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= ORDER DETAIL MODAL ================= -->
+    <div v-if="selectedOrder" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+      <div class="card-theme w-full max-w-sm max-h-[85vh] overflow-y-auto rounded-t-3xl sm:rounded-2xl p-5 space-y-4 bg-white dark:bg-slate-900">
+        <div class="flex items-center justify-between">
+          <h3 class="font-bold text-sm text-slate-900 dark:text-white">Chi Tiết Đơn Hàng #{{ selectedOrder.id }}</h3>
+          <button @click="selectedOrder = null" class="text-slate-400 hover:text-slate-600 font-bold text-lg">&times;</button>
+        </div>
+
+        <!-- Customer Info -->
+        <div class="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl text-xs space-y-1">
+          <div class="font-bold text-slate-900 dark:text-white">{{ selectedOrder.billing?.first_name }} {{ selectedOrder.billing?.last_name }}</div>
+          <div class="text-slate-500">📞 SĐT: {{ selectedOrder.billing?.phone || 'N/A' }}</div>
+          <div class="text-slate-500">📍 Địa chỉ: {{ selectedOrder.billing?.address_1 }}, {{ selectedOrder.billing?.city }}</div>
+        </div>
+
+        <!-- Line Items -->
+        <div class="space-y-2">
+          <div class="text-[11px] font-bold uppercase text-slate-400">Sản phẩm đã mua:</div>
+          <div v-for="item in selectedOrder.line_items" :key="item.id" class="flex items-center justify-between text-xs py-1 border-b border-slate-100 dark:border-slate-800">
+            <div class="pr-2">
+              <span class="font-semibold text-slate-800 dark:text-slate-200">{{ item.name }}</span>
+              <div class="text-[10px] text-slate-400">Số lượng: x{{ item.quantity }}</div>
+            </div>
+            <div class="font-bold text-blue-600 dark:text-blue-400">{{ formatMoney(item.total) }}</div>
+          </div>
+        </div>
+
+        <!-- Total Money -->
+        <div class="flex items-center justify-between pt-2 border-t font-black text-sm">
+          <span>Tổng thanh toán:</span>
+          <span class="text-blue-600 dark:text-blue-400">{{ formatMoney(selectedOrder.total) }}</span>
+        </div>
+
+        <button @click="selectedOrder = null" class="w-full py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold rounded-xl text-xs">
+          Đóng
+        </button>
+      </div>
+    </div>
+
+    <!-- ================= BOTTOM NAVIGATION BAR ================= -->
+    <nav class="fixed bottom-0 left-0 right-0 z-40 bottom-nav max-w-lg mx-auto flex items-center justify-around py-2">
+      <button @click="switchTab('dashboard')" 
+              :class="currentTab === 'dashboard' ? 'text-blue-600 font-bold' : 'text-slate-400'"
+              class="flex flex-col items-center text-[10px] space-y-0.5">
+        <span class="text-lg">📊</span>
+        <span>Tổng quan</span>
+      </button>
+
+      <button @click="switchTab('orders')" 
+              :class="currentTab === 'orders' ? 'text-blue-600 font-bold' : 'text-slate-400'"
+              class="flex flex-col items-center text-[10px] space-y-0.5">
+        <span class="text-lg">📦</span>
+        <span>Đơn hàng</span>
+      </button>
+
+      <button @click="switchTab('products')" 
+              :class="currentTab === 'products' ? 'text-blue-600 font-bold' : 'text-slate-400'"
+              class="flex flex-col items-center text-[10px] space-y-0.5">
+        <span class="text-lg">🛍️</span>
+        <span>Sản phẩm</span>
+      </button>
+
+      <button @click="switchTab('reviews')" 
+              :class="currentTab === 'reviews' ? 'text-blue-600 font-bold' : 'text-slate-400'"
+              class="flex flex-col items-center text-[10px] space-y-0.5 relative">
+        <span class="text-lg">⭐</span>
+        <span>Đánh giá</span>
+        <span v-if="stats.pending_reviews > 0" class="absolute -top-1 right-1 w-2 h-2 rounded-full bg-rose-500"></span>
+      </button>
+
+      <button @click="switchTab('tools')" 
+              :class="currentTab === 'tools' ? 'text-blue-600 font-bold' : 'text-slate-400'"
+              class="flex flex-col items-center text-[10px] space-y-0.5">
+        <span class="text-lg">⚡</span>
+        <span>Công cụ & AI</span>
+      </button>
+    </nav>
+
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
