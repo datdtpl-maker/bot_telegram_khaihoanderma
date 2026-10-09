@@ -21,6 +21,24 @@ BASE_DIR = Path(__file__).resolve().parent
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
+def load_env_file():
+    env_file = BASE_DIR / "telegram_bot.env"
+    if env_file.exists():
+        try:
+            for line in env_file.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                k = k.strip()
+                v = v.strip().strip("'\"")
+                if k and k not in os.environ:
+                    os.environ[k] = v
+        except Exception:
+            pass
+
+load_env_file()
+
 # Import existing core bot & notion functions
 import telegram_woocommerce_bot as bot
 import notion_sync
