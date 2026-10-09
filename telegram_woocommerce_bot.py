@@ -3143,8 +3143,17 @@ def telegram_api(method: str, payload: dict, timeout: int = DEFAULT_API_TIMEOUT_
     token = os.environ["TELEGRAM_BOT_TOKEN"]
     url = f"https://api.telegram.org/bot{token}/{method}"
     verify_ssl = not (os.environ.get("SSL_NO_VERIFY", "").strip().lower() in {"1", "true", "yes", "on"})
-    response = HTTP_SESSION.post(url, data=payload, timeout=timeout, verify=verify_ssl)
-    return response.json()
+    serialized_payload = {}
+    for k, v in payload.items():
+        if isinstance(v, (dict, list)):
+            serialized_payload[k] = json.dumps(v, ensure_ascii=False)
+        else:
+            serialized_payload[k] = v
+    response = HTTP_SESSION.post(url, data=serialized_payload, timeout=timeout, verify=verify_ssl)
+    res_data = response.json()
+    if not res_data.get("ok"):
+        log(f"[Telegram API Error] {method}: {res_data.get('description')}")
+    return res_data
 
 
 def telegram_get_file_url(file_id: str) -> str:
@@ -3929,6 +3938,30 @@ def start_cloudflare_tunnel(port: int = 8088) -> str | None:
         return configured_url or None
 
 
+def set_telegram_menu_button(url: str) -> None:
+    menu_button = {
+        "type": "web_app",
+        "text": "📱 App Quản Trị",
+        "web_app": {"url": url}
+    }
+    try:
+        res = telegram_api("setChatMenuButton", {"menu_button": menu_button})
+        if res.get("ok"):
+            log(f"Đã đặt Menu Button mặc định cho Mini App: {url}")
+        else:
+            log(f"Lỗi đặt Menu Button mặc định: {res.get('description')}")
+    except Exception as exc:
+        log(f"Lỗi đặt Menu Button mặc định: {exc}")
+
+    allowed_str = os.environ.get("TELEGRAM_ALLOWED_CHAT_IDS", "")
+    allowed_ids = [int(x.strip()) for x in allowed_str.split(",") if x.strip().replace("-", "").isdigit()]
+    for cid in allowed_ids:
+        try:
+            telegram_api("setChatMenuButton", {"chat_id": cid, "menu_button": menu_button})
+        except Exception:
+            pass
+
+
 def notify_admins_mini_app_ready(url: str) -> None:
     allowed_str = os.environ.get("TELEGRAM_ALLOWED_CHAT_IDS", "")
     allowed_ids = [int(x.strip()) for x in allowed_str.split(",") if x.strip().replace("-", "").isdigit()]
@@ -3947,12 +3980,11 @@ def notify_admins_mini_app_ready(url: str) -> None:
     }
     for chat_id in allowed_ids:
         try:
-            telegram_api("sendMessage", {
-                "chat_id": chat_id,
-                "text": text,
-                "parse_mode": "HTML",
-                "reply_markup": reply_markup
-            })
+            res = send_message(chat_id, text, reply_markup=reply_markup)
+            if res.get("ok"):
+                log(f"Đã gửi tin nhắn mở Mini App tới admin {chat_id} thành công.")
+            else:
+                log(f"Lỗi gửi tin nhắn Mini App tới admin {chat_id}: {res.get('description')}")
         except Exception as exc:
             log(f"Không thể gửi thông báo Mini App tới {chat_id}: {exc}")
 
@@ -3966,17 +3998,8 @@ def cloudflare_tunnel_watchdog(port: int = 8088) -> None:
             new_url = start_cloudflare_tunnel(port)
             if new_url:
                 os.environ["MINI_APP_URL"] = new_url
-                try:
-                    telegram_api("setChatMenuButton", {
-                        "menu_button": {
-                            "type": "web_app",
-                            "text": "📱 App Quản Trị",
-                            "web_app": {"url": new_url}
-                        }
-                    })
-                    notify_admins_mini_app_ready(new_url)
-                except Exception as exc:
-                    log(f"Lỗi cập nhật menu button sau khi khôi phục tunnel: {exc}")
+                set_telegram_menu_button(new_url)
+                notify_admins_mini_app_ready(new_url)
 
 
 def force_ipv4() -> None:
@@ -4503,18 +4526,7 @@ def main() -> None:
             # Đăng ký Telegram Menu Button Mini App nếu có cấu hình MINI_APP_URL
             mini_app_url = os.environ.get("MINI_APP_URL", "").strip()
             if mini_app_url:
-                try:
-                    telegram_api("setChatMenuButton", {
-                        "menu_button": {
-                            "type": "web_app",
-                            "text": "📱 App Quản Trị",
-                            "web_app": {"url": mini_app_url}
-                        }
-                    })
-                    log(f"Đã kích hoạt Telegram Menu Button cho Mini App: {mini_app_url}")
-                except Exception as exc:
-                    log(f"Không thể đặt Telegram Menu Button: {exc}")
-
+                set_telegram_menu_button(mini_app_url)
                 # Gửi thông báo đến Admin kèm nút bấm mở Mini App trực tiếp
                 notify_admins_mini_app_ready(mini_app_url)
             break
