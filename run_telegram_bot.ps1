@@ -1,4 +1,4 @@
-﻿[CmdletBinding()]
+[CmdletBinding()]
 param(
     [switch]$ValidateOnly
 )
@@ -124,7 +124,7 @@ if ($missingVariables.Count -gt 0) {
     throw "Thiếu biến cấu hình trong telegram_bot.env: $($missingVariables -join ', ')"
 }
 
-& $pythonCommand.Source -c "import gdown; import requests; import google.auth; import google_auth_oauthlib; import importlib.metadata as m, re; s=m.version('gdown'); v=tuple(map(int,re.findall(r'\d+',s)[:2])); assert v >= (6,1), f'gdown {s} quá cũ; cần gdown >= 6.1'"
+& $pythonCommand.Source -c "import gdown; import requests; import google.auth; import google_auth_oauthlib; import fastapi; import uvicorn; import importlib.metadata as m, re; s=m.version('gdown'); v=tuple(map(int,re.findall(r'\d+',s)[:2])); assert v >= (6,1), f'gdown {s} quá cũ; cần gdown >= 6.1'"
 if ($LASTEXITCODE -ne 0) {
     throw "Thiếu thư viện Python. Chạy: python -m pip install --upgrade -r requirements.txt"
 }

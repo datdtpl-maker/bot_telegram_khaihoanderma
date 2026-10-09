@@ -3744,12 +3744,14 @@ def kill_process_on_port(port: int) -> None:
 def ensure_single_instance() -> None:
     global _singleton_socket
     port = 52365
+    mini_app_port = int(os.environ.get("MINI_APP_PORT", 8088))
     try:
         _singleton_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         _singleton_socket.bind(("127.0.0.1", port))
     except OSError:
         log(f"Phát hiện cổng {port} đã bị chiếm. Đang tự động dọn dẹp phiên bản bot cũ chạy ngầm...")
         kill_process_on_port(port)
+        kill_process_on_port(mini_app_port)
         time.sleep(2.0)  # Chờ 2 giây để Windows giải phóng socket hoàn toàn
         try:
             _singleton_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

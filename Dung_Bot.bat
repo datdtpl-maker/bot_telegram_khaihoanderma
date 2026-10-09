@@ -6,17 +6,23 @@ echo       TAT BOT KHAI HOAN DERMA (NGAM)
 echo ==============================================
 echo Dang tim va tat cac tien trinh bot...
 
-:: 1. Giai phong bat ky PID nao dang chiem cong 52365
+:: 1. Giai phong bat ky PID nao dang chiem cong 52365 va 8088
 for /f "tokens=5" %%a in ('netstat -aon ^| findstr :52365') do (
     if not "%%a"=="" (
-        echo Dang giai phong PID chiem cong: %%a
+        echo Dang giai phong PID chiem cong 52365: %%a
+        taskkill /F /T /PID %%a >nul 2>&1
+    )
+)
+for /f "tokens=5" %%a in ('netstat -aon ^| findstr :8088') do (
+    if not "%%a"=="" (
+        echo Dang giai phong PID chiem cong 8088: %%a
         taskkill /F /T /PID %%a >nul 2>&1
     )
 )
 
 :: 2. Dung tien trinh PowerShell va Python cua bot
-powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*telegram_woocommerce_bot.py*' -or $_.CommandLine -like '*run_telegram_bot.ps1*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force; Write-Host ('Da dung tien trinh: ' + $_.ProcessId) }"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*telegram_woocommerce_bot.py*' -or $_.CommandLine -like '*run_telegram_bot.ps1*' -or $_.CommandLine -like '*mini_app_server*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force; Write-Host ('Da dung tien trinh: ' + $_.ProcessId) }"
 
 echo.
-echo Da tat bot thanh cong! Cong 52365 da duoc giai phong hoan toan.
+echo Da tat bot thanh cong! Cong 52365 va 8088 da duoc giai phong hoan toan.
 timeout /t 3
