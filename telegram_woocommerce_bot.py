@@ -1,3 +1,4 @@
+import atexit
 import base64
 import csv
 import difflib
@@ -5,9 +6,12 @@ import html
 import json
 import os
 import re
+import shutil
 import socket
 import ssl
+import subprocess
 import sys
+import threading
 import time
 import unicodedata
 import urllib.error
@@ -136,6 +140,44 @@ def log(message: str) -> None:
                 handle.write(line + "\n")
     except Exception:
         pass
+
+
+def load_env_file() -> None:
+    env_file = OUT_DIR / "telegram_bot.env"
+    if env_file.exists():
+        try:
+            for line in env_file.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                k = k.strip()
+                v = v.strip().strip("'\"")
+                if k and k not in os.environ:
+                    os.environ[k] = v
+        except Exception as exc:
+            log(f"Không thể tải file cấu hình telegram_bot.env: {exc}")
+
+
+def update_env_variable(key: str, value: str) -> None:
+    os.environ[key] = value
+    env_file = OUT_DIR / "telegram_bot.env"
+    if not env_file.exists():
+        return
+    try:
+        content = env_file.read_text(encoding="utf-8")
+        pattern = rf"^{re.escape(key)}\s*=.*$"
+        new_line = f"{key}={value}"
+        if re.search(pattern, content, flags=re.MULTILINE):
+            updated = re.sub(pattern, new_line, content, flags=re.MULTILINE)
+        else:
+            updated = content.rstrip() + f"\n{new_line}\n"
+        env_file.write_text(updated, encoding="utf-8")
+    except Exception as exc:
+        log(f"Không thể cập nhật {key} trong telegram_bot.env: {exc}")
+
+
+load_env_file()
 
 
 def ssl_context() -> ssl.SSLContext | None:
@@ -3752,6 +3794,11 @@ def ensure_single_instance() -> None:
         log(f"Phát hiện cổng {port} đã bị chiếm. Đang tự động dọn dẹp phiên bản bot cũ chạy ngầm...")
         kill_process_on_port(port)
         kill_process_on_port(mini_app_port)
+        if sys.platform.startswith("win"):
+            try:
+                subprocess.run("taskkill /F /IM cloudflared.exe", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except Exception:
+                pass
         time.sleep(2.0)  # Chờ 2 giây để Windows giải phóng socket hoàn toàn
         try:
             _singleton_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -3760,6 +3807,176 @@ def ensure_single_instance() -> None:
         except OSError:
             log(f"Lỗi: Cổng {port} vẫn bị chiếm sau khi quét. Vui lòng kiểm tra lại. Bot sẽ tự thoát.")
             sys.exit(99)
+
+
+CLOUDFLARE_TUNNEL_PROC: subprocess.Popen | None = None
+
+
+def find_cloudflared_executable() -> str | None:
+    found = shutil.which("cloudflared")
+    if found:
+        return found
+    candidates = [
+        OUT_DIR / "cloudflared.exe",
+        Path(sys.executable).parent / "cloudflared.exe",
+        Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "cloudflared" / "cloudflared.exe",
+        Path(r"C:\Program Files\cloudflared\cloudflared.exe"),
+        Path(r"C:\cloudflared\cloudflared.exe"),
+    ]
+    for c in candidates:
+        if c.is_file():
+            return str(c)
+    return None
+
+
+def ensure_cloudflared_binary() -> str | None:
+    bin_path = find_cloudflared_executable()
+    if bin_path:
+        return bin_path
+
+    if sys.platform.startswith("win"):
+        target = OUT_DIR / "cloudflared.exe"
+        url = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe"
+        try:
+            log("Chưa tìm thấy cloudflared. Đang tự động tải cloudflared.exe từ GitHub...")
+            verify_ssl = not (os.environ.get("SSL_NO_VERIFY", "").strip().lower() in {"1", "true", "yes", "on"})
+            resp = HTTP_SESSION.get(url, stream=True, timeout=60, verify=verify_ssl)
+            if resp.status_code == 200:
+                with open(target, "wb") as f:
+                    for chunk in resp.iter_content(chunk_size=1024 * 1024):
+                        if chunk:
+                            f.write(chunk)
+                log(f"Đã tải thành công cloudflared.exe vào {target}")
+                return str(target)
+        except Exception as exc:
+            log(f"Không thể tự động tải cloudflared.exe: {exc}")
+    return None
+
+
+def start_cloudflare_tunnel(port: int = 8088) -> str | None:
+    global CLOUDFLARE_TUNNEL_PROC
+
+    if os.environ.get("AUTO_CLOUDFLARE_TUNNEL", "1").strip().lower() in {"0", "false", "no"}:
+        return os.environ.get("MINI_APP_URL")
+
+    configured_url = os.environ.get("MINI_APP_URL", "").strip()
+    if configured_url and "trycloudflare.com" not in configured_url:
+        log(f"Sử dụng tên miền cố định cho Mini App: {configured_url}")
+        return configured_url
+
+    bin_path = ensure_cloudflared_binary()
+    if not bin_path:
+        log("Không tìm thấy công cụ cloudflared để mở HTTPS tunnel.")
+        return configured_url or None
+
+    if sys.platform.startswith("win"):
+        try:
+            subprocess.run("taskkill /F /IM cloudflared.exe", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            time.sleep(1.0)
+        except Exception:
+            pass
+
+    log(f"Đang tự động khởi chạy Cloudflare Tunnel cho Mini App (cổng {port})...")
+    cmd = [bin_path, "tunnel", "--url", f"http://127.0.0.1:{port}"]
+    creationflags = subprocess.CREATE_NO_WINDOW if sys.platform.startswith("win") else 0
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            bufsize=1,
+            creationflags=creationflags
+        )
+        CLOUDFLARE_TUNNEL_PROC = proc
+
+        try:
+            atexit.register(lambda: proc.kill() if proc.poll() is None else None)
+        except Exception:
+            pass
+
+        tunnel_url = None
+        start_time = time.time()
+        while time.time() - start_time < 30:
+            line = proc.stdout.readline()
+            if not line and proc.poll() is not None:
+                break
+            if line:
+                match = re.search(r"https://[a-zA-Z0-9-]+\.trycloudflare\.com", line)
+                if match:
+                    tunnel_url = match.group(0).strip()
+                    break
+
+        if tunnel_url:
+            log(f"Cloudflare Tunnel tự động thành công: {tunnel_url}")
+            update_env_variable("MINI_APP_URL", tunnel_url)
+
+            def _drain(p):
+                try:
+                    for _ in p.stdout:
+                        pass
+                except Exception:
+                    pass
+            threading.Thread(target=_drain, args=(proc,), daemon=True).start()
+            return tunnel_url
+        else:
+            log("Không nhận diện được URL trycloudflare sau 30 giây.")
+            return configured_url or None
+    except Exception as exc:
+        log(f"Lỗi khi chạy Cloudflare Tunnel: {exc}")
+        return configured_url or None
+
+
+def notify_admins_mini_app_ready(url: str) -> None:
+    allowed_str = os.environ.get("TELEGRAM_ALLOWED_CHAT_IDS", "")
+    allowed_ids = [int(x.strip()) for x in allowed_str.split(",") if x.strip().replace("-", "").isdigit()]
+    if not allowed_ids:
+        return
+
+    text = (
+        "🟢 <b>Bot Khải Hoàn Derma & Mini App đã sẵn sàng!</b>\n\n"
+        f"🔗 <b>Đường dẫn:</b> <code>{url}</code>\n\n"
+        "👉 Bấm nút <b>📱 Mở Bảng Điều Khiển (Mini App)</b> bên dưới để mở giao diện quản trị:"
+    )
+    reply_markup = {
+        "inline_keyboard": [
+            [{"text": "📱 Mở Bảng Điều Khiển (Mini App)", "web_app": {"url": url}}]
+        ]
+    }
+    for chat_id in allowed_ids:
+        try:
+            telegram_api("sendMessage", {
+                "chat_id": chat_id,
+                "text": text,
+                "parse_mode": "HTML",
+                "reply_markup": reply_markup
+            })
+        except Exception as exc:
+            log(f"Không thể gửi thông báo Mini App tới {chat_id}: {exc}")
+
+
+def cloudflare_tunnel_watchdog(port: int = 8088) -> None:
+    while True:
+        time.sleep(30)
+        global CLOUDFLARE_TUNNEL_PROC
+        if CLOUDFLARE_TUNNEL_PROC is not None and CLOUDFLARE_TUNNEL_PROC.poll() is not None:
+            log("Phát hiện tiến trình Cloudflare Tunnel đã dừng. Đang tự động kết nối lại...")
+            new_url = start_cloudflare_tunnel(port)
+            if new_url:
+                os.environ["MINI_APP_URL"] = new_url
+                try:
+                    telegram_api("setChatMenuButton", {
+                        "menu_button": {
+                            "type": "web_app",
+                            "text": "📱 App Quản Trị",
+                            "web_app": {"url": new_url}
+                        }
+                    })
+                    notify_admins_mini_app_ready(new_url)
+                except Exception as exc:
+                    log(f"Lỗi cập nhật menu button sau khi khôi phục tunnel: {exc}")
 
 
 def force_ipv4() -> None:
@@ -4249,6 +4466,14 @@ def main() -> None:
     except Exception as exc:
         log(f"Không thể khởi động Telegram Mini App Server: {exc}")
 
+    # Tự động kết nối Cloudflare Tunnel cho Mini App
+    tunnel_url = start_cloudflare_tunnel(mini_app_port)
+    if tunnel_url:
+        os.environ["MINI_APP_URL"] = tunnel_url
+
+    # Khởi động watchdog giám sát Cloudflare Tunnel liên tục 24/7
+    threading.Thread(target=cloudflare_tunnel_watchdog, args=(mini_app_port,), daemon=True).start()
+
     if "TELEGRAM_BOT_TOKEN" not in os.environ:
         raise RuntimeError("Thieu TELEGRAM_BOT_TOKEN.")
 
@@ -4289,6 +4514,9 @@ def main() -> None:
                     log(f"Đã kích hoạt Telegram Menu Button cho Mini App: {mini_app_url}")
                 except Exception as exc:
                     log(f"Không thể đặt Telegram Menu Button: {exc}")
+
+                # Gửi thông báo đến Admin kèm nút bấm mở Mini App trực tiếp
+                notify_admins_mini_app_ready(mini_app_url)
             break
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")

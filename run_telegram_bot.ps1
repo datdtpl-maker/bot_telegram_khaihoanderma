@@ -124,9 +124,15 @@ if ($missingVariables.Count -gt 0) {
     throw "Thiếu biến cấu hình trong telegram_bot.env: $($missingVariables -join ', ')"
 }
 
-& $pythonCommand.Source -c "import gdown; import requests; import google.auth; import google_auth_oauthlib; import fastapi; import uvicorn; import importlib.metadata as m, re; s=m.version('gdown'); v=tuple(map(int,re.findall(r'\d+',s)[:2])); assert v >= (6,1), f'gdown {s} quá cũ; cần gdown >= 6.1'"
+$checkScript = "import gdown; import requests; import google.auth; import google_auth_oauthlib; import fastapi; import uvicorn; import importlib.metadata as m, re; s=m.version('gdown'); v=tuple(map(int,re.findall(r'\d+',s)[:2])); assert v >= (6,1), f'gdown {s} quá cũ; cần gdown >= 6.1'"
+& $pythonCommand.Source -c $checkScript 2>$null
 if ($LASTEXITCODE -ne 0) {
-    throw "Thiếu thư viện Python. Chạy: python -m pip install --upgrade -r requirements.txt"
+    Write-Host "Phát hiện thiếu hoặc lỗi thư viện Python. Đang tự động cài đặt từ requirements.txt..."
+    & $pythonCommand.Source -m pip install -r (Join-Path $PSScriptRoot "requirements.txt")
+    & $pythonCommand.Source -c $checkScript
+    if ($LASTEXITCODE -ne 0) {
+        throw "Cài đặt thư viện không thành công. Hãy kiểm tra kết nối mạng và chạy: python -m pip install -r requirements.txt"
+    }
 }
 
 if ($ValidateOnly) {

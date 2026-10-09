@@ -100,6 +100,24 @@ class MiniAppTestSuite(unittest.TestCase):
         self.assertIn("text/html", response.headers.get("content-type", ""))
         self.assertIn("Khải Hoàn Derma", response.text)
 
+    def test_cloudflare_tunnel_regex_parsing(self):
+        import re
+        sample_output = (
+            "2026-10-09T08:45:28Z INF +--------------------------------------------------------------------------------------------+\n"
+            "2026-10-09T08:45:28Z INF | Your quick Tunnel has been created! Visit it at (it may take some time to be reachable):    |\n"
+            "2026-10-09T08:45:28Z INF | https://scaled-norfolk-export-treo.trycloudflare.com                                       |\n"
+            "2026-10-09T08:45:28Z INF +--------------------------------------------------------------------------------------------+\n"
+        )
+        match = re.search(r"https://[a-zA-Z0-9-]+\.trycloudflare\.com", sample_output)
+        self.assertIsNotNone(match)
+        self.assertEqual(match.group(0), "https://scaled-norfolk-export-treo.trycloudflare.com")
+
+    def test_start_cloudflare_tunnel_custom_domain(self):
+        with patch.dict("os.environ", {"MINI_APP_URL": "https://app.khaihoanderma.com"}):
+            url = mini_app_server.bot.start_cloudflare_tunnel(8088)
+            self.assertEqual(url, "https://app.khaihoanderma.com")
+
 
 if __name__ == "__main__":
     unittest.main()
+

@@ -23,6 +23,9 @@ for /f "tokens=5" %%a in ('netstat -aon ^| findstr :8088') do (
 :: 2. Dung tien trinh PowerShell va Python cua bot
 powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*telegram_woocommerce_bot.py*' -or $_.CommandLine -like '*run_telegram_bot.ps1*' -or $_.CommandLine -like '*mini_app_server*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force; Write-Host ('Da dung tien trinh: ' + $_.ProcessId) }"
 
+:: 3. Tat Cloudflare Tunnel neu co
+taskkill /F /IM cloudflared.exe >nul 2>&1
+
 echo.
 echo Da tat bot thanh cong! Cong 52365 va 8088 da duoc giai phong hoan toan.
 timeout /t 3
