@@ -35,10 +35,10 @@ const app = createApp({
       pending_reviews: 0,
       notion_queue: 0,
       system_health: {
-        woocommerce: "checking",
-        wordpress: "checking",
-        gemini: "checking",
-        notion: "checking"
+        woocommerce: "ok",
+        wordpress: "ok",
+        gemini: "ok",
+        notion: "ok"
       }
     });
 
@@ -51,8 +51,15 @@ const app = createApp({
     // Products State
     const products = ref([]);
     const productSearch = ref("");
+    const productFilter = ref("all"); // all | instock | outofstock | sale | variable
+    const currentPage = ref(1);
+    const perPage = ref(20);
+    const totalProducts = ref(0);
+    const totalPages = ref(1);
+    const productCounts = reactive({ all: 0, instock: 0, outofstock: 0, sale: 0, variable: 0 });
     const isProductsLoading = ref(false);
-    const selectedProduct = ref(null);
+    const expandedVariations = reactive({});
+    
     const editPriceModal = reactive({
       show: false,
       product: null,
@@ -81,6 +88,14 @@ const app = createApp({
     ]);
     const aiPrompt = ref("");
     const isAiThinking = ref(false);
+
+    // System Utilities & Reports State
+    const isSystemActionRunning = ref(false);
+    const systemReportModal = reactive({
+      show: false,
+      title: "",
+      content: ""
+    });
 
     // Helpers
     const haptic = (type = "light") => {
@@ -118,6 +133,38 @@ const app = createApp({
       } catch (e) {
         return isoStr;
       }
+    };
+
+    const getOrderStatusLabel = (status) => {
+      const map = {
+        processing: "Đang xử lý",
+        completed: "Hoàn thành",
+        "on-hold": "Tạm giữ",
+        cancelled: "Đã hủy",
+        refunded: "Đã hoàn tiền",
+        failed: "Thất bại",
+        pending: "Chờ thanh toán"
+      };
+      return map[status] || status;
+    };
+
+    // Theme Logic - Synchronizes both html and body tags
+    const applyTheme = (dark) => {
+      isDark.value = dark;
+      if (dark) {
+        document.documentElement.classList.add("dark");
+        document.body.classList.add("dark", "dark-mode");
+      } else {
+        document.documentElement.classList.remove("dark");
+        document.body.classList.remove("dark", "dark-mode");
+      }
+    };
+
+    const toggleTheme = () => {
+      const nextTheme = !isDark.value;
+      applyTheme(nextTheme);
+      localStorage.setItem("khd_theme", nextTheme ? "dark" : "light");
+      haptic("light");
     };
 
     // API Client with Auth headers
@@ -193,13 +240,32 @@ const app = createApp({
         if (ordersFilter.value !== "all") {
           params.append("status", ordersFilter.value);
         }
-        params.append("per_page", "25");
+        params.append("per_page", "30");
         const data = await apiCall(`/api/orders?${params.toString()}`);
         orders.value = data.orders || [];
       } catch (err) {
         showToast("Không thể tải danh sách đơn hàng", "error");
       } finally {
         isOrdersLoading.value = false;
+      }
+    };
+
+    const updateOrderStatus = async (orderId, newStatus) => {
+      haptic("medium");
+      try {
+        await apiCall(`/api/orders/${orderId}/status`, {
+          method: "POST",
+          body: JSON.stringify({ status: newStatus })
+        });
+        showToast(`Đã chuyển đơn #${orderId} sang ${getOrderStatusLabel(newStatus)}!`, "success");
+        if (selectedOrder.value && selectedOrder.value.id === orderId) {
+          selectedOrder.value.status = newStatus;
+        }
+        const found = orders.value.find(o => o.id === orderId);
+        if (found) found.status = newStatus;
+        fetchDashboard();
+      } catch (err) {
+        showToast(err.message || "Lỗi cập nhật trạng thái đơn hàng", "error");
       }
     };
 
@@ -212,9 +278,19 @@ const app = createApp({
         if (productSearch.value.trim()) {
           params.append("search", productSearch.value.trim());
         }
-        params.append("per_page", "30");
+        if (productFilter.value !== "all") {
+          params.append("filter", productFilter.value);
+        }
+        params.append("page", currentPage.value.toString());
+        params.append("per_page", perPage.value.toString());
+
         const data = await apiCall(`/api/products?${params.toString()}`);
         products.value = data.products || [];
+        totalProducts.value = data.total || 0;
+        totalPages.value = data.total_pages || 1;
+        if (data.counts) {
+          Object.assign(productCounts, data.counts);
+        }
       } catch (err) {
         showToast("Lỗi khi tìm kiếm sản phẩm", "error");
       } finally {
@@ -225,8 +301,22 @@ const app = createApp({
     const onSearchInput = () => {
       clearTimeout(searchDebounceTimer);
       searchDebounceTimer = setTimeout(() => {
+        currentPage.value = 1;
         fetchProducts();
-      }, 350);
+      }, 300);
+    };
+
+    const goToPage = (page) => {
+      if (page < 1 || page > totalPages.value) return;
+      haptic("light");
+      currentPage.value = page;
+      fetchProducts();
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    };
+
+    const toggleVariationsExpand = (productId) => {
+      haptic("light");
+      expandedVariations[productId] = !expandedVariations[productId];
     };
 
     const openEditPriceModal = (product, variation = null) => {
@@ -281,6 +371,13 @@ const app = createApp({
           variation.stock_status = newStock;
         } else {
           product.stock_status = newStock;
+          if (newStock === "instock") {
+            productCounts.instock = (productCounts.instock || 0) + 1;
+            productCounts.outofstock = Math.max(0, (productCounts.outofstock || 0) - 1);
+          } else {
+            productCounts.instock = Math.max(0, (productCounts.instock || 0) - 1);
+            productCounts.outofstock = (productCounts.outofstock || 0) + 1;
+          }
         }
         showToast(`Đã chuyển thành ${newStock === 'instock' ? 'Còn hàng' : 'Hết hàng'}`, "success");
       } catch (err) {
@@ -345,7 +442,7 @@ const app = createApp({
       isSyncRunning.value = true;
       syncStatusText.value = "Đang khởi động đồng bộ Notion...";
       try {
-        const res = await apiCall("/api/notion/sync", { method: "POST" });
+        await apiCall("/api/notion/sync", { method: "POST" });
         showToast("Đã kích hoạt đồng bộ Notion!", "success");
         pollSyncStatus();
       } catch (err) {
@@ -405,6 +502,90 @@ const app = createApp({
       window.open(url, "_blank");
     };
 
+    const exportProductCatalog = () => {
+      haptic("medium");
+      const tokenHeader = tg.initData ? `?tgWebAppInitData=${encodeURIComponent(tg.initData)}` : (devToken.value ? `?admin_token=${devToken.value}` : "");
+      const url = `/api/export/products-catalog${tokenHeader}`;
+      window.open(url, "_blank");
+    };
+
+    // Product Deletion
+    const deleteProduct = async (product) => {
+      haptic("heavy");
+      if (!confirm(`Bạn có chắc muốn chuyển sản phẩm "${product.name}" vào thùng rác không?`)) return;
+      try {
+        await apiCall(`/api/products/${product.id}`, { method: "DELETE" });
+        showToast("Đã chuyển sản phẩm vào thùng rác!", "success");
+        products.value = products.value.filter(p => p.id !== product.id);
+        totalProducts.value = Math.max(0, totalProducts.value - 1);
+        productCounts.all = Math.max(0, (productCounts.all || 0) - 1);
+      } catch (err) {
+        showToast(err.message || "Lỗi khi xóa sản phẩm", "error");
+      }
+    };
+
+    // System Utilities & SEO Actions
+    const runPingTest = async () => {
+      haptic("medium");
+      isSystemActionRunning.value = true;
+      try {
+        const res = await apiCall("/api/system/ping");
+        systemReportModal.title = "Trạng Thái Kết Nối (Ping & Latency)";
+        systemReportModal.content = res.html || "Hệ thống hoạt động bình thường.";
+        systemReportModal.show = true;
+        showToast("Kiểm tra kết nối hoàn tất!", "success");
+      } catch (err) {
+        showToast(err.message || "Lỗi khi ping hệ thống", "error");
+      } finally {
+        isSystemActionRunning.value = false;
+      }
+    };
+
+    const refreshCache = async () => {
+      haptic("medium");
+      isSystemActionRunning.value = true;
+      try {
+        const res = await apiCall("/api/system/cache-refresh", { method: "POST" });
+        showToast(res.message || "Đã làm mới cache sản phẩm!", "success");
+        fetchProducts();
+      } catch (err) {
+        showToast(err.message || "Lỗi làm mới cache", "error");
+      } finally {
+        isSystemActionRunning.value = false;
+      }
+    };
+
+    const clearReviewsCache = async () => {
+      haptic("medium");
+      isSystemActionRunning.value = true;
+      try {
+        const res = await apiCall("/api/system/reviews-cache-clear", { method: "POST" });
+        showToast(res.message || "Đã xóa cache đánh giá!", "success");
+        fetchReviews();
+        fetchDashboard();
+      } catch (err) {
+        showToast(err.message || "Lỗi xóa cache đánh giá", "error");
+      } finally {
+        isSystemActionRunning.value = false;
+      }
+    };
+
+    const fetchGoogleReport = async (type = "traffic") => {
+      haptic("medium");
+      isSystemActionRunning.value = true;
+      try {
+        const res = await apiCall(`/api/reports/google-seo?type=${type}`);
+        systemReportModal.title = type === "traffic" ? "Báo Cáo Google Traffic (28 ngày)" : "Từ Khóa Google Search Console";
+        systemReportModal.content = res.html_report || "Không có dữ liệu báo cáo.";
+        systemReportModal.show = true;
+        showToast("Đã tải báo cáo SEO!", "success");
+      } catch (err) {
+        showToast(err.message || "Lỗi tải báo cáo SEO", "error");
+      } finally {
+        isSystemActionRunning.value = false;
+      }
+    };
+
     // Navigation & Tab Switching
     const switchTab = (tab) => {
       haptic("light");
@@ -416,14 +597,32 @@ const app = createApp({
       if (tab === "tools") fetchNotionQueue();
     };
 
+    const refreshCurrentTab = () => {
+      haptic("medium");
+      switchTab(currentTab.value);
+      showToast("Đã làm mới dữ liệu!", "info");
+    };
+
     // Setup & Lifecycle
     onMounted(() => {
       tg.ready();
       tg.expand();
-      isDark.value = tg.colorScheme === "dark";
-      if (isDark.value) {
-        document.body.classList.add("dark-mode");
+
+      // Check saved theme or fallback to Telegram colorScheme
+      const savedTheme = localStorage.getItem("khd_theme");
+      if (savedTheme) {
+        applyTheme(savedTheme === "dark");
+      } else {
+        applyTheme(tg.colorScheme === "dark");
       }
+
+      try {
+        tg.onEvent?.("themeChanged", () => {
+          if (!localStorage.getItem("khd_theme")) {
+            applyTheme(tg.colorScheme === "dark");
+          }
+        });
+      } catch (e) {}
 
       initAuth();
     });
@@ -445,7 +644,14 @@ const app = createApp({
       isOrdersLoading,
       products,
       productSearch,
+      productFilter,
+      currentPage,
+      perPage,
+      totalProducts,
+      totalPages,
+      productCounts,
       isProductsLoading,
+      expandedVariations,
       editPriceModal,
       reviews,
       isReviewsLoading,
@@ -456,22 +662,37 @@ const app = createApp({
       aiMessages,
       aiPrompt,
       isAiThinking,
+      isSystemActionRunning,
+      systemReportModal,
       formatMoney,
       formatDate,
+      getOrderStatusLabel,
+      toggleTheme,
       switchTab,
+      refreshCurrentTab,
       fetchOrders,
+      updateOrderStatus,
       fetchProducts,
       onSearchInput,
+      goToPage,
+      toggleVariationsExpand,
       openEditPriceModal,
       saveProductPrice,
       toggleStock,
+      deleteProduct,
       approveReview,
       deleteReview,
       fetchNotionQueue,
       triggerNotionSync,
       askGemini,
-      exportExcel
+      exportExcel,
+      exportProductCatalog,
+      runPingTest,
+      refreshCache,
+      clearReviewsCache,
+      fetchGoogleReport
     };
+
   }
 });
 

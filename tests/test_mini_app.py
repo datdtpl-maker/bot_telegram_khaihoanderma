@@ -117,7 +117,102 @@ class MiniAppTestSuite(unittest.TestCase):
             url = mini_app_server.bot.start_cloudflare_tunnel(8088)
             self.assertEqual(url, "https://app.khaihoanderma.com")
 
+    def test_delete_product_endpoint(self):
+        with patch.dict("os.environ", {"TELEGRAM_BOT_TOKEN": self.bot_token}), \
+             patch.object(mini_app_server.bot, "wc_delete", return_value={"id": 105}):
+            headers = {"X-Admin-Token": self.admin_token}
+            response = self.client.delete("/api/products/105", headers=headers)
+            self.assertEqual(response.status_code, 200)
+            data = response.json()
+            self.assertTrue(data.get("ok"))
+            self.assertIn("thùng rác", data.get("message"))
+
+    def test_export_products_catalog_endpoint(self):
+        from pathlib import Path
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tf:
+            tf.write(b"PK\x03\x04test")
+            fake_path = Path(tf.name)
+        with patch.dict("os.environ", {"TELEGRAM_BOT_TOKEN": self.bot_token}), \
+             patch.object(mini_app_server.bot, "export_product_catalog_report", return_value=("caption", fake_path)):
+            headers = {"X-Admin-Token": self.admin_token}
+            response = self.client.get("/api/export/products-catalog", headers=headers)
+            self.assertEqual(response.status_code, 200)
+            self.assertIn("sheet", response.headers.get("content-type", ""))
+        try:
+            fake_path.unlink()
+        except Exception:
+            pass
+
+    def test_system_cache_refresh_endpoint(self):
+        with patch.dict("os.environ", {"TELEGRAM_BOT_TOKEN": self.bot_token}), \
+             patch.object(mini_app_server.bot, "trigger_cache_refresh", return_value="<b>Làm mới cache xong</b>"):
+            headers = {"X-Admin-Token": self.admin_token}
+            response = self.client.post("/api/system/cache-refresh", headers=headers)
+            self.assertEqual(response.status_code, 200)
+            self.assertTrue(response.json().get("ok"))
+
+    def test_system_reviews_cache_clear_endpoint(self):
+        with patch.dict("os.environ", {"TELEGRAM_BOT_TOKEN": self.bot_token}), \
+             patch.object(mini_app_server.bot, "scan_and_notify_reviews", return_value=2):
+            headers = {"X-Admin-Token": self.admin_token}
+            response = self.client.post("/api/system/reviews-cache-clear", headers=headers)
+            self.assertEqual(response.status_code, 200)
+            self.assertTrue(response.json().get("ok"))
+            self.assertEqual(response.json().get("count"), 2)
+
+    def test_system_ping_endpoint(self):
+        with patch.dict("os.environ", {"TELEGRAM_BOT_TOKEN": self.bot_token}), \
+             patch.object(mini_app_server.bot, "build_ping_html", return_value="<b>Ping OK</b>"):
+            headers = {"X-Admin-Token": self.admin_token}
+            response = self.client.get("/api/system/ping", headers=headers)
+            self.assertEqual(response.status_code, 200)
+            self.assertTrue(response.json().get("ok"))
+
+    def test_google_seo_report_endpoint(self):
+        with patch.dict("os.environ", {"TELEGRAM_BOT_TOKEN": self.bot_token}), \
+             patch("bot_modules.google_reports.build_google_report_html", return_value="<b>Báo cáo SEO OK</b>"):
+            headers = {"X-Admin-Token": self.admin_token}
+            response = self.client.get("/api/reports/google-seo?type=traffic", headers=headers)
+            self.assertEqual(response.status_code, 200)
+            self.assertTrue(response.json().get("ok"))
+    def test_get_products_pagination_and_filters(self):
+        fake_prods = [
+            {"id": 1, "name": "Kem trị mụn", "type": "simple", "regular_price": "100000", "sale_price": "80000", "stock_status": "instock", "price": "80000"},
+            {"id": 2, "name": "Sữa rửa mặt", "type": "simple", "regular_price": "200000", "sale_price": "", "stock_status": "outofstock", "price": "200000"},
+            {"id": 3, "name": "Serum B5", "type": "variable", "regular_price": "", "sale_price": "", "stock_status": "instock", "price": "300000"}
+        ]
+        with patch.dict("os.environ", {"TELEGRAM_BOT_TOKEN": self.bot_token}), \
+             patch.object(mini_app_server.bot, "get_cached_all_products", return_value=fake_prods):
+            headers = {"X-Admin-Token": self.admin_token}
+            # Test all with per_page=2
+            res = self.client.get("/api/products?page=1&per_page=2&filter=all", headers=headers)
+            self.assertEqual(res.status_code, 200)
+            data = res.json()
+            self.assertEqual(data.get("total"), 3)
+            self.assertEqual(len(data.get("products")), 2)
+            self.assertEqual(data.get("total_pages"), 2)
+            self.assertEqual(data.get("counts", {}).get("all"), 3)
+            self.assertEqual(data.get("counts", {}).get("sale"), 1)
+
+            # Test filter=sale
+            res_sale = self.client.get("/api/products?filter=sale", headers=headers)
+            self.assertEqual(res_sale.status_code, 200)
+            self.assertEqual(res_sale.json().get("total"), 1)
+            self.assertEqual(res_sale.json().get("products")[0]["id"], 1)
+
+    def test_update_order_status_endpoint(self):
+        with patch.dict("os.environ", {"TELEGRAM_BOT_TOKEN": self.bot_token}), \
+             patch.object(mini_app_server.bot, "wc_put", return_value={"id": 888, "status": "completed"}):
+            headers = {"X-Admin-Token": self.admin_token}
+            payload = {"status": "completed"}
+            res = self.client.post("/api/orders/888/status", json=payload, headers=headers)
+            self.assertEqual(res.status_code, 200)
+            self.assertTrue(res.json().get("ok"))
+            self.assertIn("completed", res.json().get("message"))
+
 
 if __name__ == "__main__":
     unittest.main()
+
 

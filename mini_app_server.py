@@ -244,6 +244,57 @@ def get_dashboard_stats(current_user: dict = Depends(get_current_admin)):
     }
 
 
+# ================= CONCURRENT VARIATIONS CACHE =================
+_VARIATIONS_CACHE: dict[int, list[dict]] = {}
+_VARIATIONS_CACHE_TIME: dict[int, float] = {}
+_VARIATIONS_LOCK = threading.Lock()
+
+def get_product_variations_cached(product_id: int) -> list[dict]:
+    """Lấy danh sách biến thể của sản phẩm, có cache trong 10 phút"""
+    now = time.time()
+    with _VARIATIONS_LOCK:
+        if product_id in _VARIATIONS_CACHE and (now - _VARIATIONS_CACHE_TIME.get(product_id, 0)) < 600:
+            return _VARIATIONS_CACHE[product_id]
+
+    try:
+        vars_res = bot.wc_get(f"products/{product_id}/variations", {"per_page": 50})
+        variations_list = []
+        if isinstance(vars_res, list):
+            for v in vars_res:
+                attrs = v.get("attributes") or []
+                label = " / ".join(str(a.get("option", "")).strip() for a in attrs if a.get("option")) or f"#{v.get('id')}"
+                reg_p = str(v.get("regular_price") or "").strip()
+                sale_p = str(v.get("sale_price") or "").strip()
+                discount = None
+                if reg_p and sale_p:
+                    try:
+                        r_val = float(reg_p)
+                        s_val = float(sale_p)
+                        if r_val > 0 and s_val < r_val:
+                            discount = round((1 - s_val / r_val) * 100)
+                    except Exception:
+                        pass
+
+                variations_list.append({
+                    "id": v.get("id"),
+                    "name_label": label,
+                    "price": float(v.get("price") or 0),
+                    "regular_price": reg_p,
+                    "sale_price": sale_p,
+                    "discount_percent": discount,
+                    "stock_status": v.get("stock_status", "instock"),
+                    "sku": v.get("sku") or ""
+                })
+
+        with _VARIATIONS_LOCK:
+            _VARIATIONS_CACHE[product_id] = variations_list
+            _VARIATIONS_CACHE_TIME[product_id] = now
+        return variations_list
+    except Exception as e:
+        bot.log(f"[MiniApp] Lỗi nạp biến thể #{product_id}: {e}")
+        return []
+
+
 # ================= ORDERS API =================
 
 @app.get("/api/orders")
@@ -264,13 +315,46 @@ def get_orders(
 
         formatted = []
         for o in res:
+            billing = o.get("billing") or {}
+            shipping = o.get("shipping") or {}
+            first_name = (billing.get("first_name") or "").strip()
+            last_name = (billing.get("last_name") or "").strip()
+            full_name = f"{first_name} {last_name}".strip()
+            if not full_name:
+                full_name = f"{shipping.get('first_name') or ''} {shipping.get('last_name') or ''}".strip() or "Khách hàng"
+
+            phone = billing.get("phone") or shipping.get("phone") or "Chưa có SĐT"
+            addr_parts = [
+                billing.get("address_1"),
+                billing.get("address_2"),
+                billing.get("city"),
+                billing.get("state")
+            ]
+            address = ", ".join([p.strip() for p in addr_parts if p and p.strip()]) or "Chưa có địa chỉ"
+
+            line_items = []
+            for it in o.get("line_items") or []:
+                line_items.append({
+                    "id": it.get("id"),
+                    "name": it.get("name") or "Sản phẩm",
+                    "quantity": it.get("quantity", 1),
+                    "price": float(it.get("price") or 0),
+                    "total": float(it.get("total") or 0),
+                    "sku": it.get("sku") or ""
+                })
+
             formatted.append({
                 "id": o.get("id"),
                 "status": o.get("status"),
                 "total": float(o.get("total") or 0),
                 "date_created": o.get("date_created"),
-                "billing": o.get("billing") or {},
-                "line_items": o.get("line_items") or []
+                "customer_name": full_name,
+                "phone": phone,
+                "address": address,
+                "payment_method_title": o.get("payment_method_title") or "COD",
+                "customer_note": o.get("customer_note") or "",
+                "billing": billing,
+                "line_items": line_items
             })
         return {"orders": formatted}
     except Exception as exc:
@@ -278,64 +362,152 @@ def get_orders(
         raise HTTPException(status_code=500, detail="Không thể tải danh sách đơn hàng.")
 
 
+class UpdateOrderStatusRequest(BaseModel):
+    status: str
+
+
+@app.post("/api/orders/{order_id}/status")
+def update_order_status(
+    order_id: int,
+    body: UpdateOrderStatusRequest,
+    current_user: dict = Depends(get_current_admin)
+):
+    valid_statuses = {"processing", "completed", "on-hold", "cancelled", "refunded", "failed", "pending"}
+    if body.status not in valid_statuses:
+        raise HTTPException(status_code=400, detail=f"Trạng thái {body.status} không hợp lệ.")
+    try:
+        res = bot.wc_put(f"orders/{order_id}", {"status": body.status})
+        if not isinstance(res, dict) or not res.get("id"):
+            raise HTTPException(status_code=400, detail="Lỗi khi cập nhật trạng thái đơn hàng trên WooCommerce.")
+        return {"ok": True, "message": f"Đã chuyển đơn hàng #{order_id} sang trạng thái: {body.status}!"}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        bot.log(f"[MiniApp] Lỗi đổi trạng thái đơn #{order_id}: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 # ================= PRODUCTS API =================
 
 @app.get("/api/products")
 def get_products(
     search: str = Query("", alias="search"),
-    per_page: int = Query(30),
+    filter_type: str = Query("all", alias="filter"),
+    per_page: int = Query(20),
     page: int = Query(1),
     current_user: dict = Depends(get_current_admin)
 ):
-    try:
-        if search.strip():
-            # Sử dụng tìm kiếm thông minh từ bot
-            matched = bot.find_products_by_fuzzy_name(search.strip())
-            products = matched[:per_page]
-        else:
-            # Lấy danh sách sản phẩm từ cache bot hoặc WooCommerce
-            cached = bot.get_cached_all_products()
-            products = cached[:per_page]
+    import math
+    import concurrent.futures
 
+    try:
+        all_cached = bot.get_cached_all_products()
+
+        # Thống kê số lượng tổng theo từng loại
+        counts = {
+            "all": len(all_cached),
+            "instock": sum(1 for p in all_cached if p.get("stock_status") == "instock"),
+            "outofstock": sum(1 for p in all_cached if p.get("stock_status") == "outofstock"),
+            "sale": sum(1 for p in all_cached if p.get("on_sale") or (p.get("sale_price") and str(p.get("sale_price")).strip())),
+            "variable": sum(1 for p in all_cached if p.get("type") == "variable")
+        }
+
+        # 1. Tìm kiếm hoặc lấy toàn bộ
+        if search.strip():
+            matched = bot.find_products_by_fuzzy_name(search.strip())
+        else:
+            matched = all_cached
+
+        # 2. Bộ lọc tab
+        if filter_type == "instock":
+            matched = [p for p in matched if p.get("stock_status") == "instock"]
+        elif filter_type == "outofstock":
+            matched = [p for p in matched if p.get("stock_status") == "outofstock"]
+        elif filter_type == "sale":
+            matched = [p for p in matched if p.get("on_sale") or (p.get("sale_price") and str(p.get("sale_price")).strip())]
+        elif filter_type == "variable":
+            matched = [p for p in matched if p.get("type") == "variable"]
+
+        total = len(matched)
+        per_page = max(1, min(per_page, 100))
+        total_pages = max(1, math.ceil(total / per_page))
+        page = max(1, min(page, total_pages)) if total > 0 else 1
+
+        start_idx = (page - 1) * per_page
+        end_idx = start_idx + per_page
+        page_items = matched[start_idx:end_idx]
+
+        # 3. Tải song song thông tin biến thể cho các sản phẩm biến thể trong trang này
+        variable_prods_to_fetch = [
+            p.get("id") for p in page_items 
+            if p.get("type") == "variable" and p.get("id") not in _VARIATIONS_CACHE
+        ]
+
+        if variable_prods_to_fetch:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+                futures = {executor.submit(get_product_variations_cached, pid): pid for pid in variable_prods_to_fetch}
+                for future in concurrent.futures.as_completed(futures):
+                    try:
+                        future.result()
+                    except Exception:
+                        pass
+
+        # 4. Định dạng dữ liệu trả về giao diện
         formatted = []
-        for p in products:
+        for p in page_items:
             p_id = p.get("id")
             p_type = p.get("type", "simple")
             variations_list = []
+            min_price = None
+            max_price = None
 
-            # Nếu là sản phẩm biến thể, nạp các phân loại
             if p_type == "variable":
+                variations_list = get_product_variations_cached(p_id)
+                prices = [v.get("price") for v in variations_list if v.get("price") is not None and v.get("price") > 0]
+                if prices:
+                    min_price = min(prices)
+                    max_price = max(prices)
+
+            reg_p = str(p.get("regular_price") or "").strip()
+            sale_p = str(p.get("sale_price") or "").strip()
+            discount = None
+            if reg_p and sale_p:
                 try:
-                    vars_res = bot.wc_get(f"products/{p_id}/variations", {"per_page": 50})
-                    if isinstance(vars_res, list):
-                        for v in vars_res:
-                            # Tạo nhãn hiển thị cho biến thể
-                            attrs = v.get("attributes") or []
-                            label = " / ".join(a.get("option", "") for a in attrs) or f"#{v.get('id')}"
-                            variations_list.append({
-                                "id": v.get("id"),
-                                "name_label": label,
-                                "price": float(v.get("price") or 0),
-                                "regular_price": v.get("regular_price") or "",
-                                "sale_price": v.get("sale_price") or "",
-                                "stock_status": v.get("stock_status", "instock")
-                            })
+                    r_val = float(reg_p)
+                    s_val = float(sale_p)
+                    if r_val > 0 and s_val < r_val:
+                        discount = round((1 - s_val / r_val) * 100)
                 except Exception:
                     pass
 
+            # Lấy ảnh đại diện
+            images = p.get("images") or []
+
             formatted.append({
-                "id": p.get("id"),
+                "id": p_id,
                 "name": p.get("name"),
-                "sku": p.get("sku"),
+                "sku": p.get("sku") or "",
                 "price": float(p.get("price") or 0),
-                "regular_price": p.get("regular_price") or "",
-                "sale_price": p.get("sale_price") or "",
+                "regular_price": reg_p,
+                "sale_price": sale_p,
+                "discount_percent": discount,
+                "min_price": min_price,
+                "max_price": max_price,
                 "stock_status": p.get("stock_status", "instock"),
-                "images": p.get("images") or [],
+                "images": images,
                 "type": p_type,
+                "on_sale": bool(p.get("on_sale") or discount),
                 "variations": variations_list
             })
-        return {"products": formatted}
+
+        return {
+            "products": formatted,
+            "total": total,
+            "total_pages": total_pages,
+            "page": page,
+            "per_page": per_page,
+            "counts": counts
+        }
     except Exception as exc:
         bot.log(f"[MiniApp] Lỗi tải sản phẩm: {exc}")
         raise HTTPException(status_code=500, detail="Không thể tải danh sách sản phẩm.")
@@ -642,6 +814,94 @@ def export_orders_month(current_user: dict = Depends(get_current_admin)):
     except Exception as exc:
         bot.log(f"[MiniApp] Lỗi xuất Excel đơn tháng này: {exc}")
         raise HTTPException(status_code=500, detail="Không thể tạo file Excel.")
+
+
+@app.get("/api/export/products-catalog")
+def export_products_catalog(current_user: dict = Depends(get_current_admin)):
+    try:
+        _, xlsx_path = bot.export_product_catalog_report()
+        return FileResponse(
+            xlsx_path,
+            filename=f"Danh_muc_san_pham_{datetime.now().strftime('%Y%m%d')}.xlsx",
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+    except Exception as exc:
+        bot.log(f"[MiniApp] Lỗi xuất danh mục sản phẩm Excel: {exc}")
+        raise HTTPException(status_code=500, detail="Không thể tạo file Excel danh mục sản phẩm.")
+
+
+@app.delete("/api/products/{product_id}")
+def delete_product_endpoint(product_id: int, current_user: dict = Depends(get_current_admin)):
+    try:
+        res = bot.wc_delete(f"products/{product_id}", {"force": "false"})
+        if not isinstance(res, dict) or not res.get("id"):
+            raise HTTPException(status_code=400, detail="Lỗi khi xóa sản phẩm trên WooCommerce.")
+        try:
+            with bot._ALL_PRODUCTS_CACHE_LOCK:
+                bot._ALL_PRODUCTS_CACHE = [p for p in bot._ALL_PRODUCTS_CACHE if p.get("id") != product_id]
+        except Exception:
+            pass
+        return {"ok": True, "message": f"Đã chuyển sản phẩm #{product_id} vào thùng rác thành công!"}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        bot.log(f"[MiniApp] Lỗi xóa sản phẩm #{product_id}: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ================= SYSTEM & GOOGLE SEO API =================
+
+@app.get("/api/reports/google-seo")
+def get_google_seo_report(
+    report_type: str = Query("traffic", alias="type"),
+    current_user: dict = Depends(get_current_admin)
+):
+    try:
+        from bot_modules.google_reports import build_google_report_html
+        query = "traffic 28 ngày qua" if report_type == "traffic" else "từ khóa search console 28 ngày qua"
+        html_report = build_google_report_html(query)
+        return {"ok": True, "type": report_type, "html_report": html_report}
+    except Exception as exc:
+        bot.log(f"[MiniApp] Lỗi tạo báo cáo Google SEO: {exc}")
+        return {"ok": False, "html_report": f"Lỗi lấy dữ liệu Google: {exc}"}
+
+
+@app.post("/api/system/cache-refresh")
+def refresh_cache_endpoint(current_user: dict = Depends(get_current_admin)):
+    try:
+        msg = bot.trigger_cache_refresh()
+        return {"ok": True, "message": bot.plain_text_from_html(msg)}
+    except Exception as exc:
+        bot.log(f"[MiniApp] Lỗi làm mới cache: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/api/system/reviews-cache-clear")
+def clear_reviews_cache_endpoint(current_user: dict = Depends(get_current_admin)):
+    try:
+        bot.NOTIFIED_REVIEWS.clear()
+        notified_file = bot.OUT_DIR / "notified_reviews.json"
+        if notified_file.exists():
+            try:
+                notified_file.unlink()
+            except Exception:
+                pass
+        count = bot.scan_and_notify_reviews()
+        return {"ok": True, "count": count, "message": f"Đã xóa cache đánh giá. Tìm thấy {count} đánh giá chờ duyệt."}
+    except Exception as exc:
+        bot.log(f"[MiniApp] Lỗi xóa cache đánh giá: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/api/system/ping")
+def ping_system_endpoint(current_user: dict = Depends(get_current_admin)):
+    try:
+        html_msg = bot.build_ping_html()
+        return {"ok": True, "html": html_msg}
+    except Exception as exc:
+        bot.log(f"[MiniApp] Lỗi ping hệ thống: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))
+
 
 
 def start_mini_app_server(host: str = "0.0.0.0", port: int = 8088):
