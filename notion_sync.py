@@ -415,6 +415,55 @@ def _clean_drive_folder_url(url):
     return str(url or "").strip()
 
 
+def scan_drive_folder_videos(folder_url):
+    """
+    Quét và lấy danh sách file video trong thư mục Google Drive (nếu có).
+    Hỗ trợ .mov, .mp4, .webm, .m4v, .avi, .mkv.
+    """
+    import gdown
+    clean_url = _clean_drive_folder_url(folder_url)
+    video_extensions = {".mov", ".mp4", ".webm", ".m4v", ".avi", ".mkv"}
+    found_videos = []
+    try:
+        folder_files = gdown.download_folder(url=clean_url, skip_download=True, quiet=True)
+        if folder_files:
+            for f in folder_files:
+                f_name = Path(f.path).name
+                if Path(f_name).suffix.lower() in video_extensions:
+                    found_videos.append({"id": f.id, "name": f_name})
+    except Exception as e:
+        log_message(f"Không thể quét danh sách video từ Google Drive: {e}")
+
+    # Sắp xếp theo tên tự nhiên (ví dụ 7.MOV, 8.MOV)
+    return sorted(found_videos, key=lambda x: _natural_text_key(x.get("name", "")))
+
+
+def build_drive_video_embed_html(video_files):
+    """
+    Tạo khối mã HTML nhúng trình phát video Google Drive responsive, tối ưu giao diện.
+    """
+    if not video_files:
+        return ""
+
+    html_parts = [
+        '<div class="product-video-section" style="margin: 32px 0 20px; padding: 20px; background: #f8fafc; border-radius: 16px; border: 1px solid #e2e8f0; text-align: center;">',
+        '  <h3 style="margin-top: 0; margin-bottom: 16px; font-size: 17px; font-weight: 700; color: #1e293b;">🎬 Video Thực Tế &amp; Hướng Dẫn Sử Dụng</h3>',
+        '  <div style="display: flex; flex-direction: column; gap: 20px; align-items: center;">'
+    ]
+    for v in video_files:
+        vid = v.get("id")
+        if not vid:
+            continue
+        html_parts.append(
+            f'    <div style="width: 100%; max-width: 520px; position: relative; padding-bottom: 56.25%; height: 0; overflow: hidden; border-radius: 12px; box-shadow: 0 4px 14px rgba(0,0,0,0.12); background: #000;">'
+            f'<iframe src="https://drive.google.com/file/d/{vid}/preview" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: 0;" allow="autoplay" allowfullscreen loading="lazy"></iframe>'
+            f'</div>'
+        )
+    html_parts.append('  </div>')
+    html_parts.append('</div>')
+    return "\n".join(html_parts)
+
+
 def download_drive_folder(folder_url, temp_dir):
     import gdown
     import requests
@@ -996,11 +1045,21 @@ def _run_notion_sync_workflow(progress_callback=None, page_ids=None):
                         f"Không cập nhật được Alt/Title cho ảnh số {idx + 1}. Sản phẩm chưa được đăng."
                     )
 
+            final_description = product_description
+            try:
+                found_videos = scan_drive_folder_videos(drive_url)
+                if found_videos:
+                    log_message(f"Tìm thấy {len(found_videos)} video trong Drive của '{product_title}'. Tự động chèn video player vào mô tả.")
+                    video_html = build_drive_video_embed_html(found_videos)
+                    final_description = final_description.strip() + "\n\n" + video_html.strip()
+            except Exception as v_err:
+                log_message(f"Lỗi quét video Drive cho '{product_title}': {v_err}")
+
             images_payload = [{"id": media_id} for media_id in uploaded_media_ids]
             product_payload = {
                 "name": product_title,
                 "type": "simple",
-                "description": product_description,
+                "description": final_description,
                 "regular_price": str(price_val),
                 "status": "draft",
                 "images": images_payload,

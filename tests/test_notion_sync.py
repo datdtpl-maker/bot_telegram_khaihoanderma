@@ -234,5 +234,37 @@ class WorkflowLockTests(unittest.TestCase):
                 first.release()
 
 
+class DriveVideoEmbedTests(unittest.TestCase):
+    def test_build_drive_video_embed_html(self):
+        videos = [
+            {"id": "video123", "name": "8.MOV"},
+            {"id": "video456", "name": "7.MOV"}
+        ]
+        html = notion_sync.build_drive_video_embed_html(videos)
+        self.assertIn("product-video-section", html)
+        self.assertIn("https://drive.google.com/file/d/video123/preview", html)
+        self.assertIn("https://drive.google.com/file/d/video456/preview", html)
+        self.assertIn("<iframe", html)
+
+    def test_build_drive_video_embed_html_empty(self):
+        html = notion_sync.build_drive_video_embed_html([])
+        self.assertEqual(html, "")
+
+    def test_scan_drive_folder_videos_mock(self):
+        fake_gdown = types.SimpleNamespace()
+        fake_files = [
+            types.SimpleNamespace(path="1.png", id="img1"),
+            types.SimpleNamespace(path="8.MOV", id="vid8"),
+            types.SimpleNamespace(path="7.mp4", id="vid7")
+        ]
+        fake_gdown.download_folder = lambda **kwargs: fake_files
+        with patch.dict(sys.modules, {"gdown": fake_gdown}):
+            vids = notion_sync.scan_drive_folder_videos("https://drive.google.com/drive/folders/1234567890")
+            self.assertEqual(len(vids), 2)
+            # Natural sort should put 7.mp4 before 8.MOV
+            self.assertEqual(vids[0]["id"], "vid7")
+            self.assertEqual(vids[1]["id"], "vid8")
+
+
 if __name__ == "__main__":
     unittest.main()
