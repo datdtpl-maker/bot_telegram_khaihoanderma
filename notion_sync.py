@@ -461,22 +461,34 @@ def build_drive_video_gallery_script(video_files):
     view_url = f"https://drive.google.com/file/d/{vid}/view"
     preview_url = f"https://drive.google.com/file/d/{vid}/preview"
 
-    player_html = (
-        '<div style="position:absolute;top:10px;left:10px;z-index:30;display:flex;gap:6px;align-items:center;">'
-        '<button type="button" id="khd-back-to-images" style="background:rgba(15,23,42,0.85)!important;backdrop-filter:blur(4px);color:#ffffff!important;border:1px solid rgba(255,255,255,0.3)!important;padding:5px 12px!important;border-radius:18px!important;font-size:11.5px!important;font-weight:700!important;cursor:pointer;display:inline-flex!important;align-items:center!important;gap:4px!important;box-shadow:0 2px 6px rgba(0,0,0,0.35)!important;line-height:1.2!important;white-space:nowrap!important;text-transform:none!important;letter-spacing:normal!important;height:auto!important;min-height:unset!important;"><span>📷</span> Xem ảnh</button>'
-        f'<a href="{view_url}" target="_blank" rel="noopener noreferrer" style="background:rgba(15,23,42,0.85)!important;backdrop-filter:blur(4px);color:#38bdf8!important;border:1px solid rgba(56,189,248,0.4)!important;padding:5px 10px!important;border-radius:18px!important;font-size:11.5px!important;font-weight:700!important;text-decoration:none!important;display:inline-flex!important;align-items:center!important;box-shadow:0 2px 6px rgba(0,0,0,0.35)!important;line-height:1.2!important;white-space:nowrap!important;text-transform:none!important;letter-spacing:normal!important;height:auto!important;min-height:unset!important;">HD ↗</a>'
+    # 1. Top Control Header Bar (Full width, synchronized across Desktop, iPad, Mobile)
+    header_html = (
+        '<div class="khd-video-topbar" style="position:absolute;top:0;left:0;width:100%;box-sizing:border-box;z-index:30;padding:6px 8px;background:linear-gradient(180deg,rgba(15,23,42,0.92) 0%,rgba(15,23,42,0.45) 60%,transparent 100%);display:flex;align-items:center;justify-content:space-between;gap:4px;">'
+        '<div style="display:flex;align-items:center;gap:5px;color:#ffffff;font-size:11.5px;font-weight:700;text-shadow:0 1px 3px rgba(0,0,0,0.7);min-width:0;overflow:hidden;white-space:nowrap;">'
+        '<span style="display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;min-width:17px;border-radius:50%;background:#ef4444;color:#fff;font-size:8.5px;">▶</span>'
+        '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Video Thực Tế</span>'
         '</div>'
+        '<div style="display:flex;align-items:center;gap:4px;flex-shrink:0;">'
+        f'<a href="{view_url}" target="_blank" rel="noopener noreferrer" style="background:rgba(15,23,42,0.8)!important;backdrop-filter:blur(6px);color:#38bdf8!important;border:1px solid rgba(56,189,248,0.5)!important;padding:3px 6px!important;border-radius:12px!important;font-size:10px!important;font-weight:700!important;text-decoration:none!important;display:inline-flex!important;align-items:center!important;gap:2px!important;box-shadow:0 2px 6px rgba(0,0,0,0.3)!important;line-height:1.2!important;white-space:nowrap!important;text-transform:none!important;letter-spacing:normal!important;height:auto!important;min-height:unset!important;">HD ↗</a>'
+        '<button type="button" id="khd-back-to-images" style="background:rgba(15,23,42,0.8)!important;backdrop-filter:blur(6px);color:#ffffff!important;border:1px solid rgba(255,255,255,0.4)!important;padding:3px 8px!important;border-radius:12px!important;font-size:10px!important;font-weight:700!important;cursor:pointer;display:inline-flex!important;align-items:center!important;gap:3px!important;box-shadow:0 2px 6px rgba(0,0,0,0.3)!important;line-height:1.2!important;white-space:nowrap!important;text-transform:none!important;letter-spacing:normal!important;height:auto!important;min-height:unset!important;"><span>📷</span> Xem ảnh</button>'
+        '</div>'
+        '</div>'
+    )
+
+    player_html = (
+        f'{header_html}'
         '<div style="position:relative;width:100%;padding-top:100%;overflow:hidden;background:#000;">'
         f'<iframe id="khd-gallery-iframe" src="{preview_url}" style="position:absolute;top:-54px;left:0;width:100%;height:calc(100% + 54px);border:0;" allow="autoplay;fullscreen" allowfullscreen loading="lazy"></iframe>'
         '</div>'
     )
 
-    thumb_html = (
-        '<div class="khd-video-thumb-box" id="khd-video-thumb-box">'
-        '<div style="width:26px;height:26px;border-radius:50%;background:#ef4444;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(239,68,68,0.5);">'
-        '<svg viewBox="0 0 24 24" width="14" height="14" fill="#ffffff" style="margin-left:2px;"><path d="M8 5v14l11-7z"/></svg>'
+    # 2. Video thumbnail overlay (Centering play button on product photo)
+    overlay_html = (
+        '<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;background:rgba(15,23,42,0.38);">'
+        '<div style="width:28px;height:28px;border-radius:50%;background:#ef4444;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,0.4);">'
+        '<svg viewBox="0 0 24 24" width="13" height="13" fill="#ffffff" style="margin-left:2px;"><path d="M8 5v14l11-7z"/></svg>'
         '</div>'
-        '<span style="font-size:10.5px;font-weight:800;color:#f8fafc;letter-spacing:0.5px;margin-top:4px;">VIDEO</span>'
+        '<span style="font-size:10px;font-weight:800;color:#ffffff;letter-spacing:0.5px;text-shadow:0 1px 3px rgba(0,0,0,0.8);line-height:1;">VIDEO</span>'
         '</div>'
     )
 
@@ -486,16 +498,16 @@ def build_drive_video_gallery_script(video_files):
     )
 
     b64_player = base64.b64encode(player_html.encode('utf-8')).decode('ascii')
-    b64_thumb = base64.b64encode(thumb_html.encode('utf-8')).decode('ascii')
+    b64_overlay = base64.b64encode(overlay_html.encode('utf-8')).decode('ascii')
     b64_badge = base64.b64encode(badge_html.encode('utf-8')).decode('ascii')
 
     css = (
         '<style>'
         '.product-video-wrapper{display:none!important}'
-        '.khd-video-thumb-col{flex:0 0 72px!important;width:72px!important;min-width:72px!important;height:72px!important;max-height:72px!important;padding:0!important;margin:0!important;display:block!important;cursor:pointer}'
-        '.khd-video-thumb-box{width:72px;height:72px;border-radius:6px;background:linear-gradient(135deg,#1e293b,#0f172a);display:flex;flex-direction:column;align-items:center;justify-content:center;border:2px solid #94a3b8;box-sizing:border-box;transition:all .2s ease}'
-        '.khd-video-thumb-col:hover .khd-video-thumb-box{border-color:#ef4444!important;transform:scale(1.03)}'
-        '.khd-video-thumb-active .khd-video-thumb-box{border-color:#ef4444!important;box-shadow:0 0 8px rgba(239,68,68,0.7)!important}'
+        '.khd-video-thumb-col{cursor:pointer;transition:transform .2s ease}'
+        '.khd-video-thumb-col:hover{transform:scale(1.03)}'
+        '.khd-video-thumb-card{position:relative;width:100%;aspect-ratio:1/1;border-radius:6px;overflow:hidden;background:#0f172a;border:2px solid transparent;box-sizing:border-box;transition:all .2s ease}'
+        '.khd-video-thumb-active .khd-video-thumb-card{border-color:#ef4444!important;box-shadow:0 0 10px rgba(239,68,68,0.7)!important}'
         '#khd-main-video-badge{position:absolute;bottom:16px;left:16px;z-index:25;background:rgba(15,23,42,0.88);backdrop-filter:blur(6px);color:#fff;padding:8px 16px;border-radius:24px;font-size:13px;font-weight:700;display:flex;align-items:center;gap:8px;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.25);user-select:none;transition:transform .15s ease}'
         '#khd-main-video-badge:hover{transform:scale(1.05);background:rgba(15,23,42,0.96)}'
         '#khd-gallery-video-player{display:none;position:relative;width:100%;border-radius:10px;overflow:hidden;background:#000;margin-bottom:10px;box-shadow:0 4px 16px rgba(0,0,0,0.12);box-sizing:border-box}'
@@ -523,10 +535,26 @@ def build_drive_video_gallery_script(video_files):
         'gal.appendChild(badge);'
         'var thumbCol=null;'
         'if(thumbs){'
+        'var firstImg=thumbs.querySelector(".col img");'
+        'var thumbSrc=firstImg?(firstImg.getAttribute("data-khd-thumb-src")||firstImg.getAttribute("data-src")||firstImg.src):"";'
         'thumbCol=document.createElement("div");'
         'thumbCol.className="col khd-video-thumb-col";'
         'thumbCol.id="khd-video-thumb-col";'
-        f'thumbCol.innerHTML=decodeURIComponent(escape(window.atob("{b64_thumb}")));'
+        'var card=document.createElement("div");'
+        'card.className="khd-video-thumb-card";'
+        'card.id="khd-video-thumb-card";'
+        'if(thumbSrc){'
+        'var bgImg=document.createElement("img");'
+        'bgImg.src=thumbSrc;'
+        'bgImg.style.cssText="width:100%;height:100%;object-fit:cover;display:block;filter:brightness(0.75);";'
+        'card.appendChild(bgImg);'
+        '}'
+        'var over=document.createElement("div");'
+        f'over.innerHTML=decodeURIComponent(escape(window.atob("{b64_overlay}")));'
+        'card.appendChild(over);'
+        'var link=document.createElement("a");'
+        'link.appendChild(card);'
+        'thumbCol.appendChild(link);'
         'thumbs.insertBefore(thumbCol,thumbs.firstChild);'
         '}'
         'function showVideo(){'
