@@ -244,11 +244,27 @@ class DriveVideoEmbedTests(unittest.TestCase):
         self.assertIn("product-video-section", html)
         self.assertIn("https://drive.google.com/file/d/video123/preview", html)
         self.assertIn("https://drive.google.com/file/d/video456/preview", html)
+        self.assertIn("https://drive.google.com/file/d/video123/view", html)
+        self.assertIn("8.MOV", html)
         self.assertIn("<iframe", html)
+        self.assertIn("margin: 0 0 28px 0", html)
 
     def test_build_drive_video_embed_html_empty(self):
         html = notion_sync.build_drive_video_embed_html([])
         self.assertEqual(html, "")
+
+    def test_wp_update_product_content_mock(self):
+        config = {
+            "WORDPRESS_SITE_URL": "https://example.com",
+            "WORDPRESS_USERNAME": "admin",
+            "WORDPRESS_PASSWORD": "password123"
+        }
+        mock_resp = unittest.mock.MagicMock()
+        mock_resp.read.return_value = json.dumps({"id": 123}).encode("utf-8")
+        mock_resp.__enter__.return_value = mock_resp
+        with patch("urllib.request.urlopen", return_value=mock_resp):
+            success = notion_sync.wp_update_product_content(config, 123, "<iframe src='test'></iframe>")
+            self.assertTrue(success)
 
     def test_scan_drive_folder_videos_mock(self):
         fake_gdown = types.SimpleNamespace()

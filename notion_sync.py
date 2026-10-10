@@ -440,25 +440,34 @@ def scan_drive_folder_videos(folder_url):
 
 def build_drive_video_embed_html(video_files):
     """
-    Tạo khối mã HTML nhúng trình phát video Google Drive responsive, tối ưu giao diện.
+    Tạo khối mã HTML nhúng trình phát video Google Drive responsive, tối ưu giao diện đặt ở đầu mô tả sản phẩm.
     """
     if not video_files:
         return ""
 
     html_parts = [
-        '<div class="product-video-section" style="margin: 32px 0 20px; padding: 20px; background: #f8fafc; border-radius: 16px; border: 1px solid #e2e8f0; text-align: center;">',
-        '  <h3 style="margin-top: 0; margin-bottom: 16px; font-size: 17px; font-weight: 700; color: #1e293b;">🎬 Video Thực Tế &amp; Hướng Dẫn Sử Dụng</h3>',
-        '  <div style="display: flex; flex-direction: column; gap: 20px; align-items: center;">'
+        '<div class="product-video-section" style="margin: 0 0 28px 0; padding: 18px; background: #f8fafc; border-radius: 14px; border: 1px solid #e2e8f0; text-align: center;">',
+        '  <h3 style="margin-top: 0; margin-bottom: 14px; font-size: 17px; font-weight: 700; color: #1e293b; display: flex; align-items: center; justify-content: center; gap: 8px;">',
+        '    <span>🎬</span> Video Thực Tế &amp; Hướng Dẫn Sử Dụng',
+        '  </h3>',
+        '  <div style="display: flex; flex-direction: column; gap: 18px; align-items: center; max-width: 600px; margin: 0 auto;">'
     ]
     for v in video_files:
         vid = v.get("id")
         if not vid:
             continue
-        html_parts.append(
-            f'    <div style="width: 100%; max-width: 520px; position: relative; padding-bottom: 56.25%; height: 0; overflow: hidden; border-radius: 12px; box-shadow: 0 4px 14px rgba(0,0,0,0.12); background: #000;">'
-            f'<iframe src="https://drive.google.com/file/d/{vid}/preview" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: 0;" allow="autoplay" allowfullscreen loading="lazy"></iframe>'
-            f'</div>'
-        )
+        vname = v.get("name", "Video sản phẩm")
+        html_parts.extend([
+            '    <div style="width: 100%; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 14px rgba(0,0,0,0.08); background: #0f172a;">',
+            '      <div style="position: relative; width: 100%; padding-bottom: 56.25%; height: 0; background: #0f172a;">',
+            f'        <iframe src="https://drive.google.com/file/d/{vid}/preview" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: 0;" allow="autoplay; fullscreen" allowfullscreen loading="lazy"></iframe>',
+            '      </div>',
+            '      <div style="padding: 10px 14px; background: #1e293b; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">',
+            f'        <span style="font-size: 13px; color: #cbd5e1; font-weight: 500;">📺 {vname}</span>',
+            f'        <a href="https://drive.google.com/file/d/{vid}/view" target="_blank" rel="noopener noreferrer" style="display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: #38bdf8; text-decoration: none; font-weight: 600; padding: 4px 10px; border-radius: 6px; background: rgba(56, 189, 248, 0.12);">▶ Mở xem trực tiếp HD ↗</a>',
+            '      </div>',
+            '    </div>'
+        ])
     html_parts.append('  </div>')
     html_parts.append('</div>')
     return "\n".join(html_parts)
@@ -598,6 +607,36 @@ def wp_update_media_metadata(config, media_id, alt_text, title):
             return True
     except Exception as e:
         log_message(f"Lỗi cập nhật metadata ảnh ID {media_id}: {e}")
+        return False
+
+
+def wp_update_product_content(config, product_id, content):
+    """
+    Cập nhật nội dung mô tả sản phẩm qua WordPress REST API (/wp-json/wp/v2/product/{id}).
+    WordPress REST API cho phép tài khoản Administrator lưu trữ mã nhúng <iframe> nguyên vẹn
+    (không bị bộ lọc KSES của WooCommerce REST API tự động tước bỏ).
+    """
+    url = f"{config.get('WORDPRESS_SITE_URL', '').rstrip('/')}/wp-json/wp/v2/product/{product_id}"
+    token = base64.b64encode(f"{config.get('WORDPRESS_USERNAME')}:{config.get('WORDPRESS_PASSWORD')}".encode("utf-8")).decode("ascii")
+    headers = {
+        "Authorization": f"Basic {token}",
+        "Content-Type": "application/json; charset=utf-8",
+        "User-Agent": "Notion WooCommerce AutoSync"
+    }
+    body = {
+        "content": content
+    }
+    try:
+        data = json.dumps(body).encode("utf-8")
+        req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+        ctx = None
+        if config.get("SSL_NO_VERIFY", "").lower() in {"1", "true", "yes", "on"}:
+            ctx = urllib.request.ssl._create_unverified_context()
+        with urllib.request.urlopen(req, context=ctx, timeout=20) as resp:
+            log_message(f"Đã cập nhật mô tả HTML (giữ nguyên iframe video) cho sản phẩm ID {product_id}")
+            return True
+    except Exception as e:
+        log_message(f"Lỗi cập nhật mô tả sản phẩm ID {product_id} qua wp/v2: {e}")
         return False
 
 
@@ -1046,12 +1085,14 @@ def _run_notion_sync_workflow(progress_callback=None, page_ids=None):
                     )
 
             final_description = product_description
+            has_embedded_video = False
             try:
                 found_videos = scan_drive_folder_videos(drive_url)
                 if found_videos:
-                    log_message(f"Tìm thấy {len(found_videos)} video trong Drive của '{product_title}'. Tự động chèn video player vào mô tả.")
+                    log_message(f"Tìm thấy {len(found_videos)} video trong Drive của '{product_title}'. Tự động chèn video player vào đầu mô tả.")
                     video_html = build_drive_video_embed_html(found_videos)
-                    final_description = final_description.strip() + "\n\n" + video_html.strip()
+                    final_description = video_html.strip() + "\n\n" + product_description.strip()
+                    has_embedded_video = True
             except Exception as v_err:
                 log_message(f"Lỗi quét video Drive cho '{product_title}': {v_err}")
 
@@ -1098,6 +1139,9 @@ def _run_notion_sync_workflow(progress_callback=None, page_ids=None):
                 raise RuntimeError("WooCommerce không tạo được bản nháp sản phẩm.")
             validate_sync_attempt_ownership(created_product, page_id, sync_attempt_id)
             verify_product_image_ids(created_product, uploaded_media_ids)
+
+            if has_embedded_video or "<iframe" in final_description:
+                wp_update_product_content(config, created_product.get("id"), final_description)
 
             try:
                 publish_response = update_woocommerce_product(
