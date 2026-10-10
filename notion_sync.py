@@ -440,10 +440,11 @@ def scan_drive_folder_videos(folder_url):
 
 def build_drive_video_gallery_script(video_files):
     """
-    Tạo khối HTML và script nhúng trình phát video Google Drive trực tiếp vào khu vực
-    gallery ảnh sản phẩm (cột trái ngay bên dưới thumbnails).
-    Script được nén trên một dòng duy nhất để tránh bộ lọc wpautop của WordPress chèn thẻ <p> gây lỗi cú pháp JS.
-    Khách hàng có thể bấm xem và phát video trực tiếp tại chỗ trên cả Web, iPad và Mobile.
+    Tạo khối mã CSS, HTML base64 và script nhúng video Google Drive trực tiếp vào khu vực
+    gallery ảnh WooCommerce (trong cùng ô ảnh sản phẩm).
+    Khách hàng có thể bấm xem trực tiếp tại chỗ trên Web, iPad và Mobile.
+    Tích hợp nút chuyển đổi mượt mà giữa Video và Ảnh sản phẩm, hiển thị thumbnail VIDEO trong dãy ảnh.
+    Sử dụng base64 để chống 100% lỗi wpautop và wptexturize của WordPress.
     """
     if not video_files:
         return ""
@@ -457,40 +458,118 @@ def build_drive_video_gallery_script(video_files):
         return ""
 
     vid = first_vid["id"]
-    vname = first_vid.get("name", "Video thực tế")
-    title = f"🎬 {vname}" if len(video_files) > 1 else "🎬 Video Thực Tế Sản Phẩm"
     view_url = f"https://drive.google.com/file/d/{vid}/view"
     preview_url = f"https://drive.google.com/file/d/{vid}/preview"
 
-    video_html = (
-        f'<div id="khd-gallery-video-section" style="margin: 20px 0; width: 100%; max-width: 500px; border-radius: 14px; overflow: hidden; border: 1px solid #e2e8f0; background: #0f172a; box-shadow: 0 4px 16px rgba(0,0,0,0.08);">'
-        f'<div style="padding: 10px 14px; background: #1e293b; display: flex; align-items: center; justify-content: space-between; gap: 8px;">'
-        f'<span style="font-size: 13.5px; font-weight: 700; color: #f8fafc; display: flex; align-items: center; gap: 6px;"><span>🎬</span> {title}</span>'
-        f'<a href="{view_url}" target="_blank" rel="noopener noreferrer" style="font-size: 12px; color: #38bdf8; text-decoration: none; font-weight: 600; padding: 4px 10px; border-radius: 6px; background: rgba(56, 189, 248, 0.12);">Mở HD ↗</a>'
-        f'</div>'
-        f'<div style="position: relative; width: 100%; height: 480px; max-height: 70vh; overflow: hidden; background: #000;">'
-        f'<iframe src="{preview_url}" style="position: absolute; top: -54px; left: 0; width: 100%; height: calc(100% + 54px); border: 0;" allow="autoplay; fullscreen" allowfullscreen loading="lazy"></iframe>'
-        f'</div>'
-        f'</div>'
+    player_html = (
+        '<div style="position:absolute;top:10px;left:10px;z-index:30;display:flex;gap:6px;align-items:center;">'
+        '<button type="button" id="khd-back-to-images" style="background:rgba(15,23,42,0.85)!important;backdrop-filter:blur(4px);color:#ffffff!important;border:1px solid rgba(255,255,255,0.3)!important;padding:5px 12px!important;border-radius:18px!important;font-size:11.5px!important;font-weight:700!important;cursor:pointer;display:inline-flex!important;align-items:center!important;gap:4px!important;box-shadow:0 2px 6px rgba(0,0,0,0.35)!important;line-height:1.2!important;white-space:nowrap!important;text-transform:none!important;letter-spacing:normal!important;height:auto!important;min-height:unset!important;"><span>📷</span> Xem ảnh</button>'
+        f'<a href="{view_url}" target="_blank" rel="noopener noreferrer" style="background:rgba(15,23,42,0.85)!important;backdrop-filter:blur(4px);color:#38bdf8!important;border:1px solid rgba(56,189,248,0.4)!important;padding:5px 10px!important;border-radius:18px!important;font-size:11.5px!important;font-weight:700!important;text-decoration:none!important;display:inline-flex!important;align-items:center!important;box-shadow:0 2px 6px rgba(0,0,0,0.35)!important;line-height:1.2!important;white-space:nowrap!important;text-transform:none!important;letter-spacing:normal!important;height:auto!important;min-height:unset!important;">HD ↗</a>'
+        '</div>'
+        '<div style="position:relative;width:100%;padding-top:100%;overflow:hidden;background:#000;">'
+        f'<iframe id="khd-gallery-iframe" src="{preview_url}" style="position:absolute;top:-54px;left:0;width:100%;height:calc(100% + 54px);border:0;" allow="autoplay;fullscreen" allowfullscreen loading="lazy"></iframe>'
+        '</div>'
     )
 
-    move_script = (
+    thumb_html = (
+        '<div class="khd-video-thumb-box" id="khd-video-thumb-box">'
+        '<div style="width:26px;height:26px;border-radius:50%;background:#ef4444;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(239,68,68,0.5);">'
+        '<svg viewBox="0 0 24 24" width="14" height="14" fill="#ffffff" style="margin-left:2px;"><path d="M8 5v14l11-7z"/></svg>'
+        '</div>'
+        '<span style="font-size:10.5px;font-weight:800;color:#f8fafc;letter-spacing:0.5px;margin-top:4px;">VIDEO</span>'
+        '</div>'
+    )
+
+    badge_html = (
+        '<span style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:#ef4444;color:#fff;font-size:11px;">▶</span>'
+        '<span>Xem Video</span>'
+    )
+
+    b64_player = base64.b64encode(player_html.encode('utf-8')).decode('ascii')
+    b64_thumb = base64.b64encode(thumb_html.encode('utf-8')).decode('ascii')
+    b64_badge = base64.b64encode(badge_html.encode('utf-8')).decode('ascii')
+
+    css = (
+        '<style>'
+        '.product-video-wrapper{display:none!important}'
+        '.khd-video-thumb-col{flex:0 0 72px!important;width:72px!important;min-width:72px!important;height:72px!important;max-height:72px!important;padding:0!important;margin:0!important;display:block!important;cursor:pointer}'
+        '.khd-video-thumb-box{width:72px;height:72px;border-radius:6px;background:linear-gradient(135deg,#1e293b,#0f172a);display:flex;flex-direction:column;align-items:center;justify-content:center;border:2px solid #94a3b8;box-sizing:border-box;transition:all .2s ease}'
+        '.khd-video-thumb-col:hover .khd-video-thumb-box{border-color:#ef4444!important;transform:scale(1.03)}'
+        '.khd-video-thumb-active .khd-video-thumb-box{border-color:#ef4444!important;box-shadow:0 0 8px rgba(239,68,68,0.7)!important}'
+        '#khd-main-video-badge{position:absolute;bottom:16px;left:16px;z-index:25;background:rgba(15,23,42,0.88);backdrop-filter:blur(6px);color:#fff;padding:8px 16px;border-radius:24px;font-size:13px;font-weight:700;display:flex;align-items:center;gap:8px;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.25);user-select:none;transition:transform .15s ease}'
+        '#khd-main-video-badge:hover{transform:scale(1.05);background:rgba(15,23,42,0.96)}'
+        '#khd-gallery-video-player{display:none;position:relative;width:100%;border-radius:10px;overflow:hidden;background:#000;margin-bottom:10px;box-shadow:0 4px 16px rgba(0,0,0,0.12);box-sizing:border-box}'
+        '#khd-back-to-images:hover{background:#ef4444!important;border-color:#ef4444!important}'
+        '</style>'
+    )
+
+    js = (
         '<script type="text/javascript">'
-        'function moveKhdVideo(){'
-        'var sec=document.getElementById("khd-gallery-video-section");'
-        'var th=document.querySelector(".product-thumbnails");'
+        'function initKhdGalleryVideo(){'
         'var gal=document.querySelector(".woocommerce-product-gallery")||document.querySelector(".product-images");'
-        'if(sec&&th&&th.parentNode){th.parentNode.insertBefore(sec,th.nextSibling);}'
-        'else if(sec&&gal){gal.appendChild(sec);}'
+        'var slider=document.querySelector(".product-gallery-slider");'
+        'var thumbs=document.querySelector(".product-thumbnails");'
+        'if(!gal)return;'
+        'if(!slider)return;'
+        'if(document.getElementById("khd-gallery-video-player"))return;'
+        'var player=document.createElement("div");'
+        'player.id="khd-gallery-video-player";'
+        'player.style.cssText="display:none;position:relative;width:100%;border-radius:10px;overflow:hidden;background:#000;margin-bottom:10px;box-shadow:0 4px 16px rgba(0,0,0,0.12);box-sizing:border-box;";'
+        f'player.innerHTML=decodeURIComponent(escape(window.atob("{b64_player}")));'
+        'slider.parentNode.insertBefore(player,slider);'
+        'var badge=document.createElement("div");'
+        'badge.id="khd-main-video-badge";'
+        f'badge.innerHTML=decodeURIComponent(escape(window.atob("{b64_badge}")));'
+        'gal.appendChild(badge);'
+        'var thumbCol=null;'
+        'if(thumbs){'
+        'thumbCol=document.createElement("div");'
+        'thumbCol.className="col khd-video-thumb-col";'
+        'thumbCol.id="khd-video-thumb-col";'
+        f'thumbCol.innerHTML=decodeURIComponent(escape(window.atob("{b64_thumb}")));'
+        'thumbs.insertBefore(thumbCol,thumbs.firstChild);'
         '}'
-        'if(document.readyState==="loading"){document.addEventListener("DOMContentLoaded",moveKhdVideo);}'
-        'else{moveKhdVideo();}'
-        'setTimeout(moveKhdVideo,200);'
-        'setTimeout(moveKhdVideo,1000);'
+        'function showVideo(){'
+        'slider.style.display="none";'
+        'player.style.display="block";'
+        'badge.style.display="none";'
+        'if(thumbCol)thumbCol.classList.add("khd-video-thumb-active");'
+        'if(thumbs){var sel=thumbs.querySelectorAll(".is-nav-selected");for(var i=0;i<sel.length;i++)sel[i].classList.remove("is-nav-selected");}'
+        '}'
+        'function showImages(){'
+        'player.style.display="none";'
+        'slider.style.display="block";'
+        'badge.style.display="flex";'
+        'if(thumbCol)thumbCol.classList.remove("khd-video-thumb-active");'
+        'if(window.jQuery){if(window.jQuery(slider).flickity){window.jQuery(slider).flickity("resize");}}'
+        '}'
+        'badge.addEventListener("click",showVideo);'
+        'if(thumbCol)thumbCol.addEventListener("click",showVideo);'
+        'var backBtn=document.getElementById("khd-back-to-images");'
+        'if(backBtn)backBtn.addEventListener("click",showImages);'
+        'if(thumbs){'
+        'var photoCols=thumbs.querySelectorAll(".col:not(.khd-video-thumb-col)");'
+        'for(var p=0;p<photoCols.length;p++){'
+        '(function(idx){'
+        'photoCols[idx].addEventListener("click",function(){'
+        'showImages();'
+        'if(window.jQuery){if(window.jQuery(slider).flickity){window.jQuery(slider).flickity("select",idx);}}'
+        '});'
+        '})(p);'
+        '}'
+        '}'
+        'showVideo();'
+        '}'
+        'initKhdGalleryVideo();'
+        'document.addEventListener("DOMContentLoaded",initKhdGalleryVideo);'
+        'window.addEventListener("load",initKhdGalleryVideo);'
+        'setTimeout(initKhdGalleryVideo,150);'
+        'setTimeout(initKhdGalleryVideo,600);'
+        'setTimeout(initKhdGalleryVideo,1500);'
         '</script>'
     )
 
-    return video_html + "\n\n" + move_script
+    return css + js
 
 
 def build_drive_video_embed_html(video_files):

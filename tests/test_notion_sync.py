@@ -260,11 +260,19 @@ class DriveVideoEmbedTests(unittest.TestCase):
         ]
         script = notion_sync.build_drive_video_gallery_script(videos)
         self.assertIn("<script", script)
-        self.assertIn("khd-gallery-video-section", script)
-        self.assertIn("moveKhdVideo", script)
-        self.assertIn("https://drive.google.com/file/d/video123/preview", script)
-        self.assertIn("https://drive.google.com/file/d/video123/view", script)
+        self.assertIn("<style", script)
+        self.assertIn("khd-gallery-video-player", script)
+        self.assertIn("initKhdGalleryVideo", script)
+        self.assertIn("khd-video-thumb-col", script)
+        self.assertIn("khd-main-video-badge", script)
         self.assertIn("woocommerce-product-gallery", script)
+        # Verify base64 decoded contents contain preview and view URLs
+        import re, base64
+        b64_matches = re.findall(r'window\.atob\("([^"]+)"\)', script)
+        self.assertTrue(len(b64_matches) >= 1)
+        decoded_all = " ".join(base64.b64decode(b).decode("utf-8") for b in b64_matches)
+        self.assertIn("https://drive.google.com/file/d/video123/preview", decoded_all)
+        self.assertIn("https://drive.google.com/file/d/video123/view", decoded_all)
 
     def test_build_drive_video_gallery_script_empty(self):
         script = notion_sync.build_drive_video_gallery_script([])
