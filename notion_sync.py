@@ -440,11 +440,12 @@ def scan_drive_folder_videos(folder_url):
 
 def build_drive_video_gallery_script(video_files):
     """
-    Tạo khối mã CSS, HTML base64 và script nhúng video Google Drive trực tiếp vào khu vực
-    gallery ảnh WooCommerce (trong cùng ô ảnh sản phẩm).
-    Khách hàng có thể bấm xem trực tiếp tại chỗ trên Web, iPad và Mobile.
-    Tích hợp nút chuyển đổi mượt mà giữa Video và Ảnh sản phẩm, hiển thị thumbnail VIDEO trong dãy ảnh.
-    Sử dụng base64 để chống 100% lỗi wpautop và wptexturize của WordPress.
+    Tích hợp video Google Drive thành 1 slide riêng (cell) nằm trong chuỗi trượt ảnh (slider gallery)
+    của WooCommerce / Flatsome.
+    - Video trở thành 1 khối slide độc lập trong gallery (.woocommerce-product-gallery__image.slide.khd-video-slide).
+    - Tự động đồng bộ với thanh thumbnail (.product-thumbnails), hỗ trợ đầy đủ Desktop, iPad và Mobile.
+    - Không làm vỡ layout, không can thiệp ẩn/hiện slider gốc, không gây lỗi Flickity.
+    - Bảo toàn 100% qua bộ lọc WordPress wpautop/wptexturize nhờ Base64 encoding.
     """
     if not video_files:
         return ""
@@ -461,22 +462,16 @@ def build_drive_video_gallery_script(video_files):
     view_url = f"https://drive.google.com/file/d/{vid}/view"
     preview_url = f"https://drive.google.com/file/d/{vid}/preview"
 
-    # 1. Clean Top Header Bar (No HD, No Xem ảnh buttons, pointer-events: none so it never blocks video clicks)
-    header_html = (
-        '<div class="khd-video-topbar" style="position:absolute;top:0;left:0;width:100%;box-sizing:border-box;z-index:20;padding:8px 12px;background:linear-gradient(180deg,rgba(15,23,42,0.85) 0%,rgba(15,23,42,0.3) 60%,transparent 100%);pointer-events:none;display:flex;align-items:center;gap:6px;">'
-        '<span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;min-width:18px;border-radius:50%;background:#ef4444;color:#fff;font-size:9px;">▶</span>'
-        '<span style="color:#ffffff;font-size:12px;font-weight:700;text-shadow:0 1px 3px rgba(0,0,0,0.8);white-space:nowrap;">Video Thực Tế</span>'
+    # Slide container 1:1 aspect ratio with Google Drive preview player
+    slide_html = (
+        '<div class="woocommerce-product-gallery__image slide khd-video-slide" style="position:relative;width:100%;box-sizing:border-box;">'
+        f'<div data-drive-view="{view_url}" style="position:relative;width:100%;padding-top:100%;background:#000;overflow:hidden;border-radius:4px;">'
+        f'<iframe id="khd-gallery-iframe" src="{preview_url}" style="position:absolute;top:-54px;left:0;width:100%;height:calc(100% + 54px);border:0;" allow="autoplay; fullscreen; encrypted-media; picture-in-picture" allowfullscreen="true" loading="lazy"></iframe>'
+        '</div>'
         '</div>'
     )
 
-    player_html = (
-        f'{header_html}'
-        f'<div data-drive-view="{view_url}" style="position:relative;width:100%;padding-top:100%;overflow:hidden;background:#000;">'
-        f'<iframe id="khd-gallery-iframe" src="{preview_url}" style="position:absolute;top:-54px;left:0;width:100%;height:calc(100% + 54px);border:0;" allow="autoplay; fullscreen; encrypted-media; picture-in-picture" allowfullscreen="true" webkitallowfullscreen="true" mozallowfullscreen="true" loading="lazy"></iframe>'
-        '</div>'
-    )
-
-    # 2. Video thumbnail overlay (Centering play button on product photo)
+    # Video thumbnail overlay (Centering play button on product photo)
     overlay_html = (
         '<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;background:rgba(15,23,42,0.38);pointer-events:none;">'
         '<div style="width:28px;height:28px;border-radius:50%;background:#ef4444;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,0.4);">'
@@ -486,18 +481,18 @@ def build_drive_video_gallery_script(video_files):
         '</div>'
     )
 
-    b64_player = base64.b64encode(player_html.encode('utf-8')).decode('ascii')
+    b64_slide = base64.b64encode(slide_html.encode('utf-8')).decode('ascii')
     b64_overlay = base64.b64encode(overlay_html.encode('utf-8')).decode('ascii')
 
     css = (
         '<style>'
         '.product-video-wrapper{display:none!important}'
         '#khd-main-video-badge{display:none!important}'
+        '#khd-gallery-video-player{display:none!important}'
         '.khd-video-thumb-col{cursor:pointer;touch-action:manipulation;transition:transform .2s ease}'
         '.khd-video-thumb-col:hover{transform:scale(1.03)}'
         '.khd-video-thumb-card{position:relative;width:100%;aspect-ratio:1/1;border-radius:6px;overflow:hidden;background:#0f172a;border:2px solid transparent;box-sizing:border-box;transition:all .2s ease}'
-        '.khd-video-thumb-active .khd-video-thumb-card{border-color:#ef4444!important;box-shadow:0 0 10px rgba(239,68,68,0.7)!important}'
-        '#khd-gallery-video-player{display:none;position:relative;width:100%;border-radius:10px;overflow:hidden;background:#000;margin-bottom:10px;box-shadow:0 4px 16px rgba(0,0,0,0.12);box-sizing:border-box}'
+        '.is-nav-selected .khd-video-thumb-card{border-color:#ef4444!important;box-shadow:0 0 10px rgba(239,68,68,0.7)!important}'
         '</style>'
     )
 
@@ -508,18 +503,24 @@ def build_drive_video_gallery_script(video_files):
         'var slider=document.querySelector(".product-gallery-slider");'
         'var thumbs=document.querySelector(".product-thumbnails");'
         'if(!gal||!slider)return;'
-        'if(document.getElementById("khd-gallery-video-player"))return;'
-        'var player=document.createElement("div");'
-        'player.id="khd-gallery-video-player";'
-        'player.style.cssText="display:none;position:relative;width:100%;border-radius:10px;overflow:hidden;background:#000;margin-bottom:10px;box-shadow:0 4px 16px rgba(0,0,0,0.12);box-sizing:border-box;";'
-        f'player.innerHTML=decodeURIComponent(escape(window.atob("{b64_player}")));'
-        'slider.parentNode.insertBefore(player,slider);'
+        'if(document.querySelector(".khd-video-slide"))return;'
+        'var tempSlide=document.createElement("div");'
+        f'tempSlide.innerHTML=decodeURIComponent(escape(window.atob("{b64_slide}")));'
+        'var slideEl=tempSlide.firstElementChild;'
+        'var $=window.jQuery;'
+        'var sliderFlkty=($?$(slider).data("flickity"):null);'
+        'if(sliderFlkty){'
+        '$(slider).flickity("prepend",slideEl);'
+        '$(slider).flickity("resize");'
+        '}else{'
+        'slider.insertBefore(slideEl,slider.firstChild);'
+        '}'
         'var thumbCol=null;'
         'if(thumbs){'
-        'var firstImg=thumbs.querySelector(".col img");'
+        'var firstImg=thumbs.querySelector(".col:not(.khd-video-thumb-col) img");'
         'var thumbSrc=firstImg?(firstImg.getAttribute("data-khd-thumb-src")||firstImg.getAttribute("data-src")||firstImg.src):"";'
         'thumbCol=document.createElement("div");'
-        'thumbCol.className="col khd-video-thumb-col";'
+        'thumbCol.className="col khd-video-thumb-col is-nav-selected";'
         'thumbCol.id="khd-video-thumb-col";'
         'var card=document.createElement("div");'
         'card.className="khd-video-thumb-card";'
@@ -535,48 +536,35 @@ def build_drive_video_gallery_script(video_files):
         'card.appendChild(over);'
         'var link=document.createElement("a");'
         'link.href="javascript:void(0);";'
+        'link.style.cssText="display:block;width:100%;height:100%;";'
         'link.appendChild(card);'
         'thumbCol.appendChild(link);'
+        'var thumbsFlkty=($?$(thumbs).data("flickity"):null);'
+        'if(thumbsFlkty){'
+        '$(thumbs).flickity("prepend",thumbCol);'
+        '$(thumbs).flickity("resize");'
+        '}else{'
         'thumbs.insertBefore(thumbCol,thumbs.firstChild);'
         '}'
-        'function showVideo(e){'
-        'if(e){if(e.preventDefault)e.preventDefault();if(e.stopPropagation)e.stopPropagation();}'
-        'slider.style.display="none";'
-        'player.style.display="block";'
-        'if(thumbCol)thumbCol.classList.add("khd-video-thumb-active");'
-        'if(thumbs){var sel=thumbs.querySelectorAll(".is-nav-selected");for(var i=0;i<sel.length;i++)sel[i].classList.remove("is-nav-selected");}'
         '}'
-        'function showImages(idx,e){'
-        'if(e){if(e.preventDefault)e.preventDefault();if(e.stopPropagation)e.stopPropagation();}'
-        'player.style.display="none";'
-        'slider.style.display="block";'
-        'if(thumbCol)thumbCol.classList.remove("khd-video-thumb-active");'
-        'if(window.jQuery){'
-        'var $slider=window.jQuery(slider);'
-        'if($slider.data("flickity")){'
-        '$slider.flickity("resize");'
-        'if(typeof idx==="number"){$slider.flickity("select",idx);}'
+        'function syncThumbSelected(idx){'
+        'if(!thumbs)return;'
+        'var cols=thumbs.querySelectorAll(".col");'
+        'for(var i=0;i<cols.length;i++){cols[i].classList.remove("is-nav-selected");}'
+        'if(cols[idx])cols[idx].classList.add("is-nav-selected");'
+        'if($){if($(thumbs).data("flickity")){$(thumbs).flickity("select",idx);}}'
         '}'
+        'if($){'
+        '$(slider).off("change.flickity.khd").on("change.flickity.khd",function(e,idx){syncThumbSelected(idx);});'
+        '$(thumbs).off("click.khd touchend.khd").on("click.khd touchend.khd",".col",function(e){'
+        'e.preventDefault();'
+        'var idx=$(this).index();'
+        'if($(slider).data("flickity")){$(slider).flickity("select",idx);}'
+        'syncThumbSelected(idx);'
+        '});'
         '}'
-        '}'
-        'if(thumbCol){'
-        'thumbCol.addEventListener("click",showVideo);'
-        'thumbCol.addEventListener("touchend",showVideo);'
-        '}'
-        'if(thumbs){'
-        'var photoCols=thumbs.querySelectorAll(".col:not(.khd-video-thumb-col)");'
-        'for(var p=0;p<photoCols.length;p++){'
-        '(function(targetIdx,colEl){'
-        'function handlePhotoClick(e){'
-        'if(player.style.display!=="none"){'
-        'showImages(targetIdx,e);'
-        '}'
-        '}'
-        'colEl.addEventListener("click",handlePhotoClick);'
-        'colEl.addEventListener("touchend",handlePhotoClick);'
-        '})(p,photoCols[p]);'
-        '}'
-        '}'
+        'if(sliderFlkty){$(slider).flickity("select",0);}'
+        'syncThumbSelected(0);'
         '}'
         'initKhdGalleryVideo();'
         'document.addEventListener("DOMContentLoaded",initKhdGalleryVideo);'
