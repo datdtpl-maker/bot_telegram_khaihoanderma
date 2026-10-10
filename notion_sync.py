@@ -441,16 +441,17 @@ def scan_drive_folder_videos(folder_url):
 def build_drive_video_embed_html(video_files):
     """
     Tạo khối mã HTML nhúng trình phát video Google Drive responsive, tối ưu giao diện đặt ở đầu mô tả sản phẩm.
+    Hỗ trợ hiển thị hoàn hảo trọn vẹn khung hình cho video quay điện thoại (dọc/ngang) trên cả Web, iPad và Mobile.
     """
     if not video_files:
         return ""
 
     html_parts = [
-        '<div class="product-video-section" style="margin: 0 0 28px 0; padding: 18px; background: #f8fafc; border-radius: 14px; border: 1px solid #e2e8f0; text-align: center;">',
+        '<div class="product-video-section" style="margin: 0 0 28px 0; padding: 16px; background: #f8fafc; border-radius: 14px; border: 1px solid #e2e8f0; text-align: center;">',
         '  <h3 style="margin-top: 0; margin-bottom: 14px; font-size: 17px; font-weight: 700; color: #1e293b; display: flex; align-items: center; justify-content: center; gap: 8px;">',
         '    <span>🎬</span> Video Thực Tế &amp; Hướng Dẫn Sử Dụng',
         '  </h3>',
-        '  <div style="display: flex; flex-direction: column; gap: 18px; align-items: center; max-width: 600px; margin: 0 auto;">'
+        '  <div style="display: flex; flex-direction: column; gap: 18px; align-items: center; width: 100%; max-width: 440px; margin: 0 auto;">'
     ]
     for v in video_files:
         vid = v.get("id")
@@ -459,7 +460,7 @@ def build_drive_video_embed_html(video_files):
         vname = v.get("name", "Video sản phẩm")
         html_parts.extend([
             '    <div style="width: 100%; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 14px rgba(0,0,0,0.08); background: #0f172a;">',
-            '      <div style="position: relative; width: 100%; padding-bottom: 56.25%; height: 0; background: #0f172a;">',
+            '      <div style="position: relative; width: 100%; height: 520px; max-height: 75vh; min-height: 400px; background: #0f172a;">',
             f'        <iframe src="https://drive.google.com/file/d/{vid}/preview" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: 0;" allow="autoplay; fullscreen" allowfullscreen loading="lazy"></iframe>',
             '      </div>',
             '      <div style="padding: 10px 14px; background: #1e293b; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">',
