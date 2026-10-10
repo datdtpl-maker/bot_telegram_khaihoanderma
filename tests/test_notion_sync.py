@@ -260,10 +260,10 @@ class DriveVideoEmbedTests(unittest.TestCase):
         ]
         script = notion_sync.build_drive_video_gallery_script(videos)
         self.assertIn("<script>", script)
-        self.assertIn("khd-gallery-video-btn", script)
+        self.assertIn("khd-gallery-video-section", script)
         self.assertIn("khd-gallery-video-badge", script)
+        self.assertIn("https://drive.google.com/file/d/video123/preview", script)
         self.assertIn("https://drive.google.com/file/d/video123/view", script)
-        self.assertIn("https://drive.google.com/file/d/video456/view", script)
         self.assertIn("woocommerce-product-gallery", script)
 
     def test_build_drive_video_gallery_script_empty(self):

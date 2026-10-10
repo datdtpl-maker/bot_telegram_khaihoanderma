@@ -440,9 +440,10 @@ def scan_drive_folder_videos(folder_url):
 
 def build_drive_video_gallery_script(video_files):
     """
-    Tạo đoạn script chèn nút bấm/badge xem video thực tế Google Drive trực tiếp vào khu vực
-    gallery ảnh sản phẩm (cột trái bên dưới thumbnails và góc ảnh chính).
-    Giữ phần mô tả sản phẩm hoàn toàn sạch đẹp, gọn gàng, không bị chèn khung video cồng kềnh.
+    Tạo đoạn script và style nhúng trình phát video Google Drive trực tiếp vào khu vực
+    gallery ảnh sản phẩm (cột trái ngay bên dưới thumbnails, có huy hiệu xem video ở góc ảnh chính).
+    Khách hàng có thể bấm xem và phát video trực tiếp tại chỗ trên cả Web, iPad và Mobile.
+    Giữ phần tab mô tả sản phẩm bên dưới hoàn toàn sạch đẹp và gọn gàng.
     """
     if not video_files:
         return ""
@@ -456,59 +457,107 @@ def build_drive_video_gallery_script(video_files):
         videos_json.append({
             "id": vid,
             "name": vname,
-            "url": f"https://drive.google.com/file/d/{vid}/view"
+            "preview_url": f"https://drive.google.com/file/d/{vid}/preview",
+            "view_url": f"https://drive.google.com/file/d/{vid}/view"
         })
     if not videos_json:
         return ""
 
     json_str = json.dumps(videos_json, ensure_ascii=False)
 
-    return f"""<script>
+    return f"""<style>
+.product-video-wrapper {{ display: none !important; }}
+#khd-gallery-video-section {{
+  margin-top: 18px;
+  margin-bottom: 20px;
+  width: 100%;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+  background: #0f172a;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+}}
+#khd-gallery-video-section .khd-vheader {{
+  padding: 10px 14px;
+  background: #1e293b;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}}
+#khd-gallery-video-section .khd-vframe {{
+  position: relative;
+  width: 100%;
+  height: 500px;
+  max-height: 70vh;
+  min-height: 380px;
+  overflow: hidden;
+  background: #000;
+}}
+#khd-gallery-video-section iframe {{
+  position: absolute;
+  top: -54px;
+  left: 0;
+  width: 100%;
+  height: calc(100% + 54px);
+  border: 0;
+}}
+</style>
+<script>
 (function() {{
-  function injectGalleryVideo() {{
+  function injectGalleryVideoPlayer() {{
     var videos = {json_str};
     var gallery = document.querySelector('.woocommerce-product-gallery') || document.querySelector('.product-images');
     var thumbs = document.querySelector('.product-thumbnails') || (gallery ? gallery.querySelector('.thumbnails') : null);
     if (!gallery || !videos.length) return;
 
-    if (!document.getElementById('khd-gallery-video-btn')) {{
-      var btnWrapper = document.createElement('div');
-      btnWrapper.id = 'khd-gallery-video-btn';
-      btnWrapper.style.cssText = 'margin-top: 14px; margin-bottom: 8px; width: 100%; text-align: center; clear: both; display: flex; flex-direction: column; gap: 8px;';
-      var buttonsHtml = '';
-      videos.forEach(function(v) {{
-        var label = videos.length > 1 ? ('🎬 Xem ' + (v.name || 'Video Thực Tế') + ' (Google Drive HD)') : '🎬 Xem Video Thực Tế (Google Drive HD)';
-        buttonsHtml += '<a href="' + v.url + '" target="_blank" rel="noopener noreferrer" style="display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; padding: 11px 16px; background: linear-gradient(135deg, #0284c7, #0369a1); color: #ffffff !important; text-decoration: none !important; font-weight: 600; font-size: 13.5px; border-radius: 8px; box-shadow: 0 3px 10px rgba(2, 132, 199, 0.28); transition: all 0.2s ease-in-out; letter-spacing: 0.2px;">'
-          + '<span style="font-size: 16px; line-height: 1;">🎬</span>'
-          + '<span>' + label + '</span>'
-          + '<span style="font-size: 13px; opacity: 0.85;">↗</span>'
-          + '</a>';
-      }});
-      btnWrapper.innerHTML = buttonsHtml;
+    var oldBtn = document.getElementById('khd-gallery-video-btn');
+    if (oldBtn) oldBtn.remove();
+
+    if (!document.getElementById('khd-gallery-video-section')) {{
+      var playerBox = document.createElement('div');
+      playerBox.id = 'khd-gallery-video-section';
+      var firstVid = videos[0];
+      var headerTitle = videos.length > 1 ? ('🎬 ' + firstVid.name) : '🎬 Video Thực Tế Sản Phẩm';
+      playerBox.innerHTML = '<div class="khd-vheader">'
+        + '<span style="font-size: 13.5px; font-weight: 700; color: #f8fafc; display: flex; align-items: center; gap: 6px;">'
+        + headerTitle
+        + '</span>'
+        + '<a href="' + firstVid.view_url + '" target="_blank" rel="noopener noreferrer" style="font-size: 12px; color: #38bdf8; text-decoration: none; font-weight: 600; padding: 4px 10px; border-radius: 6px; background: rgba(56, 189, 248, 0.12);">'
+        + 'Mở HD ↗'
+        + '</a>'
+        + '</div>'
+        + '<div class="khd-vframe">'
+        + '<iframe src="' + firstVid.preview_url + '" allow="autoplay; fullscreen" allowfullscreen loading="lazy"></iframe>'
+        + '</div>';
+
       if (thumbs && thumbs.parentNode) {{
-        thumbs.parentNode.insertBefore(btnWrapper, thumbs.nextSibling);
+        thumbs.parentNode.insertBefore(playerBox, thumbs.nextSibling);
       }} else {{
-        gallery.appendChild(btnWrapper);
+        gallery.appendChild(playerBox);
       }}
     }}
 
     if (!document.getElementById('khd-gallery-video-badge') && videos.length > 0) {{
       var badge = document.createElement('a');
       badge.id = 'khd-gallery-video-badge';
-      badge.href = videos[0].url;
-      badge.target = '_blank';
-      badge.rel = 'noopener noreferrer';
-      badge.style.cssText = 'position: absolute; top: 12px; right: 12px; z-index: 10; display: inline-flex; align-items: center; gap: 6px; padding: 6px 13px; background: rgba(15, 23, 42, 0.88); color: #ffffff !important; font-size: 12px; font-weight: 600; border-radius: 20px; backdrop-filter: blur(6px); box-shadow: 0 2px 10px rgba(0,0,0,0.3); text-decoration: none !important; transition: all 0.2s ease;';
-      badge.innerHTML = '<span style="color: #ef4444; font-size: 12px; line-height: 1;">▶</span> Xem Video HD ↗';
+      badge.href = '#khd-gallery-video-section';
+      badge.style.cssText = 'position: absolute; top: 12px; right: 12px; z-index: 10; display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; background: rgba(15, 23, 42, 0.9); color: #ffffff !important; font-size: 12.5px; font-weight: 600; border-radius: 20px; backdrop-filter: blur(6px); box-shadow: 0 3px 12px rgba(0,0,0,0.3); text-decoration: none !important; transition: all 0.2s ease; cursor: pointer;';
+      badge.innerHTML = '<span style="color: #ef4444; font-size: 12px; line-height: 1;">▶</span> Xem Video';
+      badge.onclick = function(e) {{
+        e.preventDefault();
+        var sec = document.getElementById('khd-gallery-video-section');
+        if (sec) sec.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
+      }};
       gallery.style.position = 'relative';
       gallery.appendChild(badge);
     }}
   }}
 
   if (document.readyState === 'loading') {{
-    document.addEventListener('DOMContentLoaded', injectGalleryVideo);
+    document.addEventListener('DOMContentLoaded', injectGalleryVideoPlayer);
   }} else {{
-    injectGalleryVideo();
+    injectGalleryVideoPlayer();
   }}
 }})();
 </script>"""
