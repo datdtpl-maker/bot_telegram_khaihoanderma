@@ -460,8 +460,8 @@ def build_drive_video_embed_html(video_files):
         vname = v.get("name", "Video sản phẩm")
         html_parts.extend([
             '    <div style="width: 100%; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 14px rgba(0,0,0,0.08); background: #0f172a;">',
-            '      <div style="position: relative; width: 100%; height: 520px; max-height: 75vh; min-height: 400px; background: #0f172a;">',
-            f'        <iframe src="https://drive.google.com/file/d/{vid}/preview" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: 0;" allow="autoplay; fullscreen" allowfullscreen loading="lazy"></iframe>',
+            '      <div style="position: relative; width: 100%; height: 520px; max-height: 75vh; min-height: 400px; overflow: hidden; background: #0f172a;">',
+            f'        <iframe src="https://drive.google.com/file/d/{vid}/preview" style="position: absolute; top: -56px; left: 0; width: 100%; height: calc(100% + 56px); border: 0;" allow="autoplay; fullscreen" allowfullscreen loading="lazy"></iframe>',
             '      </div>',
             '      <div style="padding: 10px 14px; background: #1e293b; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">',
             f'        <span style="font-size: 13px; color: #cbd5e1; font-weight: 500;">📺 {vname}</span>',
