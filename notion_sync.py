@@ -440,127 +440,57 @@ def scan_drive_folder_videos(folder_url):
 
 def build_drive_video_gallery_script(video_files):
     """
-    Tạo đoạn script và style nhúng trình phát video Google Drive trực tiếp vào khu vực
-    gallery ảnh sản phẩm (cột trái ngay bên dưới thumbnails, có huy hiệu xem video ở góc ảnh chính).
+    Tạo khối HTML và script nhúng trình phát video Google Drive trực tiếp vào khu vực
+    gallery ảnh sản phẩm (cột trái ngay bên dưới thumbnails).
+    Script được nén trên một dòng duy nhất để tránh bộ lọc wpautop của WordPress chèn thẻ <p> gây lỗi cú pháp JS.
     Khách hàng có thể bấm xem và phát video trực tiếp tại chỗ trên cả Web, iPad và Mobile.
-    Giữ phần tab mô tả sản phẩm bên dưới hoàn toàn sạch đẹp và gọn gàng.
     """
     if not video_files:
         return ""
 
-    videos_json = []
+    first_vid = None
     for v in video_files:
-        vid = v.get("id")
-        if not vid:
-            continue
-        vname = v.get("name", "Video thực tế")
-        videos_json.append({
-            "id": vid,
-            "name": vname,
-            "preview_url": f"https://drive.google.com/file/d/{vid}/preview",
-            "view_url": f"https://drive.google.com/file/d/{vid}/view"
-        })
-    if not videos_json:
+        if v.get("id"):
+            first_vid = v
+            break
+    if not first_vid:
         return ""
 
-    json_str = json.dumps(videos_json, ensure_ascii=False)
+    vid = first_vid["id"]
+    vname = first_vid.get("name", "Video thực tế")
+    title = f"🎬 {vname}" if len(video_files) > 1 else "🎬 Video Thực Tế Sản Phẩm"
+    view_url = f"https://drive.google.com/file/d/{vid}/view"
+    preview_url = f"https://drive.google.com/file/d/{vid}/preview"
 
-    return f"""<style>
-.product-video-wrapper {{ display: none !important; }}
-#khd-gallery-video-section {{
-  margin-top: 18px;
-  margin-bottom: 20px;
-  width: 100%;
-  border-radius: 14px;
-  overflow: hidden;
-  border: 1px solid #e2e8f0;
-  background: #0f172a;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.08);
-}}
-#khd-gallery-video-section .khd-vheader {{
-  padding: 10px 14px;
-  background: #1e293b;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}}
-#khd-gallery-video-section .khd-vframe {{
-  position: relative;
-  width: 100%;
-  height: 500px;
-  max-height: 70vh;
-  min-height: 380px;
-  overflow: hidden;
-  background: #000;
-}}
-#khd-gallery-video-section iframe {{
-  position: absolute;
-  top: -54px;
-  left: 0;
-  width: 100%;
-  height: calc(100% + 54px);
-  border: 0;
-}}
-</style>
-<script>
-(function() {{
-  function injectGalleryVideoPlayer() {{
-    var videos = {json_str};
-    var gallery = document.querySelector('.woocommerce-product-gallery') || document.querySelector('.product-images');
-    var thumbs = document.querySelector('.product-thumbnails') || (gallery ? gallery.querySelector('.thumbnails') : null);
-    if (!gallery || !videos.length) return;
+    video_html = (
+        f'<div id="khd-gallery-video-section" style="margin: 20px 0; width: 100%; max-width: 500px; border-radius: 14px; overflow: hidden; border: 1px solid #e2e8f0; background: #0f172a; box-shadow: 0 4px 16px rgba(0,0,0,0.08);">'
+        f'<div style="padding: 10px 14px; background: #1e293b; display: flex; align-items: center; justify-content: space-between; gap: 8px;">'
+        f'<span style="font-size: 13.5px; font-weight: 700; color: #f8fafc; display: flex; align-items: center; gap: 6px;"><span>🎬</span> {title}</span>'
+        f'<a href="{view_url}" target="_blank" rel="noopener noreferrer" style="font-size: 12px; color: #38bdf8; text-decoration: none; font-weight: 600; padding: 4px 10px; border-radius: 6px; background: rgba(56, 189, 248, 0.12);">Mở HD ↗</a>'
+        f'</div>'
+        f'<div style="position: relative; width: 100%; height: 480px; max-height: 70vh; overflow: hidden; background: #000;">'
+        f'<iframe src="{preview_url}" style="position: absolute; top: -54px; left: 0; width: 100%; height: calc(100% + 54px); border: 0;" allow="autoplay; fullscreen" allowfullscreen loading="lazy"></iframe>'
+        f'</div>'
+        f'</div>'
+    )
 
-    var oldBtn = document.getElementById('khd-gallery-video-btn');
-    if (oldBtn) oldBtn.remove();
+    move_script = (
+        '<script type="text/javascript">'
+        'function moveKhdVideo(){'
+        'var sec=document.getElementById("khd-gallery-video-section");'
+        'var th=document.querySelector(".product-thumbnails");'
+        'var gal=document.querySelector(".woocommerce-product-gallery")||document.querySelector(".product-images");'
+        'if(sec&&th&&th.parentNode){th.parentNode.insertBefore(sec,th.nextSibling);}'
+        'else if(sec&&gal){gal.appendChild(sec);}'
+        '}'
+        'if(document.readyState==="loading"){document.addEventListener("DOMContentLoaded",moveKhdVideo);}'
+        'else{moveKhdVideo();}'
+        'setTimeout(moveKhdVideo,200);'
+        'setTimeout(moveKhdVideo,1000);'
+        '</script>'
+    )
 
-    if (!document.getElementById('khd-gallery-video-section')) {{
-      var playerBox = document.createElement('div');
-      playerBox.id = 'khd-gallery-video-section';
-      var firstVid = videos[0];
-      var headerTitle = videos.length > 1 ? ('🎬 ' + firstVid.name) : '🎬 Video Thực Tế Sản Phẩm';
-      playerBox.innerHTML = '<div class="khd-vheader">'
-        + '<span style="font-size: 13.5px; font-weight: 700; color: #f8fafc; display: flex; align-items: center; gap: 6px;">'
-        + headerTitle
-        + '</span>'
-        + '<a href="' + firstVid.view_url + '" target="_blank" rel="noopener noreferrer" style="font-size: 12px; color: #38bdf8; text-decoration: none; font-weight: 600; padding: 4px 10px; border-radius: 6px; background: rgba(56, 189, 248, 0.12);">'
-        + 'Mở HD ↗'
-        + '</a>'
-        + '</div>'
-        + '<div class="khd-vframe">'
-        + '<iframe src="' + firstVid.preview_url + '" allow="autoplay; fullscreen" allowfullscreen loading="lazy"></iframe>'
-        + '</div>';
-
-      if (thumbs && thumbs.parentNode) {{
-        thumbs.parentNode.insertBefore(playerBox, thumbs.nextSibling);
-      }} else {{
-        gallery.appendChild(playerBox);
-      }}
-    }}
-
-    if (!document.getElementById('khd-gallery-video-badge') && videos.length > 0) {{
-      var badge = document.createElement('a');
-      badge.id = 'khd-gallery-video-badge';
-      badge.href = '#khd-gallery-video-section';
-      badge.style.cssText = 'position: absolute; top: 12px; right: 12px; z-index: 10; display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; background: rgba(15, 23, 42, 0.9); color: #ffffff !important; font-size: 12.5px; font-weight: 600; border-radius: 20px; backdrop-filter: blur(6px); box-shadow: 0 3px 12px rgba(0,0,0,0.3); text-decoration: none !important; transition: all 0.2s ease; cursor: pointer;';
-      badge.innerHTML = '<span style="color: #ef4444; font-size: 12px; line-height: 1;">▶</span> Xem Video';
-      badge.onclick = function(e) {{
-        e.preventDefault();
-        var sec = document.getElementById('khd-gallery-video-section');
-        if (sec) sec.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
-      }};
-      gallery.style.position = 'relative';
-      gallery.appendChild(badge);
-    }}
-  }}
-
-  if (document.readyState === 'loading') {{
-    document.addEventListener('DOMContentLoaded', injectGalleryVideoPlayer);
-  }} else {{
-    injectGalleryVideoPlayer();
-  }}
-}})();
-</script>"""
+    return video_html + "\n\n" + move_script
 
 
 def build_drive_video_embed_html(video_files):
@@ -1322,7 +1252,7 @@ def _run_notion_sync_workflow(progress_callback=None, page_ids=None):
                 if found_videos:
                     log_message(f"Tìm thấy {len(found_videos)} video trong Drive của '{product_title}'. Tự động tạo nút xem video tại khu vực gallery ảnh sản phẩm.")
                     video_script = build_drive_video_gallery_script(found_videos)
-                    final_description = product_description.strip() + "\n\n" + video_script.strip()
+                    final_description = video_script.strip() + "\n\n" + product_description.strip()
                     has_embedded_video = True
             except Exception as v_err:
                 log_message(f"Lỗi quét video Drive cho '{product_title}': {v_err}")

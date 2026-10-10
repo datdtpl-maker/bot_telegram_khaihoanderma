@@ -259,9 +259,9 @@ class DriveVideoEmbedTests(unittest.TestCase):
             {"id": "video456", "name": "7.MOV"}
         ]
         script = notion_sync.build_drive_video_gallery_script(videos)
-        self.assertIn("<script>", script)
+        self.assertIn("<script", script)
         self.assertIn("khd-gallery-video-section", script)
-        self.assertIn("khd-gallery-video-badge", script)
+        self.assertIn("moveKhdVideo", script)
         self.assertIn("https://drive.google.com/file/d/video123/preview", script)
         self.assertIn("https://drive.google.com/file/d/video123/view", script)
         self.assertIn("woocommerce-product-gallery", script)
