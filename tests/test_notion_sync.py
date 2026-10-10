@@ -253,6 +253,23 @@ class DriveVideoEmbedTests(unittest.TestCase):
         html = notion_sync.build_drive_video_embed_html([])
         self.assertEqual(html, "")
 
+    def test_build_drive_video_gallery_script(self):
+        videos = [
+            {"id": "video123", "name": "8.MOV"},
+            {"id": "video456", "name": "7.MOV"}
+        ]
+        script = notion_sync.build_drive_video_gallery_script(videos)
+        self.assertIn("<script>", script)
+        self.assertIn("khd-gallery-video-btn", script)
+        self.assertIn("khd-gallery-video-badge", script)
+        self.assertIn("https://drive.google.com/file/d/video123/view", script)
+        self.assertIn("https://drive.google.com/file/d/video456/view", script)
+        self.assertIn("woocommerce-product-gallery", script)
+
+    def test_build_drive_video_gallery_script_empty(self):
+        script = notion_sync.build_drive_video_gallery_script([])
+        self.assertEqual(script, "")
+
     def test_wp_update_product_content_mock(self):
         config = {
             "WORDPRESS_SITE_URL": "https://example.com",

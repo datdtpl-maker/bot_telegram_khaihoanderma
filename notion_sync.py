@@ -438,6 +438,82 @@ def scan_drive_folder_videos(folder_url):
     return sorted(found_videos, key=lambda x: _natural_text_key(x.get("name", "")))
 
 
+def build_drive_video_gallery_script(video_files):
+    """
+    Tạo đoạn script chèn nút bấm/badge xem video thực tế Google Drive trực tiếp vào khu vực
+    gallery ảnh sản phẩm (cột trái bên dưới thumbnails và góc ảnh chính).
+    Giữ phần mô tả sản phẩm hoàn toàn sạch đẹp, gọn gàng, không bị chèn khung video cồng kềnh.
+    """
+    if not video_files:
+        return ""
+
+    videos_json = []
+    for v in video_files:
+        vid = v.get("id")
+        if not vid:
+            continue
+        vname = v.get("name", "Video thực tế")
+        videos_json.append({
+            "id": vid,
+            "name": vname,
+            "url": f"https://drive.google.com/file/d/{vid}/view"
+        })
+    if not videos_json:
+        return ""
+
+    json_str = json.dumps(videos_json, ensure_ascii=False)
+
+    return f"""<script>
+(function() {{
+  function injectGalleryVideo() {{
+    var videos = {json_str};
+    var gallery = document.querySelector('.woocommerce-product-gallery') || document.querySelector('.product-images');
+    var thumbs = document.querySelector('.product-thumbnails') || (gallery ? gallery.querySelector('.thumbnails') : null);
+    if (!gallery || !videos.length) return;
+
+    if (!document.getElementById('khd-gallery-video-btn')) {{
+      var btnWrapper = document.createElement('div');
+      btnWrapper.id = 'khd-gallery-video-btn';
+      btnWrapper.style.cssText = 'margin-top: 14px; margin-bottom: 8px; width: 100%; text-align: center; clear: both; display: flex; flex-direction: column; gap: 8px;';
+      var buttonsHtml = '';
+      videos.forEach(function(v) {{
+        var label = videos.length > 1 ? ('🎬 Xem ' + (v.name || 'Video Thực Tế') + ' (Google Drive HD)') : '🎬 Xem Video Thực Tế (Google Drive HD)';
+        buttonsHtml += '<a href="' + v.url + '" target="_blank" rel="noopener noreferrer" style="display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; padding: 11px 16px; background: linear-gradient(135deg, #0284c7, #0369a1); color: #ffffff !important; text-decoration: none !important; font-weight: 600; font-size: 13.5px; border-radius: 8px; box-shadow: 0 3px 10px rgba(2, 132, 199, 0.28); transition: all 0.2s ease-in-out; letter-spacing: 0.2px;">'
+          + '<span style="font-size: 16px; line-height: 1;">🎬</span>'
+          + '<span>' + label + '</span>'
+          + '<span style="font-size: 13px; opacity: 0.85;">↗</span>'
+          + '</a>';
+      }});
+      btnWrapper.innerHTML = buttonsHtml;
+      if (thumbs && thumbs.parentNode) {{
+        thumbs.parentNode.insertBefore(btnWrapper, thumbs.nextSibling);
+      }} else {{
+        gallery.appendChild(btnWrapper);
+      }}
+    }}
+
+    if (!document.getElementById('khd-gallery-video-badge') && videos.length > 0) {{
+      var badge = document.createElement('a');
+      badge.id = 'khd-gallery-video-badge';
+      badge.href = videos[0].url;
+      badge.target = '_blank';
+      badge.rel = 'noopener noreferrer';
+      badge.style.cssText = 'position: absolute; top: 12px; right: 12px; z-index: 10; display: inline-flex; align-items: center; gap: 6px; padding: 6px 13px; background: rgba(15, 23, 42, 0.88); color: #ffffff !important; font-size: 12px; font-weight: 600; border-radius: 20px; backdrop-filter: blur(6px); box-shadow: 0 2px 10px rgba(0,0,0,0.3); text-decoration: none !important; transition: all 0.2s ease;';
+      badge.innerHTML = '<span style="color: #ef4444; font-size: 12px; line-height: 1;">▶</span> Xem Video HD ↗';
+      gallery.style.position = 'relative';
+      gallery.appendChild(badge);
+    }}
+  }}
+
+  if (document.readyState === 'loading') {{
+    document.addEventListener('DOMContentLoaded', injectGalleryVideo);
+  }} else {{
+    injectGalleryVideo();
+  }}
+}})();
+</script>"""
+
+
 def build_drive_video_embed_html(video_files):
     """
     Tạo khối mã HTML nhúng trình phát video Google Drive responsive, tối ưu giao diện đặt ở đầu mô tả sản phẩm.
@@ -467,6 +543,33 @@ def build_drive_video_embed_html(video_files):
             f'        <span style="font-size: 13px; color: #cbd5e1; font-weight: 500;">📺 {vname}</span>',
             f'        <a href="https://drive.google.com/file/d/{vid}/view" target="_blank" rel="noopener noreferrer" style="display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: #38bdf8; text-decoration: none; font-weight: 600; padding: 4px 10px; border-radius: 6px; background: rgba(56, 189, 248, 0.12);">▶ Mở xem trực tiếp HD ↗</a>',
             '      </div>',
+            '    </div>'
+        ])
+    html_parts.append('  </div>')
+    html_parts.append('</div>')
+    return "\n".join(html_parts)
+
+
+def build_native_video_embed_html(video_urls):
+    """
+    Tạo khối mã HTML nhúng trình phát video HTML5 nguyên bản, sạch 100% không dính thanh công cụ hay nút bấm của bên thứ ba.
+    """
+    if not video_urls:
+        return ""
+    html_parts = [
+        '<div class="product-video-section" style="margin: 0 0 28px 0; padding: 16px; background: #f8fafc; border-radius: 14px; border: 1px solid #e2e8f0; text-align: center;">',
+        '  <h3 style="margin-top: 0; margin-bottom: 14px; font-size: 17px; font-weight: 700; color: #1e293b; display: flex; align-items: center; justify-content: center; gap: 8px;">',
+        '    <span>🎬</span> Video Thực Tế &amp; Hướng Dẫn Sử Dụng',
+        '  </h3>',
+        '  <div style="display: flex; flex-direction: column; gap: 18px; align-items: center; width: 100%; max-width: 440px; margin: 0 auto;">'
+    ]
+    for url in video_urls:
+        html_parts.extend([
+            '    <div style="width: 100%; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 14px rgba(0,0,0,0.12); background: #000;">',
+            '      <video controls playsinline preload="metadata" style="width: 100%; height: auto; max-height: 540px; display: block; border-radius: 12px; background: #000;">',
+            f'        <source src="{url}" type="video/mp4">',
+            '        Trình duyệt của bạn không hỗ trợ thẻ video HTML5.',
+            '      </video>',
             '    </div>'
         ])
     html_parts.append('  </div>')
@@ -639,6 +742,84 @@ def wp_update_product_content(config, product_id, content):
     except Exception as e:
         log_message(f"Lỗi cập nhật mô tả sản phẩm ID {product_id} qua wp/v2: {e}")
         return False
+
+
+def wp_upload_video(config, file_path, filename):
+    """
+    Tải file video MP4 lên WordPress Media Library (/wp-json/wp/v2/media).
+    """
+    url = f"{config.get('WORDPRESS_SITE_URL', '').rstrip('/')}/wp-json/wp/v2/media"
+    token = base64.b64encode(f"{config.get('WORDPRESS_USERNAME')}:{config.get('WORDPRESS_PASSWORD')}".encode("utf-8")).decode("ascii")
+    headers = {
+        "Authorization": f"Basic {token}",
+        "Content-Disposition": f'attachment; filename="{filename}"',
+        "Content-Type": "video/mp4",
+        "User-Agent": "Notion WooCommerce AutoSync"
+    }
+    data = Path(file_path).read_bytes()
+    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+    ctx = None
+    if config.get("SSL_NO_VERIFY", "").lower() in {"1", "true", "yes", "on"}:
+        ctx = urllib.request.ssl._create_unverified_context()
+    try:
+        with urllib.request.urlopen(req, context=ctx, timeout=120) as resp:
+            res = json.loads(resp.read().decode("utf-8"))
+            log_message(f"Đã tải video lên WordPress Media: ID {res.get('id')} -> {res.get('source_url')}")
+            return res.get("source_url")
+    except Exception as e:
+        log_message(f"Lỗi tải video {filename} lên WordPress: {e}")
+        return None
+
+
+def process_and_upload_drive_videos(config, video_files, temp_dir):
+    """
+    Tải video từ Google Drive, chuyển đổi/nén sang MP4 H.264 web chuẩn, tải lên WordPress Media
+    và trả về danh sách URL trực tiếp để nhúng vào trình phát HTML5 không dính thanh công cụ.
+    Nếu chuyển đổi hoặc tải lên thất bại, hàm trả về danh sách rỗng để fallback sang Drive preview.
+    """
+    uploaded_urls = []
+    try:
+        import imageio_ffmpeg
+        ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception as fe:
+        log_message(f"Không có ffmpeg để xử lý video: {fe}")
+        return uploaded_urls
+
+    for v in video_files:
+        vid = v.get("id")
+        if not vid:
+            continue
+        vname = v.get("name", "video")
+        raw_path = Path(temp_dir) / f"raw_{vid}_{vname}"
+        out_mp4 = Path(temp_dir) / f"web_{vid}.mp4"
+        try:
+            import gdown
+            gdown.download(id=vid, output=str(raw_path), quiet=True)
+            if not raw_path.exists() or raw_path.stat().st_size == 0:
+                continue
+            cmd = [
+                ffmpeg_exe, "-y",
+                "-i", str(raw_path),
+                "-vf", "scale='min(1080,iw)':-2",
+                "-c:v", "libx264",
+                "-preset", "fast",
+                "-crf", "24",
+                "-pix_fmt", "yuv420p",
+                "-c:a", "aac",
+                "-b:a", "128k",
+                "-movflags", "+faststart",
+                str(out_mp4)
+            ]
+            import subprocess
+            subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if out_mp4.exists() and out_mp4.stat().st_size > 0:
+                safe_name = f"video_{uuid.uuid4().hex[:8]}.mp4"
+                url = wp_upload_video(config, out_mp4, safe_name)
+                if url:
+                    uploaded_urls.append(url)
+        except Exception as err:
+            log_message(f"Không thể xử lý/nén video {vname}: {err}")
+    return uploaded_urls
 
 
 def find_or_create_category(config, name):
@@ -1090,9 +1271,9 @@ def _run_notion_sync_workflow(progress_callback=None, page_ids=None):
             try:
                 found_videos = scan_drive_folder_videos(drive_url)
                 if found_videos:
-                    log_message(f"Tìm thấy {len(found_videos)} video trong Drive của '{product_title}'. Tự động chèn video player vào đầu mô tả.")
-                    video_html = build_drive_video_embed_html(found_videos)
-                    final_description = video_html.strip() + "\n\n" + product_description.strip()
+                    log_message(f"Tìm thấy {len(found_videos)} video trong Drive của '{product_title}'. Tự động tạo nút xem video tại khu vực gallery ảnh sản phẩm.")
+                    video_script = build_drive_video_gallery_script(found_videos)
+                    final_description = product_description.strip() + "\n\n" + video_script.strip()
                     has_embedded_video = True
             except Exception as v_err:
                 log_message(f"Lỗi quét video Drive cho '{product_title}': {v_err}")
@@ -1141,7 +1322,7 @@ def _run_notion_sync_workflow(progress_callback=None, page_ids=None):
             validate_sync_attempt_ownership(created_product, page_id, sync_attempt_id)
             verify_product_image_ids(created_product, uploaded_media_ids)
 
-            if has_embedded_video or "<iframe" in final_description:
+            if has_embedded_video or "<script" in final_description or "<iframe" in final_description:
                 wp_update_product_content(config, created_product.get("id"), final_description)
 
             try:
