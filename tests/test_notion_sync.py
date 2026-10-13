@@ -210,6 +210,24 @@ class NotionPaginationTests(unittest.TestCase):
         self.assertEqual([block["id"] for block in blocks], ["block-1", "block-2"])
         self.assertIn("start_cursor=cursor-2", urlopen.call_args_list[1].args[0].full_url)
 
+    @patch("notion_sync.urllib.request.urlopen")
+    def test_update_notion_status_payload(self, mock_urlopen):
+        mock_urlopen.return_value = _FakeResponse({"id": "page-123"})
+        notion_sync.update_notion_status(
+            "fake-token",
+            "page-123",
+            "https://khaihoanderma.com/product/test"
+        )
+        req = mock_urlopen.call_args[0][0]
+        self.assertEqual(req.get_method(), "PATCH")
+        self.assertEqual(req.full_url, "https://api.notion.com/v1/pages/page-123")
+        payload = json.loads(req.data.decode("utf-8"))
+        props = payload.get("properties", {})
+        self.assertEqual(props["Trạng thái"]["select"]["name"], "Đã đăng web")
+        self.assertEqual(props["Facebook"]["select"]["name"], "Chưa đăng")
+        self.assertEqual(props["IT đã đăng"]["checkbox"], True)
+        self.assertEqual(props["Link web"]["url"], "https://khaihoanderma.com/product/test")
+
 
 class WorkflowLockTests(unittest.TestCase):
     def test_second_sync_is_rejected_while_first_sync_holds_lock(self):

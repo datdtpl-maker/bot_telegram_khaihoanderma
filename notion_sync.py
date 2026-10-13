@@ -1155,6 +1155,11 @@ def update_notion_status(token, page_id, product_url):
                     "name": "Đã đăng web"
                 }
             },
+            "Facebook": {
+                "select": {
+                    "name": "Chưa đăng"
+                }
+            },
             "IT đã đăng": {
                 "checkbox": True
             },
@@ -1170,7 +1175,7 @@ def update_notion_status(token, page_id, product_url):
     }
     req = urllib.request.Request(url, headers=headers, method="PATCH", data=json.dumps(update_data).encode("utf-8"))
     with urllib.request.urlopen(req, timeout=15) as resp:
-        log_message(f"Đã cập nhật trạng thái Notion thành 'Đã đăng web' cho ID: {page_id}")
+        log_message(f"Đã cập nhật trạng thái Notion thành 'Đã đăng web' & Facebook 'Chưa đăng' cho ID: {page_id}")
 
 def _run_notion_sync_workflow(progress_callback=None, page_ids=None):
     config = load_config()
