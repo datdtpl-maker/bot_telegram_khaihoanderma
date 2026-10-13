@@ -33,6 +33,17 @@ from bot_modules.google_reports import build_google_report_html, wants_google_re
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+if sys.stdout is not None and hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+if sys.stderr is not None and hasattr(sys.stderr, "reconfigure"):
+    try:
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 
 def create_resilient_session() -> requests.Session:
     session = requests.Session()
@@ -127,8 +138,10 @@ LOG_LOCK = Lock()
 
 def log(message: str) -> None:
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    line = f"[{timestamp}] {message}"
-    print(line, flush=True)
+    try:
+        print(line, flush=True)
+    except Exception:
+        pass
     try:
         with LOG_LOCK:
             if LOG_FILE.exists() and LOG_FILE.stat().st_size > 5 * 1024 * 1024:

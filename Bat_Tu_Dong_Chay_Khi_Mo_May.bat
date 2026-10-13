@@ -9,21 +9,28 @@ echo ============================================================
 echo.
 
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+    "$dir = '%~dp0'.TrimEnd('\'); " ^
     "$ws = New-Object -ComObject WScript.Shell; " ^
-    "$target = Join-Path $PSScriptRoot 'Chay_Ngam_Bot.vbs'; " ^
-    "$shortcutPath = Join-Path ([Environment]::GetFolderPath('Startup')) 'Bot_Khai_Hoan_Derma.lnk'; " ^
+    "$target = Join-Path $dir 'Chay_Ngam_Bot.vbs'; " ^
+    "$startupFolder = [Environment]::GetFolderPath('Startup'); " ^
+    "$shortcutPath = Join-Path $startupFolder 'Bot_Khai_Hoan_Derma.lnk'; " ^
+    "$oldShortcut = Join-Path $startupFolder 'Chay_Ngam_Bot.vbs - Shortcut.lnk'; " ^
+    "if (Test-Path $oldShortcut) { Remove-Item $oldShortcut -Force }; " ^
     "$s = $ws.CreateShortcut($shortcutPath); " ^
     "$s.TargetPath = $target; " ^
-    "$s.WorkingDirectory = $PSScriptRoot; " ^
+    "$s.WorkingDirectory = $dir; " ^
     "$s.Description = 'Tu dong chay ngam Bot va Mini App Khai Hoan Derma khi mo may'; " ^
     "$s.Save(); " ^
-    "Write-Host '[V] Da tao loi tat Startup thanh cong tai:' $shortcutPath -ForegroundColor Green"
+    "Write-Host ('[V] Da tao loi tat Startup thanh cong tai: ' + $shortcutPath) -ForegroundColor Green; " ^
+    "wscript.exe `\"$target`\"; " ^
+    "Write-Host '[V] Da khoi dong Bot chay ngam thanh cong!' -ForegroundColor Green"
 
 echo.
 echo ============================================================
 echo [V] THÀNH CÔNG! Từ bây giờ:
-echo - Mỗi khi bạn bật máy tính lên, Bot và Mini App sẽ tự động chạy ngầm 100%%.
-echo - Bạn không cần phải bấm bất kỳ file nào nữa.
+echo - Bot da duoc kich hoat chay ngam ngay lap tuc tren may tinh.
+echo - Moi khi ban bat may tinh len, Bot va Mini App se tu dong chay ngam 100%%.
+echo - Ban khong can phai bam bat ky file nao nua.
 echo ============================================================
 echo.
 pause
