@@ -112,6 +112,44 @@ class ImagePipelineTests(unittest.TestCase):
         fallback_request = urlopen.call_args_list[1].args[0]
         self.assertIn("multipart/form-data", fallback_request.headers["Content-type"])
 
+    @patch("notion_sync.wp_update_media_metadata")
+    @patch("notion_sync.wp_upload_media")
+    def test_upload_product_images_parallel_keeps_exact_order(self, mock_upload, mock_meta):
+        def fake_upload(cfg, path):
+            return int(path.stem) + 100
+        mock_upload.side_effect = fake_upload
+        mock_meta.return_value = True
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            images = [root / "1.jpg", root / "2.jpg", root / "3.jpg"]
+            callbacks = []
+            media_ids = notion_sync.upload_product_images(
+                {"config": "val"},
+                images,
+                "Sản phẩm test",
+                progress_callback=lambda msg: callbacks.append(msg),
+                max_workers=3
+            )
+
+        self.assertEqual(media_ids, [101, 102, 103])
+        self.assertTrue(any("Đang upload ảnh lên website" in c for c in callbacks))
+
+    @patch("notion_sync.wp_upload_media")
+    def test_upload_product_images_raises_on_failure(self, mock_upload):
+        mock_upload.side_effect = [101, None, 103]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            images = [root / "1.jpg", root / "2.jpg", root / "3.jpg"]
+            with self.assertRaises(notion_sync.WorkflowValidationError) as ctx:
+                notion_sync.upload_product_images(
+                    {},
+                    images,
+                    "Sản phẩm lỗi",
+                    max_workers=2
+                )
+            self.assertIn("Upload thất bại ảnh số", str(ctx.exception))
+
     def test_image_sequence_requires_one_and_contiguous_numbers(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
