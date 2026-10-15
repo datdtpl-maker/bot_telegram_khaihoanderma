@@ -299,16 +299,19 @@
                     {id: 'instock', label: 'Còn hàng', count: productCounts.instock},
                     {id: 'outofstock', label: 'Hết hàng', count: productCounts.outofstock},
                     {id: 'sale', label: 'Đang giảm giá', count: productCounts.sale},
-                    {id: 'variable', label: 'Có biến thể', count: productCounts.variable}
+                    {id: 'variable', label: '🔀 Có biến thể', count: productCounts.variable}
                   ]"
                   :key="tab.id"
                   @click="productFilter = tab.id; currentPage = 1; fetchProducts()"
-                  :class="productFilter === tab.id ? 'bg-blue-600 text-white shadow-sm' : 'card-theme text-main'"
+                  :class="[
+                    productFilter === tab.id ? (tab.id === 'variable' ? 'bg-purple-600 text-white shadow-sm' : 'bg-blue-600 text-white shadow-sm') : 'card-theme text-main',
+                    tab.id === 'variable' && productFilter !== 'variable' ? 'border-purple-500/40 text-purple-600 dark:text-purple-400 font-black' : ''
+                  ]"
                   class="px-3 py-1.5 rounded-full whitespace-nowrap transition-all border border-transparent flex items-center space-x-1">
             <span>{{ tab.label }}</span>
             <span v-if="tab.count !== undefined" 
-                  :class="productFilter === tab.id ? 'bg-white/20 text-white' : 'card-sub text-sub'"
-                  class="text-[10px] px-1.5 py-0.2 rounded-full">
+                  :class="productFilter === tab.id ? 'bg-white/20 text-white' : (tab.id === 'variable' ? 'bg-purple-500/20 text-purple-600 dark:text-purple-300 font-bold' : 'card-sub text-sub')"
+                  class="text-[10px] px-1.5 py-0.2 rounded-full font-bold">
               {{ tab.count }}
             </span>
           </button>
@@ -316,7 +319,7 @@
 
         <!-- Product Count & Current Page Banner -->
         <div class="flex items-center justify-between text-[11px] text-sub px-1">
-          <span>Đang xem: <b>{{ totalProducts }}</b> sản phẩm</span>
+          <span>Đang xem: <b>{{ totalProducts }}</b> sản phẩm <span v-if="productCounts.variable > 0 && productFilter !== 'variable'" class="text-purple-600 dark:text-purple-400 font-semibold">(có {{ productCounts.variable }} SP biến thể)</span></span>
           <span>Trang <b>{{ currentPage }}</b> / {{ totalPages }}</span>
         </div>
 
@@ -327,7 +330,21 @@
 
         <!-- Products List -->
         <div v-else-if="products.length > 0" class="space-y-3">
-          <div v-for="prod in products" :key="prod.id" class="card-theme p-4 rounded-2xl space-y-3">
+          <div v-for="prod in products" :key="prod.id" 
+               :class="{'border-purple-400/50 dark:border-purple-600/50 shadow-sm': prod.type === 'variable'}"
+               class="card-theme p-4 rounded-2xl space-y-3 transition-all">
+            
+            <!-- Variable product badge header banner -->
+            <div v-if="prod.type === 'variable'" class="flex items-center justify-between pb-1 border-b border-purple-500/15">
+              <span class="inline-flex items-center space-x-1 text-[10px] font-black px-2 py-0.5 rounded-md bg-purple-500/20 text-purple-600 dark:text-purple-300 border border-purple-500/30">
+                <span>🔀</span>
+                <span>SẢN PHẨM CÓ BIẾN THỂ ({{ prod.variations ? prod.variations.length : 'Nhiều' }} loại)</span>
+              </span>
+              <button @click="toggleVariationsExpand(prod.id)" class="text-[10px] text-purple-600 dark:text-purple-400 font-bold hover:underline">
+                {{ expandedVariations[prod.id] ? 'Thu gọn ▲' : 'Xem biến thể ▼' }}
+              </button>
+            </div>
+
             <div class="flex space-x-3">
               <img :src="prod.images && prod.images[0] ? prod.images[0].src : 'https://placehold.co/100x100?text=No+Img'" 
                    class="w-16 h-16 rounded-xl object-cover card-sub flex-shrink-0" alt="">
@@ -361,16 +378,24 @@
 
                   <!-- Case 3: Variable Product Price Range -->
                   <template v-else>
-                    <span v-if="prod.min_price && prod.max_price && prod.min_price !== prod.max_price" class="font-extrabold text-blue-600 dark:text-sky-400 text-xs">
+                    <span v-if="prod.min_price && prod.max_price && prod.min_price !== prod.max_price" class="font-extrabold text-blue-600 dark:text-sky-400 text-sm">
                       {{ formatMoney(prod.min_price) }} – {{ formatMoney(prod.max_price) }}
                     </span>
-                    <span v-else class="font-extrabold text-blue-600 dark:text-sky-400 text-xs">
+                    <span v-else class="font-extrabold text-blue-600 dark:text-sky-400 text-sm">
                       {{ formatMoney(prod.price || prod.min_price) }}
                     </span>
-                    <span class="text-[10px] font-bold px-2 py-0.5 rounded-md bg-purple-500/15 text-purple-600 dark:text-purple-300 border border-purple-500/20">
-                      🔀 {{ prod.variations ? prod.variations.length : 'Nhiều' }} biến thể
-                    </span>
                   </template>
+                </div>
+
+                <!-- Compact Variation preview chips directly visible on the card -->
+                <div v-if="prod.type === 'variable' && prod.variations && prod.variations.length > 0" class="flex flex-wrap gap-1 mt-1.5">
+                  <span v-for="v in prod.variations" :key="v.id" 
+                        :class="v.stock_status === 'instock' ? 'bg-purple-500/10 text-purple-700 dark:text-purple-300 border-purple-500/20' : 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20'"
+                        class="text-[10px] px-2 py-0.5 rounded-lg border font-medium flex items-center space-x-1">
+                    <span>{{ v.name_label }}:</span>
+                    <b class="font-bold">{{ formatMoney(v.sale_price || v.regular_price || v.price) }}</b>
+                    <span v-if="v.stock_status === 'outofstock'" class="text-[9px] font-bold text-rose-500">(Hết)</span>
+                  </span>
                 </div>
               </div>
             </div>
@@ -387,10 +412,10 @@
                 <button v-if="prod.type !== 'variable'" @click="openEditPriceModal(prod)" class="text-[11px] font-bold px-3 py-1 bg-blue-500/10 text-blue-600 dark:text-sky-400 rounded-xl border border-blue-500/20 active:scale-95 transition-all">
                   ✏️ Sửa giá
                 </button>
-                <button v-else @click="toggleVariationsExpand(prod.id)" class="text-[11px] font-bold px-2.5 py-1 bg-purple-500/10 text-purple-600 dark:text-purple-400 rounded-xl border border-purple-500/20 active:scale-95 transition-all">
-                  {{ expandedVariations[prod.id] ? '▲ Thu gọn' : '▼ Biến thể' }}
+                <button v-else @click="toggleVariationsExpand(prod.id)" class="text-[11px] font-bold px-3 py-1 bg-purple-500/15 hover:bg-purple-500/25 text-purple-600 dark:text-purple-400 rounded-xl border border-purple-500/30 flex items-center space-x-1 active:scale-95 transition-all">
+                  <span>{{ expandedVariations[prod.id] ? '▲ Thu gọn' : '▼ Chi tiết biến thể (' + (prod.variations ? prod.variations.length : '') + ')' }}</span>
                 </button>
-                <button @click="deleteProduct(prod)" class="text-[11px] font-bold px-2.5 py-1 bg-rose-500/10 text-rose-600 dark:text-rose-400 rounded-xl border border-rose-500/20 active:scale-95 transition-all">
+                <button @click="deleteProduct(prod)" class="text-[11px] font-bold px-2.5 py-1 bg-rose-500/10 text-rose-600 dark:text-rose-400 rounded-xl border border-rose-500/20 active:scale-95 transition-all" title="Chuyển vào thùng rác">
                   🗑️
                 </button>
               </div>
@@ -454,9 +479,34 @@
 
       <!-- ================= TAB 4: REVIEWS ================= -->
       <section v-if="currentTab === 'reviews'" class="space-y-3">
-        <div class="flex items-center justify-between">
-          <h3 class="text-xs font-bold uppercase tracking-wider text-muted">Đánh Giá Chờ Duyệt (Hold)</h3>
-          <button @click="fetchReviews" class="text-xs text-blue-600 dark:text-sky-400 font-bold">🔄 Làm mới</button>
+        <!-- Review Filter Tabs -->
+        <div class="flex space-x-1.5 overflow-x-auto pb-1 text-xs font-bold no-scrollbar">
+          <button @click="reviewsFilter = 'hold'; fetchReviews()" 
+                  :class="reviewsFilter === 'hold' ? 'bg-amber-600 text-white shadow-sm' : 'card-theme text-main'"
+                  class="px-3.5 py-1.5 rounded-full whitespace-nowrap transition-all border border-transparent flex items-center space-x-1.5">
+            <span>⏳ Chờ duyệt</span>
+            <span v-if="stats.pending_reviews > 0" class="text-[10px] px-1.5 py-0.2 rounded-full bg-rose-500 text-white font-black">
+              {{ stats.pending_reviews }}
+            </span>
+          </button>
+          <button @click="reviewsFilter = 'approved'; fetchReviews()" 
+                  :class="reviewsFilter === 'approved' ? 'bg-emerald-600 text-white shadow-sm' : 'card-theme text-main'"
+                  class="px-3.5 py-1.5 rounded-full whitespace-nowrap transition-all border border-transparent flex items-center space-x-1">
+            <span>✅ Đã duyệt gần đây</span>
+          </button>
+          <button @click="reviewsFilter = 'all'; fetchReviews()" 
+                  :class="reviewsFilter === 'all' ? 'bg-blue-600 text-white shadow-sm' : 'card-theme text-main'"
+                  class="px-3.5 py-1.5 rounded-full whitespace-nowrap transition-all border border-transparent">
+            <span>Tất cả</span>
+          </button>
+        </div>
+
+        <div class="flex items-center justify-between text-xs px-1">
+          <span class="text-sub font-medium">Danh sách đánh giá: <b>{{ reviews.length }}</b> mục</span>
+          <button @click="clearReviewsCache" :disabled="isSystemActionRunning" class="text-blue-600 dark:text-sky-400 font-bold hover:underline flex items-center space-x-1">
+            <span>🔄</span>
+            <span>Quét lại từ Web</span>
+          </button>
         </div>
 
         <!-- Reviews Loading -->
@@ -469,7 +519,13 @@
           <div v-for="rev in reviews" :key="rev.id" class="card-theme p-4 rounded-2xl space-y-2.5">
             <div class="flex items-start justify-between">
               <div>
-                <h4 class="font-bold text-xs text-title">{{ rev.reviewer || 'Ẩn danh' }}</h4>
+                <div class="flex items-center space-x-2">
+                  <h4 class="font-bold text-xs text-title">{{ rev.reviewer || 'Ẩn danh' }}</h4>
+                  <span :class="rev.status === 'hold' ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30' : 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'" 
+                        class="text-[9px] font-black px-1.5 py-0.2 rounded-full border uppercase">
+                    {{ rev.status === 'hold' ? 'Chờ duyệt' : 'Đã duyệt' }}
+                  </span>
+                </div>
                 <div class="text-[10px] text-muted">{{ rev.reviewer_email }}</div>
               </div>
               <div class="text-amber-400 text-xs font-black">
@@ -489,11 +545,13 @@
 
             <!-- Action Buttons -->
             <div class="flex space-x-2 pt-1">
-              <button @click="approveReview(rev.id)" class="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center justify-center space-x-1 shadow-sm active:scale-95 transition-all">
+              <button v-if="rev.status === 'hold'" @click="approveReview(rev.id)" class="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center justify-center space-x-1 shadow-sm active:scale-95 transition-all">
                 <span>✅</span>
-                <span>Phê duyệt</span>
+                <span>Phê duyệt ngay</span>
               </button>
-              <button @click="deleteReview(rev.id)" class="flex-1 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold flex items-center justify-center space-x-1 shadow-sm active:scale-95 transition-all">
+              <button @click="deleteReview(rev.id)" 
+                      :class="rev.status === 'hold' ? 'flex-1 bg-rose-600 hover:bg-rose-700 text-white' : 'w-full bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20'"
+                      class="py-2 rounded-xl text-xs font-bold flex items-center justify-center space-x-1 shadow-sm active:scale-95 transition-all">
                 <span>🗑️</span>
                 <span>Xóa bỏ</span>
               </button>
@@ -502,8 +560,16 @@
         </div>
 
         <!-- Empty Reviews -->
-        <div v-else class="card-theme p-8 rounded-2xl text-center text-sub text-xs">
-          Tuyệt vời! Hiện không còn đánh giá nào đang chờ duyệt.
+        <div v-else class="card-theme p-8 rounded-2xl text-center space-y-3">
+          <div class="text-3xl">⭐</div>
+          <div class="text-xs text-sub">
+            {{ reviewsFilter === 'hold' ? 'Tuyệt vời! Hiện không còn đánh giá nào đang chờ duyệt.' : 'Không có đánh giá nào trong danh mục này.' }}
+          </div>
+          <div>
+            <button @click="clearReviewsCache" :disabled="isSystemActionRunning" class="px-3 py-1.5 bg-blue-500/10 text-blue-600 dark:text-sky-400 rounded-xl text-xs font-bold border border-blue-500/20 active:scale-95 transition-all">
+              🔄 Quét lại đánh giá từ Web
+            </button>
+          </div>
         </div>
       </section>
 
@@ -533,11 +599,61 @@
             </div>
           </div>
 
-          <button v-else @click="triggerNotionSync" :disabled="notionPages.length === 0"
-                  class="w-full py-2.5 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white font-bold rounded-xl text-xs flex items-center justify-center space-x-1.5 shadow-sm active:scale-95 transition-all">
+          <button v-else @click="triggerNotionSync"
+                  class="w-full py-2.5 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-xl text-xs flex items-center justify-center space-x-1.5 shadow-sm active:scale-95 transition-all">
             <span>🚀</span>
-            <span>Bắt đầu đăng sản phẩm ngay</span>
+            <span>Bắt đầu quét & đăng bài Notion ngay</span>
           </button>
+        </div>
+
+        <!-- Live System & Sync Logs Console -->
+        <div class="card-theme p-4 rounded-2xl space-y-3">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center space-x-2">
+              <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+              <h3 class="text-xs font-bold uppercase tracking-wider text-muted">Nhật Ký Đồng Bộ & Hệ Thống (Live Logs)</h3>
+            </div>
+            <div class="flex items-center space-x-1.5">
+              <button @click="fetchLogs" class="text-[11px] font-bold text-blue-600 dark:text-sky-400 px-2 py-0.5 rounded-lg card-sub hover:opacity-80 transition-all">
+                🔄 Làm mới
+              </button>
+              <button @click="clearLogView" class="text-[11px] font-bold text-rose-500 px-2 py-0.5 rounded-lg card-sub hover:opacity-80 transition-all">
+                🗑️ Xóa xem
+              </button>
+            </div>
+          </div>
+
+          <!-- Log Filters -->
+          <div class="flex space-x-1 text-[10px] font-bold">
+            <button @click="logFilter = ''; fetchLogs()" :class="logFilter === '' ? 'bg-blue-600 text-white' : 'card-sub text-sub'" class="px-2.5 py-1 rounded-lg transition-all">
+              Tất cả
+            </button>
+            <button @click="logFilter = 'notionsync'; fetchLogs()" :class="logFilter === 'notionsync' ? 'bg-purple-600 text-white' : 'card-sub text-sub'" class="px-2.5 py-1 rounded-lg transition-all">
+              Đồng bộ Notion
+            </button>
+            <button @click="logFilter = 'lỗi'; fetchLogs()" :class="logFilter === 'lỗi' ? 'bg-rose-600 text-white' : 'card-sub text-sub'" class="px-2.5 py-1 rounded-lg transition-all">
+              Lỗi (Errors)
+            </button>
+          </div>
+
+          <!-- Terminal Window -->
+          <div ref="logContainer" class="bg-slate-950 text-slate-200 p-3 rounded-xl max-h-64 overflow-y-auto font-mono text-[11px] space-y-1.5 border border-slate-800 shadow-inner">
+            <div v-if="systemLogs.length === 0" class="text-slate-500 italic text-center py-4">
+              {{ isLogsLoading ? 'Đang tải nhật ký...' : 'Chưa có nhật ký hoạt động nào gần đây...' }}
+            </div>
+            <div v-for="(log, idx) in systemLogs" :key="idx" class="leading-relaxed flex items-start space-x-1.5">
+              <span class="text-slate-500 text-[10px] flex-shrink-0 select-none">[{{ log.timestamp || 'LOG' }}]</span>
+              <span :class="{
+                'text-emerald-400': log.level === 'success',
+                'text-rose-400 font-bold': log.level === 'error',
+                'text-amber-400': log.level === 'warn',
+                'text-purple-400 font-semibold': log.level === 'sync',
+                'text-slate-300': log.level === 'info'
+              }" class="break-words flex-1">
+                {{ log.message }}
+              </span>
+            </div>
+          </div>
         </div>
 
         <!-- Gemini AI Assistant Chat -->
@@ -616,26 +732,40 @@
             </button>
           </div>
 
-          <button @click="fetchGoogleReport('keywords')" :disabled="isSystemActionRunning" class="w-full py-2 px-3 card-sub rounded-xl text-xs font-bold flex items-center justify-center space-x-1.5 active:scale-95 transition-all text-main">
+          <button @click="fetchGoogleReport('keywords')" :disabled="isSystemActionRunning" class="w-full py-2.5 px-3 bg-blue-500/10 text-blue-600 dark:text-sky-400 border border-blue-500/20 rounded-xl text-xs font-bold flex items-center justify-center space-x-1.5 active:scale-95 transition-all">
             <span>🔍</span>
             <span>Xem từ khóa Google Search Console</span>
           </button>
-
-          <!-- System Report Viewer -->
-          <div v-if="systemReportModal.show" class="p-3 card-sub rounded-xl text-xs space-y-2 border border-blue-500/30 animate-in fade-in">
-            <div class="flex items-center justify-between font-bold text-title">
-              <span class="flex items-center space-x-1">
-                <span>📋</span>
-                <span>{{ systemReportModal.title }}</span>
-              </span>
-              <button @click="systemReportModal.show = false" class="text-muted hover:text-main font-bold text-sm">&times;</button>
-            </div>
-            <div class="text-[11px] leading-relaxed max-h-56 overflow-y-auto card-theme p-2.5 rounded-lg text-main" v-html="systemReportModal.content"></div>
-          </div>
         </div>
       </section>
 
     </main>
+
+    <!-- ================= SYSTEM & SEO REPORT MODAL ================= -->
+    <div v-if="systemReportModal.show" class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+      <div class="card-theme w-full max-w-lg max-h-[88vh] flex flex-col rounded-t-3xl sm:rounded-2xl p-4 sm:p-5 animate-in slide-in-from-bottom duration-200">
+        <!-- Modal Header -->
+        <div class="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
+          <div class="flex items-center space-x-2">
+            <span class="text-lg">📊</span>
+            <h3 class="font-black text-sm text-title">{{ systemReportModal.title }}</h3>
+          </div>
+          <button @click="systemReportModal.show = false" class="w-8 h-8 rounded-full card-sub flex items-center justify-center text-muted hover:text-main font-bold text-lg active:scale-90 transition-all">
+            &times;
+          </button>
+        </div>
+
+        <!-- Modal Body: Scrollable -->
+        <div class="flex-1 overflow-y-auto py-3 space-y-3 no-scrollbar" v-html="systemReportModal.content"></div>
+
+        <!-- Modal Footer -->
+        <div class="pt-3 border-t border-slate-200 dark:border-slate-800 flex justify-end">
+          <button @click="systemReportModal.show = false" class="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs active:scale-95 transition-all">
+            Đóng báo cáo
+          </button>
+        </div>
+      </div>
+    </div>
 
     <!-- ================= EDIT PRICE MODAL ================= -->
     <div v-if="editPriceModal.show" class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">

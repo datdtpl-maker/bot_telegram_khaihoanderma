@@ -542,3 +542,263 @@ def build_google_report_html(text: str) -> str:
     ga4 = build_ga4_report_html(text)
     gsc = build_gsc_report_html(text)
     return f"{ga4}\n\n{gsc}"
+
+
+def build_google_report_web_html(report_type: str = "keywords") -> str:
+    """Định dạng báo cáo Google Search Console & GA4 dạng HTML thẻ đẹp mắt cho Mini App."""
+    if not google_configured():
+        return (
+            '<div class="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-700 dark:text-amber-300 text-xs space-y-2">'
+            '<div class="font-bold flex items-center space-x-1.5"><span class="text-base">⚠️</span><span>Google Site Kit chưa được cấu hình</span></div>'
+            '<p>Vui lòng cấu hình OAuth hoặc Service Account trong file <code>telegram_bot.env</code> để xem báo cáo.</p>'
+            '</div>'
+        )
+
+    if report_type == "traffic":
+        days = 28
+        start, end = google_date_range(days)
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            total_future = executor.submit(
+                ga4_run_report,
+                ["activeUsers", "sessions", "screenPageViews", "engagedSessions"],
+                start_date=start,
+                end_date=end,
+                limit=1,
+            )
+            channels_future = executor.submit(
+                ga4_run_report,
+                ["sessions", "activeUsers", "engagedSessions"],
+                ["sessionDefaultChannelGroup"],
+                start_date=start,
+                end_date=end,
+                limit=8,
+                order_metric="sessions",
+            )
+            pages_future = executor.submit(
+                ga4_run_report,
+                ["screenPageViews", "activeUsers"],
+                ["pageTitle", "pagePath"],
+                start_date=start,
+                end_date=end,
+                limit=8,
+                order_metric="screenPageViews",
+            )
+            total = total_future.result()
+            channels = channels_future.result().get("rows") or []
+            pages = pages_future.result().get("rows") or []
+
+        total_row = (total.get("rows") or [{}])[0]
+        active_users = google_metric(total_row, 0)
+        sessions = google_metric(total_row, 1)
+        views = google_metric(total_row, 2)
+        engaged = google_metric(total_row, 3)
+
+        channel_rows_html = ""
+        if channels:
+            for idx, row in enumerate(channels, start=1):
+                c_name = google_dimension(row, 0) or "(not set)"
+                c_sess = google_metric(row, 0)
+                channel_rows_html += (
+                    f'<div class="p-2.5 rounded-xl card-sub border border-slate-100 dark:border-slate-800 flex items-center justify-between">'
+                    f'<div class="font-bold text-title text-xs">{idx}. {h(c_name)}</div>'
+                    f'<div class="px-2 py-0.5 rounded-lg bg-blue-500/15 text-blue-600 dark:text-sky-400 font-extrabold text-xs">'
+                    f'{fmt_number(c_sess)} phiên'
+                    f'</div></div>'
+                )
+        else:
+            channel_rows_html = '<div class="text-xs text-sub italic p-2">Chưa có dữ liệu nguồn traffic.</div>'
+
+        page_rows_html = ""
+        if pages:
+            for idx, row in enumerate(pages, start=1):
+                p_title = google_dimension(row, 0) or google_dimension(row, 1) or "(not set)"
+                p_path = google_dimension(row, 1) or ""
+                p_views = google_metric(row, 0)
+                page_rows_html += (
+                    f'<div class="p-2.5 rounded-xl card-sub border border-slate-100 dark:border-slate-800 flex items-center justify-between">'
+                    f'<div class="min-w-0 pr-2">'
+                    f'<div class="font-bold text-title text-xs truncate">{idx}. {h(p_title[:60])}</div>'
+                    f'<div class="text-[10px] text-sub truncate mt-0.5">{h(p_path)}</div>'
+                    f'</div>'
+                    f'<div class="px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-bold text-xs whitespace-nowrap">'
+                    f'{fmt_number(p_views)} view'
+                    f'</div></div>'
+                )
+        else:
+            page_rows_html = '<div class="text-xs text-sub italic p-2">Chưa có dữ liệu trang xem nhiều.</div>'
+
+        return f'''
+<div class="space-y-4 text-xs">
+  <div class="flex items-center justify-between p-2.5 rounded-xl card-sub border border-slate-200 dark:border-slate-800">
+    <div class="flex items-center space-x-2">
+      <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+      <span class="font-bold text-title">Google Analytics 4 (GA4)</span>
+    </div>
+    <span class="text-[11px] font-medium text-sub">📅 {h(start)} → {h(end)} (28 ngày)</span>
+  </div>
+
+  <div class="grid grid-cols-2 gap-2">
+    <div class="p-3 rounded-xl bg-blue-500/10 border border-blue-500/20">
+      <div class="text-[10px] font-bold text-sub uppercase">Người Dùng</div>
+      <div class="text-xl font-black text-blue-600 dark:text-sky-400 mt-0.5">{fmt_number(active_users)}</div>
+      <div class="text-[10px] text-muted">Khách truy cập web</div>
+    </div>
+    <div class="p-3 rounded-xl bg-indigo-500/10 border border-indigo-500/20">
+      <div class="text-[10px] font-bold text-sub uppercase">Phiên Truy Cập</div>
+      <div class="text-xl font-black text-indigo-600 dark:text-indigo-400 mt-0.5">{fmt_number(sessions)}</div>
+      <div class="text-[10px] text-muted">Lượt ghé thăm</div>
+    </div>
+    <div class="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
+      <div class="text-[10px] font-bold text-sub uppercase">Lượt Xem Trang</div>
+      <div class="text-xl font-black text-emerald-600 dark:text-emerald-400 mt-0.5">{fmt_number(views)}</div>
+      <div class="text-[10px] text-muted">Tổng số trang xem</div>
+    </div>
+    <div class="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20">
+      <div class="text-[10px] font-bold text-sub uppercase">Phiên Tương Tác</div>
+      <div class="text-xl font-black text-amber-600 dark:text-amber-400 mt-0.5">{fmt_number(engaged)}</div>
+      <div class="text-[10px] text-muted">Xem nội dung lâu</div>
+    </div>
+  </div>
+
+  <div class="space-y-2">
+    <div class="font-bold text-title flex items-center justify-between">
+      <span>🌐 Nguồn Traffic Chính ({len(channels)})</span>
+      <span class="text-[10px] text-muted font-normal">Kênh người dùng đến web</span>
+    </div>
+    <div class="space-y-1.5 max-h-56 overflow-y-auto pr-1">
+      {channel_rows_html}
+    </div>
+  </div>
+
+  <div class="space-y-2">
+    <div class="font-bold text-title flex items-center justify-between">
+      <span>📄 Trang Được Xem Nhiều Nhất ({len(pages)})</span>
+    </div>
+    <div class="space-y-1.5 max-h-60 overflow-y-auto pr-1">
+      {page_rows_html}
+    </div>
+  </div>
+</div>
+'''
+
+    # Mặc định / keywords: Google Search Console
+    days = 28
+    start, end = google_date_range(days, end_yesterday=True)
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        summary_future = executor.submit(gsc_query, None, start, end, 1)
+        queries_future = executor.submit(gsc_query, ["query"], start, end, 15)
+        pages_future = executor.submit(gsc_query, ["page"], start, end, 10)
+        summary_rows = summary_future.result().get("rows") or []
+        queries = queries_future.result().get("rows") or []
+        pages = pages_future.result().get("rows") or []
+
+    summary = summary_rows[0] if summary_rows else {}
+    clicks = float(summary.get("clicks") or 0)
+    impressions = float(summary.get("impressions") or 0)
+    ctr = float(summary.get("ctr") or 0)
+    position = float(summary.get("position") or 0)
+
+    keywords_rows_html = ""
+    if queries:
+        for idx, row in enumerate(queries, start=1):
+            kw = (row.get("keys") or [""])[0]
+            k_clicks = float(row.get("clicks") or 0)
+            k_imp = float(row.get("impressions") or 0)
+            k_ctr = float(row.get("ctr") or 0)
+            k_pos = float(row.get("position") or 0)
+            keywords_rows_html += (
+                f'<div class="p-2.5 rounded-xl card-sub border border-slate-100 dark:border-slate-800 flex items-center justify-between">'
+                f'<div class="min-w-0 pr-2">'
+                f'<div class="font-bold text-title text-xs truncate">{idx}. {h(kw)}</div>'
+                f'<div class="flex items-center space-x-2 text-[10px] text-sub mt-0.5">'
+                f'<span>👁️ {fmt_number(k_imp)} hiển thị</span>'
+                f'<span>•</span>'
+                f'<span>⚡ CTR {fmt_percent(k_ctr)}</span>'
+                f'<span>•</span>'
+                f'<span>📍 TB: #{k_pos:.1f}</span>'
+                f'</div></div>'
+                f'<div class="px-2.5 py-1 rounded-lg bg-blue-500/15 text-blue-600 dark:text-sky-400 font-extrabold text-xs whitespace-nowrap">'
+                f'{fmt_number(k_clicks)} click'
+                f'</div></div>'
+            )
+    else:
+        keywords_rows_html = '<div class="text-xs text-sub italic p-2">Chưa có dữ liệu từ khóa.</div>'
+
+    pages_rows_html = ""
+    if pages:
+        for idx, row in enumerate(pages, start=1):
+            p_url = (row.get("keys") or [""])[0]
+            p_clicks = float(row.get("clicks") or 0)
+            p_imp = float(row.get("impressions") or 0)
+            clean_path = p_url.replace(site_base_url(), "")
+            if not clean_path:
+                clean_path = "/"
+            pages_rows_html += (
+                f'<div class="p-2.5 rounded-xl card-sub border border-slate-100 dark:border-slate-800 flex items-center justify-between">'
+                f'<div class="min-w-0 pr-2">'
+                f'<a href="{h(p_url)}" target="_blank" class="text-xs font-semibold text-blue-600 dark:text-sky-400 hover:underline truncate block">'
+                f'{idx}. {h(clean_path[:75])}'
+                f'</a>'
+                f'<div class="text-[10px] text-sub mt-0.5">👁️ {fmt_number(p_imp)} lượt xem trên tìm kiếm</div>'
+                f'</div>'
+                f'<div class="px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-bold text-xs whitespace-nowrap">'
+                f'{fmt_number(p_clicks)} click'
+                f'</div></div>'
+            )
+    else:
+        pages_rows_html = '<div class="text-xs text-sub italic p-2">Chưa có dữ liệu trang.</div>'
+
+    return f'''
+<div class="space-y-4 text-xs">
+  <div class="flex items-center justify-between p-2.5 rounded-xl card-sub border border-slate-200 dark:border-slate-800">
+    <div class="flex items-center space-x-2">
+      <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+      <span class="font-bold text-title">Google Search Console</span>
+    </div>
+    <span class="text-[11px] font-medium text-sub">📅 {h(start)} → {h(end)} (28 ngày)</span>
+  </div>
+
+  <div class="grid grid-cols-2 gap-2">
+    <div class="p-3 rounded-xl bg-blue-500/10 border border-blue-500/20">
+      <div class="text-[10px] font-bold text-sub uppercase">Tổng Lượt Click</div>
+      <div class="text-xl font-black text-blue-600 dark:text-sky-400 mt-0.5">{fmt_number(clicks)}</div>
+      <div class="text-[10px] text-muted">Lượt truy cập từ Google</div>
+    </div>
+    <div class="p-3 rounded-xl bg-purple-500/10 border border-purple-500/20">
+      <div class="text-[10px] font-bold text-sub uppercase">Lượt Hiển Thị</div>
+      <div class="text-xl font-black text-purple-600 dark:text-purple-400 mt-0.5">{fmt_number(impressions)}</div>
+      <div class="text-[10px] text-muted">Xuất hiện trên tìm kiếm</div>
+    </div>
+    <div class="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
+      <div class="text-[10px] font-bold text-sub uppercase">CTR Trung Bình</div>
+      <div class="text-xl font-black text-emerald-600 dark:text-emerald-400 mt-0.5">{fmt_percent(ctr)}</div>
+      <div class="text-[10px] text-muted">Tỷ lệ click vào web</div>
+    </div>
+    <div class="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20">
+      <div class="text-[10px] font-bold text-sub uppercase">Vị Trí Trung Bình</div>
+      <div class="text-xl font-black text-amber-600 dark:text-amber-400 mt-0.5">{position:.1f}</div>
+      <div class="text-[10px] text-muted">Thứ hạng TB tìm kiếm</div>
+    </div>
+  </div>
+
+  <div class="space-y-2">
+    <div class="font-bold text-title flex items-center justify-between">
+      <span>🔍 Từ Khóa Tìm Kiếm Nổi Bật ({len(queries)})</span>
+      <span class="text-[10px] text-muted font-normal">Sắp xếp theo Click</span>
+    </div>
+    <div class="space-y-1.5 max-h-64 overflow-y-auto pr-1">
+      {keywords_rows_html}
+    </div>
+  </div>
+
+  <div class="space-y-2">
+    <div class="font-bold text-title flex items-center justify-between">
+      <span>📄 Trang Được Click Nhiều Nhất ({len(pages)})</span>
+    </div>
+    <div class="space-y-1.5 max-h-52 overflow-y-auto pr-1">
+      {pages_rows_html}
+    </div>
+  </div>
+</div>
+'''
+

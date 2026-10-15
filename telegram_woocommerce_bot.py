@@ -4010,6 +4010,15 @@ def find_product_name_by_id(product_id: int) -> str:
     if product_id in PRODUCT_NAME_CACHE:
         return PRODUCT_NAME_CACHE[product_id]
     try:
+        with _ALL_PRODUCTS_CACHE_LOCK:
+            for p in _ALL_PRODUCTS_CACHE:
+                if p.get("id") == product_id and p.get("name"):
+                    name = str(p["name"])
+                    PRODUCT_NAME_CACHE[product_id] = name
+                    return name
+    except Exception:
+        pass
+    try:
         product = wc_get(f"products/{product_id}", {})
         if isinstance(product, dict) and "name" in product:
             name = str(product["name"])

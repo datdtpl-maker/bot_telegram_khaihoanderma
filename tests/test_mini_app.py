@@ -211,6 +211,40 @@ class MiniAppTestSuite(unittest.TestCase):
             self.assertTrue(res.json().get("ok"))
             self.assertIn("completed", res.json().get("message"))
 
+    def test_system_logs_endpoint(self):
+        with patch.dict("os.environ", {"TELEGRAM_BOT_TOKEN": self.bot_token}):
+            headers = {"X-Admin-Token": self.admin_token}
+            res = self.client.get("/api/system/logs?lines=10", headers=headers)
+            self.assertEqual(res.status_code, 200)
+            data = res.json()
+            self.assertTrue(data.get("ok"))
+            self.assertIsInstance(data.get("logs"), list)
+
+    def test_get_reviews_with_status_filter(self):
+        fake_reviews = [
+            {"id": 1, "status": "approved", "reviewer": "Lan", "review": "Rất tốt", "product_id": 100},
+            {"id": 2, "status": "hold", "reviewer": "Hương", "review": "Chờ duyệt", "product_id": 100}
+        ]
+        with patch.dict("os.environ", {"TELEGRAM_BOT_TOKEN": self.bot_token}), \
+             patch.object(mini_app_server.bot, "wc_get", return_value=fake_reviews):
+            headers = {"X-Admin-Token": self.admin_token}
+            res = self.client.get("/api/reviews?status=approved", headers=headers)
+            self.assertEqual(res.status_code, 200)
+            data = res.json()
+            self.assertIn("reviews", data)
+            self.assertEqual(len(data["reviews"]), 2)
+            self.assertEqual(data["reviews"][0]["status"], "approved")
+
+    def test_google_seo_report_web_html(self):
+        with patch.dict("os.environ", {"TELEGRAM_BOT_TOKEN": self.bot_token}), \
+             patch("bot_modules.google_reports.build_google_report_web_html", return_value="<div class='test-report'>Report</div>"):
+            headers = {"X-Admin-Token": self.admin_token}
+            res = self.client.get("/api/reports/google-seo?type=keywords", headers=headers)
+            self.assertEqual(res.status_code, 200)
+            data = res.json()
+            self.assertTrue(data.get("ok"))
+            self.assertIn("test-report", data.get("html_report"))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -71,6 +71,7 @@ const app = createApp({
 
     // Reviews State
     const reviews = ref([]);
+    const reviewsFilter = ref("hold"); // hold | approved | all
     const isReviewsLoading = ref(false);
 
     // Notion State
@@ -78,6 +79,12 @@ const app = createApp({
     const isNotionLoading = ref(false);
     const isSyncRunning = ref(false);
     const syncStatusText = ref("");
+
+    // Live System & Sync Logs State
+    const systemLogs = ref([]);
+    const logFilter = ref("");
+    const isLogsLoading = ref(false);
+    const logContainer = ref(null);
 
     // AI Chat State
     const aiMessages = ref([
@@ -389,7 +396,7 @@ const app = createApp({
     const fetchReviews = async () => {
       isReviewsLoading.value = true;
       try {
-        const data = await apiCall("/api/reviews?status=hold");
+        const data = await apiCall(`/api/reviews?status=${reviewsFilter.value}`);
         reviews.value = data.reviews || [];
       } catch (err) {
         showToast("Lỗi khi tải danh sách đánh giá", "error");
@@ -403,8 +410,14 @@ const app = createApp({
       try {
         await apiCall(`/api/reviews/${reviewId}/approve`, { method: "POST" });
         showToast("Đã phê duyệt đánh giá thành công!", "success");
-        reviews.value = reviews.value.filter(r => r.id !== reviewId);
+        if (reviewsFilter.value === "hold") {
+          reviews.value = reviews.value.filter(r => r.id !== reviewId);
+        } else {
+          const found = reviews.value.find(r => r.id === reviewId);
+          if (found) found.status = "approved";
+        }
         stats.pending_reviews = Math.max(0, stats.pending_reviews - 1);
+        fetchDashboard();
       } catch (err) {
         showToast(err.message || "Lỗi khi duyệt đánh giá", "error");
       }
@@ -418,12 +431,40 @@ const app = createApp({
         showToast("Đã xóa đánh giá!", "success");
         reviews.value = reviews.value.filter(r => r.id !== reviewId);
         stats.pending_reviews = Math.max(0, stats.pending_reviews - 1);
+        fetchDashboard();
       } catch (err) {
         showToast(err.message || "Lỗi khi xóa đánh giá", "error");
       }
     };
 
-    // Notion
+    // Notion Sync & Live Logs
+    const fetchLogs = async () => {
+      isLogsLoading.value = true;
+      try {
+        const param = logFilter.value ? `&filter_tag=${encodeURIComponent(logFilter.value)}` : "";
+        const data = await apiCall(`/api/system/logs?lines=60${param}`);
+        systemLogs.value = data.logs || [];
+        scrollLogsToBottom();
+      } catch (err) {
+        console.warn("Lỗi tải log hệ thống:", err);
+      } finally {
+        isLogsLoading.value = false;
+      }
+    };
+
+    const clearLogView = () => {
+      systemLogs.value = [];
+      showToast("Đã xóa màn hình xem nhật ký", "info");
+    };
+
+    const scrollLogsToBottom = () => {
+      setTimeout(() => {
+        if (logContainer.value) {
+          logContainer.value.scrollTop = logContainer.value.scrollHeight;
+        }
+      }, 60);
+    };
+
     const fetchNotionQueue = async () => {
       isNotionLoading.value = true;
       try {
@@ -440,10 +481,11 @@ const app = createApp({
     const triggerNotionSync = async () => {
       haptic("heavy");
       isSyncRunning.value = true;
-      syncStatusText.value = "Đang khởi động đồng bộ Notion...";
+      syncStatusText.value = "Đang kết nối Notion và kiểm tra bài viết...";
       try {
         await apiCall("/api/notion/sync", { method: "POST" });
         showToast("Đã kích hoạt đồng bộ Notion!", "success");
+        await fetchLogs();
         pollSyncStatus();
       } catch (err) {
         showToast(err.message || "Lỗi khởi động đồng bộ Notion", "error");
@@ -456,17 +498,19 @@ const app = createApp({
         try {
           const res = await apiCall("/api/notion/status");
           syncStatusText.value = res.current_status || "Đang xử lý...";
+          await fetchLogs();
           if (!res.is_running) {
             clearInterval(interval);
             isSyncRunning.value = false;
             showToast("Đồng bộ Notion hoàn tất!", "success");
             fetchNotionQueue();
+            fetchDashboard();
           }
         } catch (e) {
           clearInterval(interval);
           isSyncRunning.value = false;
         }
-      }, 3000);
+      }, 2500);
     };
 
     // Gemini AI Chat
@@ -594,7 +638,10 @@ const app = createApp({
       if (tab === "orders") fetchOrders();
       if (tab === "products") fetchProducts();
       if (tab === "reviews") fetchReviews();
-      if (tab === "tools") fetchNotionQueue();
+      if (tab === "tools") {
+        fetchNotionQueue();
+        fetchLogs();
+      }
     };
 
     const refreshCurrentTab = () => {
@@ -654,11 +701,18 @@ const app = createApp({
       expandedVariations,
       editPriceModal,
       reviews,
+      reviewsFilter,
       isReviewsLoading,
       notionPages,
       isNotionLoading,
       isSyncRunning,
       syncStatusText,
+      systemLogs,
+      logFilter,
+      isLogsLoading,
+      logContainer,
+      fetchLogs,
+      clearLogView,
       aiMessages,
       aiPrompt,
       isAiThinking,
@@ -680,6 +734,7 @@ const app = createApp({
       saveProductPrice,
       toggleStock,
       deleteProduct,
+      fetchReviews,
       approveReview,
       deleteReview,
       fetchNotionQueue,

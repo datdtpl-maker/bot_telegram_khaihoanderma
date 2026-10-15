@@ -262,7 +262,13 @@ def get_product_variations_cached(product_id: int) -> list[dict]:
         if isinstance(vars_res, list):
             for v in vars_res:
                 attrs = v.get("attributes") or []
-                label = " / ".join(str(a.get("option", "")).strip() for a in attrs if a.get("option")) or f"#{v.get('id')}"
+                label_parts = []
+                for a in attrs:
+                    opt = str(a.get("option", "")).strip()
+                    name = str(a.get("name", "")).strip()
+                    if opt:
+                        label_parts.append(f"{name}: {opt}" if name else opt)
+                label = " / ".join(label_parts) or f"#{v.get('id')}"
                 reg_p = str(v.get("regular_price") or "").strip()
                 sale_p = str(v.get("sale_price") or "").strip()
                 discount = None
@@ -413,8 +419,9 @@ def get_products(
         }
 
         # 1. Tìm kiếm hoặc lấy toàn bộ
-        if search.strip():
-            matched = bot.find_products_by_fuzzy_name(search.strip())
+        search_term = str(search or "").strip()
+        if search_term:
+            matched = bot.find_products_by_fuzzy_name(search_term)
         else:
             matched = all_cached
 
@@ -610,6 +617,7 @@ def get_reviews(
             p_name = bot.find_product_name_by_id(p_id) if p_id else ""
             formatted.append({
                 "id": r.get("id"),
+                "status": r.get("status") or "approved",
                 "reviewer": r.get("reviewer") or "Ẩn danh",
                 "reviewer_email": r.get("reviewer_email") or "",
                 "rating": r.get("rating") or 5,
@@ -683,19 +691,23 @@ def get_notion_pages(current_user: dict = Depends(get_current_admin)):
 def _notion_sync_worker():
     global NOTION_SYNC_STATE
     NOTION_SYNC_STATE["is_running"] = True
-    NOTION_SYNC_STATE["current_status"] = "Đang kết nối Notion và tải bài viết..."
+    NOTION_SYNC_STATE["current_status"] = "Đang kết nối Notion và kiểm tra bài viết..."
     NOTION_SYNC_STATE["last_error"] = None
+    bot.log("[NotionSync] Bắt đầu kích hoạt quy trình đồng bộ bài viết Notion...")
     try:
         def callback(step, total, detail):
-            NOTION_SYNC_STATE["current_status"] = f"Bước {step}/{total}: {detail}"
+            status_text = f"Bước {step}/{total}: {detail}"
+            NOTION_SYNC_STATE["current_status"] = status_text
+            bot.log(f"[NotionSync] {status_text}")
 
         notion_sync.run_notion_sync_workflow(progress_callback=callback)
         NOTION_SYNC_STATE["current_status"] = "Hoàn tất đồng bộ Notion thành công!"
         NOTION_SYNC_STATE["last_run"] = datetime.now().isoformat()
+        bot.log("[NotionSync] ✅ Hoàn tất đồng bộ bài viết Notion thành công!")
     except Exception as exc:
         NOTION_SYNC_STATE["current_status"] = f"Lỗi: {exc}"
         NOTION_SYNC_STATE["last_error"] = str(exc)
-        bot.log(f"[MiniApp] Lỗi đồng bộ Notion: {exc}")
+        bot.log(f"[NotionSync] ❌ Lỗi đồng bộ Notion: {exc}")
     finally:
         NOTION_SYNC_STATE["is_running"] = False
 
@@ -857,13 +869,18 @@ def get_google_seo_report(
     current_user: dict = Depends(get_current_admin)
 ):
     try:
-        from bot_modules.google_reports import build_google_report_html
-        query = "traffic 28 ngày qua" if report_type == "traffic" else "từ khóa search console 28 ngày qua"
-        html_report = build_google_report_html(query)
+        from bot_modules.google_reports import build_google_report_web_html, build_google_report_html
+        try:
+            html_report = build_google_report_web_html(report_type)
+        except Exception as e_web:
+            bot.log(f"[MiniApp] Web report formatter fallback: {e_web}")
+            query = "traffic 28 ngày qua" if report_type == "traffic" else "từ khóa search console 28 ngày qua"
+            raw = build_google_report_html(query)
+            html_report = f'<div class="whitespace-pre-line text-xs leading-relaxed space-y-2 p-2">{raw.replace(chr(10), "<br>")}</div>'
         return {"ok": True, "type": report_type, "html_report": html_report}
     except Exception as exc:
         bot.log(f"[MiniApp] Lỗi tạo báo cáo Google SEO: {exc}")
-        return {"ok": False, "html_report": f"Lỗi lấy dữ liệu Google: {exc}"}
+        return {"ok": False, "html_report": f'<div class="text-rose-500 font-bold p-3">Lỗi lấy dữ liệu Google: {exc}</div>'}
 
 
 @app.post("/api/system/cache-refresh")
@@ -897,10 +914,70 @@ def clear_reviews_cache_endpoint(current_user: dict = Depends(get_current_admin)
 def ping_system_endpoint(current_user: dict = Depends(get_current_admin)):
     try:
         html_msg = bot.build_ping_html()
-        return {"ok": True, "html": html_msg}
+        formatted_html = (
+            f'<div class="p-3.5 card-sub rounded-2xl border border-slate-200 dark:border-slate-800 text-xs leading-relaxed font-medium space-y-2">'
+            f'{html_msg.replace(chr(10), "<br>")}'
+            f'</div>'
+        )
+        return {"ok": True, "html": formatted_html}
     except Exception as exc:
         bot.log(f"[MiniApp] Lỗi ping hệ thống: {exc}")
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/api/system/logs")
+def get_system_logs(
+    lines: int = Query(60, ge=10, le=300),
+    filter_tag: Optional[str] = Query(None),
+    current_user: dict = Depends(get_current_admin)
+):
+    log_file = bot.OUT_DIR / "bot.log"
+    if not log_file.exists():
+        return {"ok": True, "logs": [], "total": 0}
+
+    try:
+        content = log_file.read_text(encoding="utf-8", errors="replace")
+        all_lines = [l.strip() for l in content.splitlines() if l.strip()]
+
+        if filter_tag and filter_tag.strip():
+            tag = filter_tag.strip().lower()
+            filtered_lines = [l for l in all_lines if tag in l.lower()]
+        else:
+            filtered_lines = all_lines
+
+        recent = filtered_lines[-lines:]
+
+        parsed = []
+        for line in recent:
+            timestamp = ""
+            level = "info"
+            msg = line
+            if line.startswith("[") and "]" in line:
+                parts = line.split("]", 1)
+                timestamp = parts[0].lstrip("[")
+                msg = parts[1].strip()
+
+            lowered = msg.lower()
+            if any(w in lowered for w in ["lỗi", "error", "fail", "thất bại"]):
+                level = "error"
+            elif any(w in lowered for w in ["thành công", "success", "hoàn tất", "đã đăng"]):
+                level = "success"
+            elif any(w in lowered for w in ["cảnh báo", "warning", "warn"]):
+                level = "warn"
+            elif any(w in lowered for w in ["notionsync", "drive", "notion"]):
+                level = "sync"
+
+            parsed.append({
+                "raw": line,
+                "timestamp": timestamp,
+                "level": level,
+                "message": msg
+            })
+
+        return {"ok": True, "logs": parsed, "total": len(all_lines)}
+    except Exception as exc:
+        bot.log(f"[MiniApp] Lỗi đọc log hệ thống: {exc}")
+        return {"ok": False, "error": str(exc), "logs": []}
 
 
 
