@@ -138,6 +138,7 @@ LOG_LOCK = Lock()
 
 def log(message: str) -> None:
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    line = f"[{timestamp}] {message}"
     try:
         print(line, flush=True)
     except Exception:

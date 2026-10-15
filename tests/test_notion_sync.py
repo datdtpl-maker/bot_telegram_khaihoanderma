@@ -79,6 +79,39 @@ class ImagePipelineTests(unittest.TestCase):
         self.assertEqual(request.headers["Content-type"], "image/webp")
         self.assertEqual(request.headers["Content-disposition"], 'attachment; filename="anh-so-1.webp"')
 
+    @patch("notion_sync.urllib.request.urlopen")
+    def test_wordpress_upload_falls_back_to_multipart_on_waf_403(self, urlopen):
+        import urllib.error
+        import io
+        http_403 = urllib.error.HTTPError(
+            url="https://example.test/wp-json/wp/v2/media",
+            code=403,
+            msg="Forbidden",
+            hdrs={},
+            fp=io.BytesIO(b"Blocked by Wordfence"),
+        )
+        urlopen.side_effect = [
+            http_403,
+            _FakeResponse({"id": 456, "mime_type": "image/webp"})
+        ]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            image = Path(temp_dir) / "1.webp"
+            image.write_bytes(b"RIFF\x04\x00\x00\x00WEBPVP8 ")
+
+            media_id = notion_sync.wp_upload_media(
+                {
+                    "WORDPRESS_SITE_URL": "https://example.test",
+                    "WORDPRESS_USERNAME": "user",
+                    "WORDPRESS_PASSWORD": "password",
+                },
+                image,
+            )
+
+        self.assertEqual(media_id, 456)
+        self.assertEqual(urlopen.call_count, 2)
+        fallback_request = urlopen.call_args_list[1].args[0]
+        self.assertIn("multipart/form-data", fallback_request.headers["Content-type"])
+
     def test_image_sequence_requires_one_and_contiguous_numbers(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

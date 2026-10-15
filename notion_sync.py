@@ -211,7 +211,14 @@ def load_config():
 
 def log_message(msg):
     timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
-    print(f"[{timestamp}] [NotionSync] {msg}", flush=True)
+    line = f"[{timestamp}] [NotionSync] {msg}"
+    print(line, flush=True)
+    try:
+        log_file = OUT_DIR / "bot.log"
+        with log_file.open("a", encoding="utf-8") as handle:
+            handle.write(line + "\n")
+    except Exception:
+        pass
 
 def rich_text_to_html(rich_text_list):
     html_out = ""
@@ -738,15 +745,37 @@ def wp_upload_media(config, file_path):
         ctx = None
         if config.get("SSL_NO_VERIFY", "").lower() in {"1", "true", "yes", "on"}:
             ctx = urllib.request.ssl._create_unverified_context()
-        with urllib.request.urlopen(req, context=ctx, timeout=60) as resp:
-            res = json.loads(resp.read().decode("utf-8"))
-            returned_mime = res.get("mime_type")
-            if returned_mime and returned_mime != upload.mime_type:
-                raise WorkflowValidationError(
-                    f"WordPress trả MIME sai cho {file_path.name}: {returned_mime}"
-                )
-            log_message(f"Đã tải ảnh lên: {file_path.name} | WP Media ID: {res.get('id')}")
-            return res.get("id")
+        try:
+            with urllib.request.urlopen(req, context=ctx, timeout=60) as resp:
+                res = json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as http_err:
+            log_message(
+                f"Upload trực tiếp {file_path.name} gặp HTTP {http_err.code} ({http_err.reason}). "
+                f"Tự động chuyển sang phương thức multipart/form-data..."
+            )
+            boundary = f"----WebKitFormBoundary{uuid.uuid4().hex}"
+            multipart_data = (
+                f"--{boundary}\r\n"
+                f'Content-Disposition: form-data; name="file"; filename="{upload.filename}"\r\n'
+                f"Content-Type: {upload.mime_type}\r\n\r\n"
+            ).encode("utf-8") + data + f"\r\n--{boundary}--\r\n".encode("utf-8")
+
+            mp_headers = {
+                "Authorization": f"Basic {token}",
+                "Content-Type": f"multipart/form-data; boundary={boundary}",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            }
+            mp_req = urllib.request.Request(url, data=multipart_data, headers=mp_headers, method="POST")
+            with urllib.request.urlopen(mp_req, context=ctx, timeout=60) as resp:
+                res = json.loads(resp.read().decode("utf-8"))
+
+        returned_mime = res.get("mime_type")
+        if returned_mime and returned_mime != upload.mime_type:
+            raise WorkflowValidationError(
+                f"WordPress trả MIME sai cho {file_path.name}: {returned_mime}"
+            )
+        log_message(f"Đã tải ảnh lên: {file_path.name} | WP Media ID: {res.get('id')}")
+        return res.get("id")
     except Exception as e:
         log_message(f"Lỗi tải ảnh {file_path.name} lên WordPress: {e}")
         return None
