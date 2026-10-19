@@ -141,14 +141,52 @@ class ImagePipelineTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             images = [root / "1.jpg", root / "2.jpg", root / "3.jpg"]
-            with self.assertRaises(notion_sync.WorkflowValidationError) as ctx:
-                notion_sync.upload_product_images(
-                    {},
-                    images,
-                    "Sản phẩm lỗi",
-                    max_workers=2
-                )
-            self.assertIn("Upload thất bại ảnh số", str(ctx.exception))
+            with patch("notion_sync.wp_update_media_metadata", return_value=True), \
+                 patch("notion_sync.rollback_uploaded_media") as mock_rollback:
+                with self.assertRaises(notion_sync.WorkflowValidationError) as ctx:
+                    notion_sync.upload_product_images(
+                        {},
+                        images,
+                        "Sản phẩm lỗi",
+                        max_workers=2
+                    )
+                self.assertIn("Upload thất bại ảnh số", str(ctx.exception))
+                mock_rollback.assert_called_once()
+                self.assertIn(101, mock_rollback.call_args.args[1])
+
+    @patch("notion_sync.time.sleep", return_value=None)
+    @patch("notion_sync.urllib.request.urlopen")
+    def test_wp_upload_media_retries_on_server_error_and_succeeds(self, mock_urlopen, mock_sleep):
+        import urllib.error
+        import io
+        http_500 = urllib.error.HTTPError("https://example.test", 500, "Internal Server Error", {}, io.BytesIO(b""))
+        http_503 = urllib.error.HTTPError("https://example.test", 503, "Service Unavailable", {}, io.BytesIO(b""))
+
+        # Attempt 1: direct fails 500 -> multipart fails 503
+        # Attempt 2: direct succeeds
+        mock_urlopen.side_effect = [
+            http_500,
+            http_503,
+            _FakeResponse({"id": 789, "mime_type": "image/webp"})
+        ]
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            image = Path(temp_dir) / "1.webp"
+            image.write_bytes(b"RIFF\x04\x00\x00\x00WEBPVP8 ")
+
+            media_id = notion_sync.wp_upload_media(
+                {
+                    "WORDPRESS_SITE_URL": "https://example.test",
+                    "WORDPRESS_USERNAME": "user",
+                    "WORDPRESS_PASSWORD": "password",
+                },
+                image,
+                max_retries=3
+            )
+
+        self.assertEqual(media_id, 789)
+        self.assertEqual(mock_urlopen.call_count, 3)
+
 
     def test_image_sequence_requires_one_and_contiguous_numbers(self):
         with tempfile.TemporaryDirectory() as temp_dir:

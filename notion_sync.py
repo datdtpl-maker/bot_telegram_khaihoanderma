@@ -730,59 +730,71 @@ def download_drive_folder(folder_url, temp_dir):
 
     return sort_product_images(downloaded_images, temp_dir)
 
-def wp_upload_media(config, file_path):
+def wp_upload_media(config, file_path, max_retries=3):
     url = f"{config.get('WORDPRESS_SITE_URL', '').rstrip('/')}/wp-json/wp/v2/media"
     token = base64.b64encode(f"{config.get('WORDPRESS_USERNAME')}:{config.get('WORDPRESS_PASSWORD')}".encode("utf-8")).decode("ascii")
-    try:
-        upload = inspect_image_for_upload(file_path)
-        headers = {
-            "Authorization": f"Basic {token}",
-            "Content-Disposition": f'attachment; filename="{upload.filename}"',
-            "Content-Type": upload.mime_type,
-            "User-Agent": "Notion WooCommerce AutoSync"
-        }
-        data = upload.path.read_bytes()
-        req = urllib.request.Request(url, data=data, headers=headers, method="POST")
-        ctx = None
-        if config.get("SSL_NO_VERIFY", "").lower() in {"1", "true", "yes", "on"}:
-            ctx = urllib.request.ssl._create_unverified_context()
+    ctx = None
+    if config.get("SSL_NO_VERIFY", "").lower() in {"1", "true", "yes", "on"}:
+        ctx = urllib.request.ssl._create_unverified_context()
+
+    upload = inspect_image_for_upload(file_path)
+    data = upload.path.read_bytes()
+    direct_headers = {
+        "Authorization": f"Basic {token}",
+        "Content-Disposition": f'attachment; filename="{upload.filename}"',
+        "Content-Type": upload.mime_type,
+        "User-Agent": "Notion WooCommerce AutoSync"
+    }
+
+    last_error = None
+    for attempt in range(1, max_retries + 1):
         try:
-            with urllib.request.urlopen(req, context=ctx, timeout=60) as resp:
-                res = json.loads(resp.read().decode("utf-8"))
-        except urllib.error.HTTPError as http_err:
-            log_message(
-                f"Upload trực tiếp {file_path.name} gặp HTTP {http_err.code} ({http_err.reason}). "
-                f"Tự động chuyển sang phương thức multipart/form-data..."
-            )
-            boundary = f"----WebKitFormBoundary{uuid.uuid4().hex}"
-            multipart_data = (
-                f"--{boundary}\r\n"
-                f'Content-Disposition: form-data; name="file"; filename="{upload.filename}"\r\n'
-                f"Content-Type: {upload.mime_type}\r\n\r\n"
-            ).encode("utf-8") + data + f"\r\n--{boundary}--\r\n".encode("utf-8")
+            req = urllib.request.Request(url, data=data, headers=direct_headers, method="POST")
+            try:
+                with urllib.request.urlopen(req, context=ctx, timeout=60) as resp:
+                    res = json.loads(resp.read().decode("utf-8"))
+            except urllib.error.HTTPError as http_err:
+                log_message(
+                    f"Upload trực tiếp {file_path.name} gặp HTTP {http_err.code} ({http_err.reason}). "
+                    f"Tự động chuyển sang phương thức multipart/form-data..."
+                )
+                time.sleep(1.5)
+                boundary = f"----WebKitFormBoundary{uuid.uuid4().hex}"
+                multipart_data = (
+                    f"--{boundary}\r\n"
+                    f'Content-Disposition: form-data; name="file"; filename="{upload.filename}"\r\n'
+                    f"Content-Type: {upload.mime_type}\r\n\r\n"
+                ).encode("utf-8") + data + f"\r\n--{boundary}--\r\n".encode("utf-8")
 
-            mp_headers = {
-                "Authorization": f"Basic {token}",
-                "Content-Type": f"multipart/form-data; boundary={boundary}",
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            }
-            mp_req = urllib.request.Request(url, data=multipart_data, headers=mp_headers, method="POST")
-            with urllib.request.urlopen(mp_req, context=ctx, timeout=60) as resp:
-                res = json.loads(resp.read().decode("utf-8"))
+                mp_headers = {
+                    "Authorization": f"Basic {token}",
+                    "Content-Type": f"multipart/form-data; boundary={boundary}",
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                }
+                mp_req = urllib.request.Request(url, data=multipart_data, headers=mp_headers, method="POST")
+                with urllib.request.urlopen(mp_req, context=ctx, timeout=60) as resp:
+                    res = json.loads(resp.read().decode("utf-8"))
 
-        returned_mime = res.get("mime_type")
-        if returned_mime and returned_mime != upload.mime_type:
-            raise WorkflowValidationError(
-                f"WordPress trả MIME sai cho {file_path.name}: {returned_mime}"
-            )
-        log_message(f"Đã tải ảnh lên: {file_path.name} | WP Media ID: {res.get('id')}")
-        return res.get("id")
-    except Exception as e:
-        log_message(f"Lỗi tải ảnh {file_path.name} lên WordPress: {e}")
-        return None
+            returned_mime = res.get("mime_type")
+            if returned_mime and returned_mime != upload.mime_type:
+                raise WorkflowValidationError(
+                    f"WordPress trả MIME sai cho {file_path.name}: {returned_mime}"
+                )
+            log_message(f"Đã tải ảnh lên: {file_path.name} | WP Media ID: {res.get('id')}")
+            return res.get("id")
+        except Exception as e:
+            last_error = e
+            log_message(f"Lỗi tải ảnh {file_path.name} lên WordPress (lần {attempt}/{max_retries}): {e}")
+            if attempt < max_retries:
+                backoff_delay = attempt * 2.5
+                log_message(f"Chờ {backoff_delay:.1f}s trước khi thử lại tải ảnh {file_path.name}...")
+                time.sleep(backoff_delay)
+
+    log_message(f"Thất bại hoàn toàn khi tải ảnh {file_path.name} sau {max_retries} lần thử: {last_error}")
+    return None
 
 
-def wp_update_media_metadata(config, media_id, alt_text, title):
+def wp_update_media_metadata(config, media_id, alt_text, title, max_retries=3):
     url = f"{config.get('WORDPRESS_SITE_URL', '').rstrip('/')}/wp-json/wp/v2/media/{media_id}"
     token = base64.b64encode(f"{config.get('WORDPRESS_USERNAME')}:{config.get('WORDPRESS_PASSWORD')}".encode("utf-8")).decode("ascii")
     headers = {
@@ -794,25 +806,29 @@ def wp_update_media_metadata(config, media_id, alt_text, title):
         "alt_text": alt_text,
         "title": title
     }
-    try:
-        data = json.dumps(body).encode("utf-8")
-        req = urllib.request.Request(url, data=data, headers=headers, method="POST")
-        ctx = None
-        if config.get("SSL_NO_VERIFY", "").lower() in {"1", "true", "yes", "on"}:
-            ctx = urllib.request.ssl._create_unverified_context()
-        with urllib.request.urlopen(req, context=ctx, timeout=15) as resp:
-            log_message(f"Đã cập nhật metadata ảnh ID {media_id} -> Alt: '{alt_text}'")
-            return True
-    except Exception as e:
-        log_message(f"Lỗi cập nhật metadata ảnh ID {media_id}: {e}")
-        return False
+    ctx = None
+    if config.get("SSL_NO_VERIFY", "").lower() in {"1", "true", "yes", "on"}:
+        ctx = urllib.request.ssl._create_unverified_context()
+    data = json.dumps(body).encode("utf-8")
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+            with urllib.request.urlopen(req, context=ctx, timeout=15) as resp:
+                log_message(f"Đã cập nhật metadata ảnh ID {media_id} -> Alt: '{alt_text}'")
+                return True
+        except Exception as e:
+            log_message(f"Lỗi cập nhật metadata ảnh ID {media_id} (lần {attempt}/{max_retries}): {e}")
+            if attempt < max_retries:
+                time.sleep(attempt * 1.5)
+    return False
 
 
-def upload_product_images(config, downloaded_images, product_title, progress_callback=None, max_workers=4):
+def upload_product_images(config, downloaded_images, product_title, progress_callback=None, max_workers=2):
     """
     Upload danh sách ảnh lên WordPress Media song song đa luồng (multi-threading),
-    giúp rút ngắn thời gian upload từ 3-4 phút xuống còn ~40-50 giây mà vẫn bảo toàn
-    tuyệt đối 100% đúng thứ tự ảnh 1, 2, 3... cho gallery sản phẩm WooCommerce.
+    giúp rút ngắn thời gian upload mà vẫn bảo toàn tuyệt đối 100% đúng thứ tự ảnh 1, 2, 3...
+    cho gallery sản phẩm WooCommerce. Tự động thu hồi (rollback) các ảnh đã tải nếu có sự cố.
     """
     if not downloaded_images:
         return []
@@ -820,12 +836,21 @@ def upload_product_images(config, downloaded_images, product_title, progress_cal
     if progress_callback:
         progress_callback(f"📤 3️⃣ Đang upload {len(downloaded_images)} ảnh lên website (WordPress Media)...")
 
+    workers = min(max_workers, len(downloaded_images)) if downloaded_images else 1
+    uploaded_media_map = {}
+    completed_count = 0
+    upload_lock = threading.Lock()
+    all_successful_media_ids = []
+
     def _upload_task(idx, image_path):
         media_id = wp_upload_media(config, image_path)
         if not media_id:
             raise WorkflowValidationError(
                 f"Upload thất bại ảnh số {idx + 1}: {image_path.name}. Sản phẩm chưa được đăng."
             )
+        with upload_lock:
+            all_successful_media_ids.append(media_id)
+
         alt_text = product_title if idx == 0 else f"{product_title} {idx}"
         if not wp_update_media_metadata(config, media_id, alt_text, alt_text):
             raise WorkflowValidationError(
@@ -833,23 +858,30 @@ def upload_product_images(config, downloaded_images, product_title, progress_cal
             )
         return idx, media_id
 
-    workers = min(max_workers, len(downloaded_images)) if downloaded_images else 1
-    uploaded_media_map = {}
-    completed_count = 0
-
-    with ThreadPoolExecutor(max_workers=workers) as executor:
-        futures = [
-            executor.submit(_upload_task, idx, img_path)
-            for idx, img_path in enumerate(downloaded_images)
-        ]
-        for future in as_completed(futures):
-            idx, media_id = future.result()
-            uploaded_media_map[idx] = media_id
-            completed_count += 1
-            if progress_callback:
-                progress_callback(
-                    f"📤 3️⃣ Đang upload ảnh lên website: {completed_count}/{len(downloaded_images)}..."
-                )
+    try:
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = [
+                executor.submit(_upload_task, idx, img_path)
+                for idx, img_path in enumerate(downloaded_images)
+            ]
+            for future in as_completed(futures):
+                idx, media_id = future.result()
+                uploaded_media_map[idx] = media_id
+                completed_count += 1
+                if progress_callback:
+                    progress_callback(
+                        f"📤 3️⃣ Đang upload ảnh lên website: {completed_count}/{len(downloaded_images)}..."
+                    )
+    except Exception as exc:
+        with upload_lock:
+            to_rollback = list(all_successful_media_ids)
+        if to_rollback:
+            log_message(
+                f"Upload bị gián đoạn ({exc}). Đang tự động dọn dẹp {len(to_rollback)} ảnh "
+                f"đã tải lên dở dang trên WordPress: {to_rollback}"
+            )
+            rollback_uploaded_media(config, to_rollback)
+        raise
 
     return [uploaded_media_map[i] for i in range(len(downloaded_images))]
 
@@ -1401,7 +1433,7 @@ def _run_notion_sync_workflow(progress_callback=None, page_ids=None):
                 downloaded_images,
                 product_title,
                 progress_callback=progress_callback,
-                max_workers=4
+                max_workers=2
             )
 
             final_description = product_description
