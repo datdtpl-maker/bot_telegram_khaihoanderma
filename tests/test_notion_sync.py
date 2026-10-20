@@ -188,6 +188,35 @@ class ImagePipelineTests(unittest.TestCase):
         self.assertEqual(mock_urlopen.call_count, 3)
 
 
+    def test_optimize_single_image_converts_png_to_webp(self):
+        from PIL import Image
+        with tempfile.TemporaryDirectory() as temp_dir:
+            img_path = Path(temp_dir) / '1.png'
+            im = Image.new('RGBA', (200, 200), color=(255, 0, 0, 128))
+            im.save(img_path, format='PNG')
+
+            opt = notion_sync.optimize_single_image(img_path)
+            self.assertEqual(opt.suffix.lower(), '.webp')
+            self.assertTrue(opt.exists())
+            info = notion_sync.inspect_image_for_upload(opt)
+            self.assertEqual(info.mime_type, 'image/webp')
+
+    def test_optimize_product_images_preserves_sequence(self):
+        from PIL import Image
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            files = []
+            for i in range(1, 4):
+                p = root / f'{i}.png'
+                im = Image.new('RGB', (100, 100), color=(i * 50, i * 50, i * 50))
+                im.save(p, format='PNG')
+                files.append(p)
+
+            optimized = notion_sync.optimize_product_images(files, root)
+            self.assertEqual(len(optimized), 3)
+            self.assertEqual([p.name for p in optimized], ['1.webp', '2.webp', '3.webp'])
+            notion_sync.validate_image_sequence(optimized, root)
+
     def test_image_sequence_requires_one_and_contiguous_numbers(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

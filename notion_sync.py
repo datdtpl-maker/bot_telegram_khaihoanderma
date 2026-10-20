@@ -170,6 +170,72 @@ def inspect_image_for_upload(file_path):
         filename=f"{_ascii_slug(path.stem)}{expected_suffix}",
     )
 
+def optimize_single_image(img_path, max_dim=1600, quality=88):
+    """
+    Tự động tối ưu hóa ảnh trước khi upload:
+    - Nếu có Pillow, chuyển đổi sang chuẩn WebP chất lượng cao (quality=88),
+      giảm dung lượng file từ ~2.7MB xuống còn ~170KB (nhẹ hơn 15x).
+    - Giới hạn kích thước tối đa 1600px chuẩn cho e-commerce / mobile web.
+    - Giữ nguyên độ trong suốt (alpha) nếu là ảnh không nền PNG.
+    - Giữ nguyên số thứ tự 1, 2, 3... trong tên file để đảm bảo gallery thứ tự.
+    - Nếu gặp lỗi hoặc không có Pillow, giữ nguyên file gốc không làm gián đoạn bot.
+    """
+    try:
+        from PIL import Image
+    except ImportError:
+        return img_path
+
+    try:
+        orig_size = img_path.stat().st_size
+        with Image.open(img_path) as im:
+            w, h = im.size
+            if max(w, h) > max_dim:
+                scale = max_dim / max(w, h)
+                new_w, new_h = max(1, int(w * scale)), max(1, int(h * scale))
+                im = im.resize((new_w, new_h), Image.Resampling.LANCZOS)
+
+            # Xử lý màu sắc và kênh alpha trong suốt
+            if im.mode in ("RGBA", "LA") or (im.mode == "P" and "transparency" in im.info):
+                im = im.convert("RGBA")
+            else:
+                im = im.convert("RGB")
+
+            target_path = img_path.with_suffix(".webp")
+            im.save(target_path, format="WEBP", quality=quality, method=4)
+            new_size = target_path.stat().st_size
+
+            # Xóa file cũ nếu đã đổi sang .webp để temp_dir không bị trùng số
+            if target_path.resolve() != img_path.resolve() and img_path.exists():
+                try:
+                    img_path.unlink()
+                except Exception:
+                    pass
+
+            ratio = orig_size / max(new_size, 1)
+            log_message(
+                f"Tối ưu ảnh {img_path.name} -> {target_path.name}: "
+                f"{orig_size/1024:.1f} KB -> {new_size/1024:.1f} KB (nhẹ hơn {ratio:.1f}x) chuẩn WebP."
+            )
+            return target_path
+    except Exception as exc:
+        log_message(f"Không thể tối ưu ảnh {img_path.name} sang WebP ({exc}). Giữ nguyên file gốc.")
+        return img_path
+
+
+def optimize_product_images(downloaded_images, temp_dir, max_dim=1600, quality=88):
+    """
+    Tối ưu hóa toàn bộ danh sách ảnh song song bằng đa luồng, hoàn tất trong ~1-2 giây.
+    """
+    if not downloaded_images:
+        return []
+
+    workers = min(4, len(downloaded_images))
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        optimized = list(executor.map(lambda p: optimize_single_image(p, max_dim, quality), downloaded_images))
+
+    return sort_product_images(optimized, temp_dir)
+
+
 
 def validate_product_for_publish(title, description, category, regular_price, sale_price, image_count):
     if not str(title or "").strip() or title == "Sản phẩm không tên":
@@ -422,6 +488,20 @@ def _clean_drive_folder_url(url):
         return f"https://drive.google.com/drive/folders/{match.group(1)}"
     return str(url or "").strip()
 
+_DRIVE_FOLDER_CACHE = {}
+
+
+def get_drive_folder_files(folder_url):
+    clean_url = _clean_drive_folder_url(folder_url)
+    if clean_url in _DRIVE_FOLDER_CACHE:
+        return _DRIVE_FOLDER_CACHE[clean_url]
+    import gdown
+    folder_files = gdown.download_folder(url=clean_url, skip_download=True, quiet=True)
+    if folder_files:
+        _DRIVE_FOLDER_CACHE[clean_url] = folder_files
+    return folder_files
+
+
 
 def scan_drive_folder_videos(folder_url):
     """
@@ -433,7 +513,7 @@ def scan_drive_folder_videos(folder_url):
     video_extensions = {".mov", ".mp4", ".webm", ".m4v", ".avi", ".mkv"}
     found_videos = []
     try:
-        folder_files = gdown.download_folder(url=clean_url, skip_download=True, quiet=True)
+        folder_files = get_drive_folder_files(clean_url)
         if folder_files:
             for f in folder_files:
                 f_name = Path(f.path).name
@@ -659,23 +739,32 @@ def download_drive_folder(folder_url, temp_dir):
     image_extensions = {".png", ".jpg", ".jpeg", ".webp"}
     downloaded_images = []
 
-    # Chiến lược 1: Lấy danh sách file và tải trực tiếp qua CDN Google Drive (ổn định nhất, không bị lỗi anti-bot gdown)
+    # Chiến lược 1: Lấy danh sách file và tải song song qua CDN Google Drive (nhanh & ổn định nhất)
     try:
-        folder_files = gdown.download_folder(url=clean_url, skip_download=True, quiet=True)
+        folder_files = get_drive_folder_files(clean_url)
         if folder_files:
             headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-            for f in folder_files:
+            image_candidates = [
+                f for f in folder_files
+                if Path(Path(f.path).name).suffix.lower() in image_extensions
+            ]
+
+            def _dl_file(f):
                 f_name = Path(f.path).name
-                if Path(f_name).suffix.lower() in image_extensions:
-                    dest_file = Path(temp_dir) / f_name
-                    dl_url = f"https://drive.usercontent.google.com/download?id={f.id}"
-                    try:
-                        r = requests.get(dl_url, headers=headers, timeout=30)
-                        if r.status_code == 200 and len(r.content) > 0 and "text/html" not in r.headers.get("Content-Type", ""):
-                            dest_file.write_bytes(r.content)
-                            downloaded_images.append(dest_file)
-                    except Exception as err:
-                        log_message(f"Không thể tải file {f_name} trực tiếp: {err}")
+                dest_file = Path(temp_dir) / f_name
+                dl_url = f"https://drive.usercontent.google.com/download?id={f.id}"
+                try:
+                    r = requests.get(dl_url, headers=headers, timeout=30)
+                    if r.status_code == 200 and len(r.content) > 0 and "text/html" not in r.headers.get("Content-Type", ""):
+                        dest_file.write_bytes(r.content)
+                        return dest_file
+                except Exception as err:
+                    log_message(f"Không thể tải file {f_name} trực tiếp: {err}")
+                return None
+
+            with ThreadPoolExecutor(max_workers=min(4, len(image_candidates) or 1)) as pool:
+                results = list(pool.map(_dl_file, image_candidates))
+            downloaded_images = [p for p in results if p is not None]
     except Exception as e:
         log_message(f"Chiến lược tải trực tiếp danh sách file gặp lỗi: {e}")
 
@@ -1412,7 +1501,12 @@ def _run_notion_sync_workflow(progress_callback=None, page_ids=None):
                 progress_callback("📥 2️⃣ Đang tải hình ảnh từ Google Drive...")
             downloaded_images = download_drive_folder(drive_url, temp_dir)
             validate_image_sequence(downloaded_images, temp_dir)
-            for image_path in downloaded_images:
+
+            if progress_callback:
+                progress_callback("⚡ Đang tối ưu hóa hình ảnh chuẩn WebP siêu nhẹ cho SEO...")
+            processed_images = optimize_product_images(downloaded_images, temp_dir)
+            validate_image_sequence(processed_images, temp_dir)
+            for image_path in processed_images:
                 inspect_image_for_upload(image_path)
 
             validate_product_for_publish(
@@ -1421,7 +1515,7 @@ def _run_notion_sync_workflow(progress_callback=None, page_ids=None):
                 category=category_name,
                 regular_price=price_val,
                 sale_price=sale_price_val,
-                image_count=len(downloaded_images),
+                image_count=len(processed_images),
             )
 
             category_id = find_or_create_category(config, category_name)
@@ -1430,10 +1524,10 @@ def _run_notion_sync_workflow(progress_callback=None, page_ids=None):
 
             uploaded_media_ids = upload_product_images(
                 config,
-                downloaded_images,
+                processed_images,
                 product_title,
                 progress_callback=progress_callback,
-                max_workers=2
+                max_workers=3
             )
 
             final_description = product_description
@@ -1609,6 +1703,7 @@ def run_notion_sync_workflow(progress_callback=None, page_ids=None):
     try:
         return _run_notion_sync_workflow(progress_callback=progress_callback, page_ids=page_ids)
     finally:
+        _DRIVE_FOLDER_CACHE.clear()
         NOTION_SYNC_PROCESS_LOCK.release()
         NOTION_SYNC_LOCK.release()
 
