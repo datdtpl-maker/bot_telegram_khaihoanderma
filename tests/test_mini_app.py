@@ -201,6 +201,24 @@ class MiniAppTestSuite(unittest.TestCase):
             self.assertEqual(res_sale.json().get("total"), 1)
             self.assertEqual(res_sale.json().get("products")[0]["id"], 1)
 
+    def test_get_products_with_category_filter_and_full_metadata(self):
+        fake_prods = [
+            {"id": 1, "name": "Kem trị mụn", "type": "simple", "regular_price": "100000", "sale_price": "80000", "stock_status": "instock", "price": "80000", "categories": [{"name": "Trị Mụn"}], "permalink": "https://example.com/p1", "sku": "TM01"},
+            {"id": 2, "name": "Sữa rửa mặt", "type": "simple", "regular_price": "200000", "sale_price": "", "stock_status": "outofstock", "price": "200000", "categories": [{"name": "Làm Sạch"}], "permalink": "https://example.com/p2", "sku": "SRM02"}
+        ]
+        with patch.dict("os.environ", {"TELEGRAM_BOT_TOKEN": self.bot_token}),              patch.object(mini_app_server.bot, "get_cached_all_products", return_value=fake_prods):
+            headers = {"X-Admin-Token": self.admin_token}
+            res = self.client.get("/api/products?category=Trị Mụn", headers=headers)
+            self.assertEqual(res.status_code, 200)
+            data = res.json()
+            self.assertEqual(data.get("total"), 1)
+            self.assertEqual(data.get("products")[0]["id"], 1)
+            self.assertEqual(data.get("products")[0]["categories"], ["Trị Mụn"])
+            self.assertEqual(data.get("products")[0]["permalink"], "https://example.com/p1")
+            self.assertEqual(data.get("products")[0]["sku"], "TM01")
+            self.assertIn("Trị Mụn", data.get("categories"))
+            self.assertIn("Làm Sạch", data.get("categories"))
+
     def test_update_order_status_endpoint(self):
         with patch.dict("os.environ", {"TELEGRAM_BOT_TOKEN": self.bot_token}), \
              patch.object(mini_app_server.bot, "wc_put", return_value={"id": 888, "status": "completed"}):

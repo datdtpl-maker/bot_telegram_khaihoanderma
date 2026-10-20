@@ -52,6 +52,8 @@ const app = createApp({
     const products = ref([]);
     const productSearch = ref("");
     const productFilter = ref("all"); // all | instock | outofstock | sale | variable
+    const productCategory = ref("");
+    const availableCategories = ref([]);
     const currentPage = ref(1);
     const perPage = ref(20);
     const totalProducts = ref(0);
@@ -140,6 +142,17 @@ const app = createApp({
       } catch (e) {
         return isoStr;
       }
+    };
+
+    const openProductLink = (url) => {
+      if (!url) return;
+      if (tg.openLink) {
+        try {
+          tg.openLink(url);
+          return;
+        } catch (e) {}
+      }
+      window.open(url, "_blank");
     };
 
     const getOrderStatusLabel = (status) => {
@@ -288,6 +301,9 @@ const app = createApp({
         if (productFilter.value !== "all") {
           params.append("filter", productFilter.value);
         }
+        if (productCategory.value) {
+          params.append("category", productCategory.value);
+        }
         params.append("page", currentPage.value.toString());
         params.append("per_page", perPage.value.toString());
 
@@ -297,6 +313,9 @@ const app = createApp({
         totalPages.value = data.total_pages || 1;
         if (data.counts) {
           Object.assign(productCounts, data.counts);
+        }
+        if (data.categories && Array.isArray(data.categories)) {
+          availableCategories.value = data.categories;
         }
       } catch (err) {
         showToast("Lỗi khi tìm kiếm sản phẩm", "error");
@@ -692,6 +711,9 @@ const app = createApp({
       products,
       productSearch,
       productFilter,
+      productCategory,
+      availableCategories,
+      openProductLink,
       currentPage,
       perPage,
       totalProducts,

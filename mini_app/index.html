@@ -26,22 +26,22 @@
   </script>
 </head>
 <body class="antialiased selection:bg-blue-500 selection:text-white pb-24">
-  <div id="app" class="min-h-screen flex flex-col max-w-lg mx-auto w-full">
+  <div id="app" class="min-h-screen flex flex-col max-w-6xl xl:max-w-7xl mx-auto w-full px-2 sm:px-4 md:px-6">
 
     <!-- Toast Notification -->
     <transition name="fade">
       <div v-if="toast.show" 
            :class="{'bg-emerald-600': toast.type === 'success', 'bg-rose-600': toast.type === 'error', 'bg-blue-600': toast.type === 'info'}"
-           class="fixed top-4 left-4 right-4 z-50 text-white px-4 py-3 rounded-2xl shadow-xl flex items-center justify-between text-sm font-semibold">
+           class="fixed top-4 left-4 right-4 z-50 text-white px-4 py-3 rounded-2xl shadow-xl flex items-center justify-between text-sm font-semibold max-w-md mx-auto">
         <span>{{ toast.message }}</span>
         <button @click="toast.show = false" class="ml-2 text-white/80 hover:text-white font-black text-lg">&times;</button>
       </div>
     </transition>
 
-    <!-- Header Section -->
-    <header class="sticky top-0 z-40 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-4 py-3 flex items-center justify-between">
-      <div class="flex items-center space-x-2.5">
-        <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white font-black text-sm shadow-sm">
+    <!-- Header Section with Desktop Navigation -->
+    <header class="sticky top-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-4 py-3 flex items-center justify-between transition-colors">
+      <div class="flex items-center space-x-3">
+        <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white font-black text-sm shadow-sm flex-shrink-0">
           KD
         </div>
         <div>
@@ -49,6 +49,45 @@
           <p class="text-[11px] text-sub">Mini App Quản Trị & Bán Hàng</p>
         </div>
       </div>
+
+      <!-- Desktop Navigation Tabs (Visible on tablet & desktop) -->
+      <nav class="hidden md:flex items-center space-x-1 bg-slate-100 dark:bg-slate-800/80 p-1 rounded-2xl border border-slate-200 dark:border-slate-700/60 text-xs font-bold">
+        <button @click="switchTab('dashboard')" 
+                :class="currentTab === 'dashboard' ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-sky-400 shadow-sm' : 'text-sub hover:text-main'"
+                class="px-3.5 py-1.5 rounded-xl transition-all flex items-center space-x-1.5">
+          <span>📊</span>
+          <span>Tổng quan</span>
+        </button>
+
+        <button @click="switchTab('orders')" 
+                :class="currentTab === 'orders' ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-sky-400 shadow-sm' : 'text-sub hover:text-main'"
+                class="px-3.5 py-1.5 rounded-xl transition-all flex items-center space-x-1.5">
+          <span>📦</span>
+          <span>Đơn hàng</span>
+        </button>
+
+        <button @click="switchTab('products')" 
+                :class="currentTab === 'products' ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-sky-400 shadow-sm' : 'text-sub hover:text-main'"
+                class="px-3.5 py-1.5 rounded-xl transition-all flex items-center space-x-1.5">
+          <span>🛍️</span>
+          <span>Sản phẩm</span>
+        </button>
+
+        <button @click="switchTab('reviews')" 
+                :class="currentTab === 'reviews' ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-sky-400 shadow-sm' : 'text-sub hover:text-main'"
+                class="px-3.5 py-1.5 rounded-xl transition-all flex items-center space-x-1.5 relative">
+          <span>⭐</span>
+          <span>Đánh giá</span>
+          <span v-if="stats.pending_reviews > 0" class="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></span>
+        </button>
+
+        <button @click="switchTab('tools')" 
+                :class="currentTab === 'tools' ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-sky-400 shadow-sm' : 'text-sub hover:text-main'"
+                class="px-3.5 py-1.5 rounded-xl transition-all flex items-center space-x-1.5">
+          <span>⚡</span>
+          <span>Công cụ & AI</span>
+        </button>
+      </nav>
 
       <div class="flex items-center space-x-2">
         <!-- Theme Toggle Button -->
@@ -80,7 +119,7 @@
           <p class="text-xs mt-1 text-amber-700 dark:text-amber-300 leading-relaxed">
             Ứng dụng cần mở trực tiếp từ Telegram để tự động nhận diện tài khoản Admin. Nếu mở trên trình duyệt thường, vui lòng nhập mã Admin Token:
           </p>
-          <div class="mt-3 flex space-x-2">
+          <div class="mt-3 flex space-x-2 max-w-md">
             <input v-model="devToken" type="password" placeholder="Nhập Admin Token..." 
                    class="text-xs px-3 py-2 border rounded-xl flex-1 bg-white dark:bg-slate-800 text-title border-amber-300 dark:border-amber-700 focus:outline-none">
             <button @click="saveDevToken" class="text-xs bg-amber-600 hover:bg-amber-700 text-white font-bold px-3 py-2 rounded-xl active:scale-95 transition-all">
@@ -92,16 +131,16 @@
     </div>
 
     <!-- Main Content Area -->
-    <main class="flex-1 p-4 space-y-4">
+    <main class="flex-1 p-3 sm:p-4 space-y-4">
 
       <!-- ================= TAB 1: DASHBOARD ================= -->
       <section v-if="currentTab === 'dashboard'" class="space-y-4">
-        <!-- Revenue Cards Grid -->
-        <div class="grid grid-cols-2 gap-3">
+        <!-- Revenue Cards Grid (4 columns on desktop) -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
           <!-- Today Revenue -->
           <div class="card-theme p-4 rounded-2xl relative overflow-hidden bg-gradient-to-br from-blue-500/10 to-indigo-500/5">
             <div class="text-xs font-bold text-sub">Doanh thu hôm nay</div>
-            <div class="text-lg font-black text-blue-600 dark:text-sky-400 mt-1">
+            <div class="text-lg md:text-xl font-black text-blue-600 dark:text-sky-400 mt-1">
               {{ formatMoney(stats.today_revenue) }}
             </div>
             <div class="text-xs text-sub mt-2 flex items-center">
@@ -113,7 +152,7 @@
           <!-- Month Revenue -->
           <div class="card-theme p-4 rounded-2xl relative overflow-hidden bg-gradient-to-br from-indigo-500/10 to-purple-500/5">
             <div class="text-xs font-bold text-sub">Doanh thu tháng này</div>
-            <div class="text-lg font-black text-indigo-600 dark:text-indigo-400 mt-1">
+            <div class="text-lg md:text-xl font-black text-indigo-600 dark:text-indigo-400 mt-1">
               {{ formatMoney(stats.month_revenue) }}
             </div>
             <div class="text-xs text-sub mt-2 flex items-center">
@@ -121,148 +160,171 @@
               {{ stats.month_orders }} đơn hàng
             </div>
           </div>
-        </div>
 
-        <!-- Pending Badges Grid -->
-        <div class="grid grid-cols-2 gap-3">
           <!-- Reviews Pending -->
-          <div @click="switchTab('reviews')" class="card-theme p-3.5 rounded-2xl cursor-pointer hover:border-amber-400 transition-all flex items-center justify-between">
-            <div class="flex items-center space-x-2.5">
-              <div class="w-9 h-9 rounded-xl bg-amber-500/10 text-amber-500 flex items-center justify-center font-bold text-base">
-                ⭐
-              </div>
-              <div>
-                <div class="text-xs font-bold text-title">Đánh giá chờ</div>
-                <div class="text-[11px] text-sub">Cần phê duyệt</div>
-              </div>
+          <div @click="switchTab('reviews')" class="card-theme p-4 rounded-2xl cursor-pointer hover:border-amber-400 transition-all flex flex-col justify-between">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-bold text-sub">Đánh giá chờ</span>
+              <span :class="stats.pending_reviews > 0 ? 'bg-rose-500 text-white animate-pulse' : 'card-sub text-sub'" 
+                    class="text-xs font-bold px-2 py-0.5 rounded-full">
+                {{ stats.pending_reviews }}
+              </span>
             </div>
-            <span :class="stats.pending_reviews > 0 ? 'bg-rose-500 text-white' : 'card-sub text-sub'" 
-                  class="text-xs font-bold px-2 py-0.5 rounded-full">
-              {{ stats.pending_reviews }}
-            </span>
+            <div class="text-lg md:text-xl font-black text-title mt-1 flex items-center space-x-1.5">
+              <span>⭐</span>
+              <span>{{ stats.pending_reviews }} chờ duyệt</span>
+            </div>
+            <div class="text-[11px] text-blue-600 dark:text-sky-400 font-semibold mt-2 hover:underline">
+              Xem & phê duyệt ngay →
+            </div>
           </div>
 
-          <!-- Notion Pending -->
-          <div @click="switchTab('tools')" class="card-theme p-3.5 rounded-2xl cursor-pointer hover:border-purple-400 transition-all flex items-center justify-between">
-            <div class="flex items-center space-x-2.5">
-              <div class="w-9 h-9 rounded-xl bg-purple-500/10 text-purple-500 flex items-center justify-center font-bold text-base">
-                📝
-              </div>
-              <div>
-                <div class="text-xs font-bold text-title">Notion chờ đăng</div>
-                <div class="text-[11px] text-sub">Báo IT đăng</div>
-              </div>
+          <!-- Notion Queue -->
+          <div @click="switchTab('tools')" class="card-theme p-4 rounded-2xl cursor-pointer hover:border-emerald-400 transition-all flex flex-col justify-between">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-bold text-sub">Notion chờ đăng</span>
+              <span :class="stats.notion_queue > 0 ? 'bg-blue-600 text-white' : 'card-sub text-sub'" 
+                    class="text-xs font-bold px-2 py-0.5 rounded-full">
+                {{ stats.notion_queue }}
+              </span>
             </div>
-            <span class="text-xs font-bold px-2 py-0.5 rounded-full bg-purple-600 text-white">
-              {{ stats.notion_queue }}
-            </span>
+            <div class="text-lg md:text-xl font-black text-title mt-1 flex items-center space-x-1.5">
+              <span>📝</span>
+              <span>{{ stats.notion_queue }} bài chờ</span>
+            </div>
+            <div class="text-[11px] text-blue-600 dark:text-sky-400 font-semibold mt-2 hover:underline">
+              Đồng bộ & xem log →
+            </div>
           </div>
         </div>
 
-        <!-- Quick Excel Export Actions -->
-        <div class="card-theme p-4 rounded-2xl space-y-3">
-          <h3 class="text-xs font-bold uppercase tracking-wider text-muted">Xuất Báo Cáo Excel</h3>
-          <div class="grid grid-cols-2 gap-2">
-            <button @click="exportExcel('today')" class="w-full py-2.5 px-3 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 rounded-xl text-xs font-bold border border-emerald-500/20 flex items-center justify-center space-x-1.5 active:scale-95 transition-all">
-              <span>📊</span>
-              <span>Đơn hôm nay</span>
+        <!-- Quick Management Shortcuts (Grid on desktop) -->
+        <div class="card-theme p-4 md:p-5 rounded-2xl space-y-3">
+          <div class="flex items-center justify-between">
+            <h3 class="text-xs font-bold uppercase tracking-wider text-muted">Truy Cập Nhanh Quản Trị</h3>
+            <span class="text-[10px] font-bold px-2 py-0.5 rounded-full card-sub text-sub">
+              Website: khaihoanderma.com
+            </span>
+          </div>
+
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-2.5 text-xs">
+            <button @click="switchTab('products')" class="p-3 card-sub rounded-xl font-bold flex items-center justify-center space-x-2 active:scale-95 transition-all text-main hover:border-blue-500 border border-transparent">
+              <span>🛍️</span>
+              <span>Kho sản phẩm ({{ productCounts.all }})</span>
             </button>
-            <button @click="exportExcel('month')" class="w-full py-2.5 px-3 bg-blue-500/10 text-blue-600 dark:text-sky-400 rounded-xl text-xs font-bold border border-blue-500/20 flex items-center justify-center space-x-1.5 active:scale-95 transition-all">
+            <button @click="switchTab('orders')" class="p-3 card-sub rounded-xl font-bold flex items-center justify-center space-x-2 active:scale-95 transition-all text-main hover:border-blue-500 border border-transparent">
+              <span>📦</span>
+              <span>Đơn hàng cần xử lý</span>
+            </button>
+            <button @click="switchTab('reviews')" class="p-3 card-sub rounded-xl font-bold flex items-center justify-center space-x-2 active:scale-95 transition-all text-main hover:border-blue-500 border border-transparent">
+              <span>⭐</span>
+              <span>Duyệt đánh giá web</span>
+            </button>
+            <button @click="switchTab('tools')" class="p-3 card-sub rounded-xl font-bold flex items-center justify-center space-x-2 active:scale-95 transition-all text-main hover:border-blue-500 border border-transparent">
+              <span>🚀</span>
+              <span>Đồng bộ bài viết Notion</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- System & SEO Reports Overview -->
+        <div class="card-theme p-4 md:p-5 rounded-2xl space-y-3">
+          <div class="flex items-center justify-between">
+            <h3 class="text-xs font-bold uppercase tracking-wider text-muted">Báo Cáo SEO & Hiệu Suất Hệ Thống</h3>
+            <span class="text-[10px] font-bold px-2 py-0.5 rounded-full card-sub text-sub">Google Search & GA4</span>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
+            <button @click="fetchGoogleReport('keywords')" :disabled="isSystemActionRunning" 
+                    class="p-3 bg-blue-500/10 hover:bg-blue-500/20 text-blue-600 dark:text-sky-400 border border-blue-500/20 rounded-xl font-bold flex items-center justify-center space-x-2 active:scale-95 transition-all">
+              <span>🔍</span>
+              <span>Từ khóa Google Search Console</span>
+            </button>
+            <button @click="fetchGoogleReport('traffic')" :disabled="isSystemActionRunning" 
+                    class="p-3 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 rounded-xl font-bold flex items-center justify-center space-x-2 active:scale-95 transition-all">
               <span>📈</span>
-              <span>Đơn tháng này</span>
+              <span>Traffic Google Analytics (28 ngày)</span>
             </button>
-          </div>
-          <button @click="exportProductCatalog" class="w-full py-2.5 px-3 bg-purple-500/10 text-purple-600 dark:text-purple-400 rounded-xl text-xs font-bold border border-purple-500/20 flex items-center justify-center space-x-1.5 active:scale-95 transition-all">
-            <span>🛍️</span>
-            <span>Xuất toàn bộ danh mục sản phẩm (Excel)</span>
-          </button>
-        </div>
-
-        <!-- System Health Pills -->
-        <div class="card-theme p-4 rounded-2xl space-y-2.5">
-          <h3 class="text-xs font-bold uppercase tracking-wider text-muted">Trạng Thái Hệ Thống</h3>
-          <div class="grid grid-cols-2 gap-2 text-xs">
-            <div class="flex items-center space-x-2 p-2.5 rounded-xl card-sub">
-              <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
-              <span class="text-main font-medium">WooCommerce: <b>Online</b></span>
-            </div>
-            <div class="flex items-center space-x-2 p-2.5 rounded-xl card-sub">
-              <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
-              <span class="text-main font-medium">Gemini 3.8: <b>Sẵn sàng</b></span>
-            </div>
+            <button @click="runPingTest" :disabled="isSystemActionRunning" 
+                    class="p-3 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 rounded-xl font-bold flex items-center justify-center space-x-2 active:scale-95 transition-all">
+              <span>⚡</span>
+              <span>Kiểm tra kết nối Máy chủ & API</span>
+            </button>
           </div>
         </div>
       </section>
 
       <!-- ================= TAB 2: ORDERS ================= -->
       <section v-if="currentTab === 'orders'" class="space-y-3">
-        <!-- Filter Pills -->
-        <div class="flex space-x-1.5 overflow-x-auto pb-1 text-xs font-bold no-scrollbar">
-          <button v-for="filter in [
-                    {id: 'all', label: 'Tất cả'}, 
-                    {id: 'processing', label: 'Đang xử lý'}, 
-                    {id: 'completed', label: 'Hoàn thành'}, 
-                    {id: 'on-hold', label: 'Tạm giữ'},
-                    {id: 'cancelled', label: 'Đã hủy'}
+        <!-- Order Filter Tabs -->
+        <div class="flex items-center gap-1.5 flex-wrap overflow-x-auto pb-1 text-xs font-bold no-scrollbar">
+          <button v-for="tab in [
+                    {id: 'all', label: 'Tất cả đơn'},
+                    {id: 'processing', label: '⏳ Đang xử lý'},
+                    {id: 'completed', label: '✅ Hoàn thành'},
+                    {id: 'on-hold', label: '⏸️ Tạm giữ'},
+                    {id: 'cancelled', label: '❌ Đã hủy'}
                   ]"
-                  :key="filter.id"
-                  @click="ordersFilter = filter.id; fetchOrders()"
-                  :class="ordersFilter === filter.id ? 'bg-blue-600 text-white shadow-sm' : 'card-theme text-main'"
-                  class="px-3 py-1.5 rounded-full whitespace-nowrap transition-all border border-transparent">
-            {{ filter.label }}
+                  :key="tab.id"
+                  @click="ordersFilter = tab.id; fetchOrders()"
+                  :class="ordersFilter === tab.id ? 'bg-blue-600 text-white shadow-sm' : 'card-theme text-main'"
+                  class="px-3.5 py-1.5 rounded-full whitespace-nowrap transition-all border border-transparent">
+            {{ tab.label }}
           </button>
         </div>
 
         <!-- Orders Loading Skeleton -->
-        <div v-if="isOrdersLoading" class="space-y-3">
-          <div v-for="i in 4" :key="i" class="card-theme p-4 rounded-2xl h-28 shimmer"></div>
+        <div v-if="isOrdersLoading" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div v-for="i in 6" :key="i" class="card-theme p-4 rounded-2xl h-36 shimmer"></div>
         </div>
 
-        <!-- Orders List -->
-        <div v-else-if="orders.length > 0" class="space-y-3">
+        <!-- Orders List in Responsive Grid on Desktop -->
+        <div v-else-if="orders.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           <div v-for="ord in orders" :key="ord.id" 
                @click="selectedOrder = ord"
-               class="card-theme p-4 rounded-2xl cursor-pointer hover:border-blue-400 active:scale-[0.99] transition-all space-y-2.5">
+               class="card-theme p-4 rounded-2xl space-y-3 cursor-pointer hover:border-blue-500 transition-all flex flex-col justify-between hover:shadow-md">
             
-            <!-- Order Header: ID + Status Badge -->
-            <div class="flex items-center justify-between">
-              <span class="font-black text-sm text-title">#{{ ord.id }}</span>
-              <span :class="{
-                'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30': ord.status === 'processing',
-                'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30': ord.status === 'completed',
-                'bg-slate-500/15 text-slate-600 dark:text-slate-300 border border-slate-500/30': ord.status === 'on-hold',
-                'bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30': ord.status === 'cancelled'
-              }" class="text-[11px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider">
-                {{ getOrderStatusLabel(ord.status) }}
-              </span>
-            </div>
+            <div class="space-y-2.5">
+              <!-- Order Header -->
+              <div class="flex items-center justify-between">
+                <span class="font-black text-sm text-title">#{{ ord.id }}</span>
+                <span :class="{
+                  'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30': ord.status === 'processing',
+                  'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30': ord.status === 'completed',
+                  'bg-slate-500/15 text-slate-600 dark:text-slate-300 border border-slate-500/30': ord.status === 'on-hold',
+                  'bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30': ord.status === 'cancelled'
+                }" class="text-[11px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider">
+                  {{ getOrderStatusLabel(ord.status) }}
+                </span>
+              </div>
 
-            <!-- Customer Details: High Contrast -->
-            <div class="space-y-1 text-xs">
-              <div class="text-main font-bold flex items-center space-x-1.5">
-                <span>👤</span>
-                <span class="text-title">{{ ord.customer_name || 'Khách hàng' }}</span>
+              <!-- Customer Details -->
+              <div class="space-y-1 text-xs">
+                <div class="text-main font-bold flex items-center space-x-1.5">
+                  <span>👤</span>
+                  <span class="text-title">{{ ord.customer_name || 'Khách hàng' }}</span>
+                </div>
+                <div class="text-sub flex items-center space-x-1.5">
+                  <span>📞</span>
+                  <a :href="'tel:' + ord.phone" @click.stop class="text-blue-600 dark:text-sky-400 font-semibold hover:underline">
+                    {{ ord.phone || 'Chưa có SĐT' }}
+                  </a>
+                </div>
+                <div class="text-sub flex items-start space-x-1.5 line-clamp-1">
+                  <span class="flex-shrink-0">📍</span>
+                  <span class="truncate">{{ ord.address || 'Chưa có địa chỉ' }}</span>
+                </div>
               </div>
-              <div class="text-sub flex items-center space-x-1.5">
-                <span>📞</span>
-                <a :href="'tel:' + ord.phone" @click.stop class="text-blue-600 dark:text-sky-400 font-semibold hover:underline">
-                  {{ ord.phone || 'Chưa có SĐT' }}
-                </a>
-              </div>
-              <div class="text-sub flex items-start space-x-1.5 line-clamp-1">
-                <span class="flex-shrink-0">📍</span>
-                <span class="truncate">{{ ord.address || 'Chưa có địa chỉ' }}</span>
-              </div>
-            </div>
 
-            <!-- Line Items Preview -->
-            <div v-if="ord.line_items && ord.line_items.length > 0" class="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-1">
-              <div v-for="item in ord.line_items.slice(0, 2)" :key="item.id" class="text-[11px] text-main flex justify-between">
-                <span class="truncate pr-2">📦 x{{ item.quantity }} {{ item.name }}</span>
-                <span class="font-bold flex-shrink-0 text-title">{{ formatMoney(item.total) }}</span>
-              </div>
-              <div v-if="ord.line_items.length > 2" class="text-[10px] text-muted italic">
-                + thêm {{ ord.line_items.length - 2 }} sản phẩm khác...
+              <!-- Line Items Preview -->
+              <div v-if="ord.line_items && ord.line_items.length > 0" class="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-1">
+                <div v-for="item in ord.line_items.slice(0, 2)" :key="item.id" class="text-[11px] text-main flex justify-between">
+                  <span class="truncate pr-2">📦 x{{ item.quantity }} {{ item.name }}</span>
+                  <span class="font-bold flex-shrink-0 text-title">{{ formatMoney(item.total) }}</span>
+                </div>
+                <div v-if="ord.line_items.length > 2" class="text-[10px] text-muted italic">
+                  + thêm {{ ord.line_items.length - 2 }} sản phẩm khác...
+                </div>
               </div>
             </div>
 
@@ -282,18 +344,27 @@
         </div>
       </section>
 
-      <!-- ================= TAB 3: PRODUCTS ================= -->
-      <section v-if="currentTab === 'products'" class="space-y-3">
-        <!-- Search Input -->
-        <div class="relative">
-          <input v-model="productSearch" @input="onSearchInput" type="text" placeholder="Tìm tên sản phẩm, mã SKU, ID..." 
-                 class="w-full pl-9 pr-8 py-2.5 card-theme text-title rounded-xl text-xs focus:outline-none focus:border-blue-500">
-          <span class="absolute left-3 top-2.5 text-muted text-sm">🔍</span>
-          <button v-if="productSearch" @click="productSearch = ''; fetchProducts()" class="absolute right-3 top-2 text-muted hover:text-main font-bold text-base">&times;</button>
+      <!-- ================= TAB 3: PRODUCTS (FULL DESKTOP VIEW) ================= -->
+      <section v-if="currentTab === 'products'" class="space-y-3.5">
+        <!-- Search & Category Filters in One Row -->
+        <div class="flex flex-col sm:flex-row gap-2.5">
+          <div class="relative flex-1">
+            <input v-model="productSearch" @input="onSearchInput" type="text" placeholder="Tìm tên sản phẩm, mã SKU, ID..." 
+                   class="w-full pl-9 pr-8 py-2.5 card-theme text-title rounded-xl text-xs font-medium focus:outline-none focus:border-blue-500 shadow-sm">
+            <span class="absolute left-3 top-2.5 text-muted text-sm">🔍</span>
+            <button v-if="productSearch" @click="productSearch = ''; fetchProducts()" class="absolute right-3 top-2 text-muted hover:text-main font-bold text-base">&times;</button>
+          </div>
+
+          <!-- Category Filter Dropdown -->
+          <select v-model="productCategory" @change="currentPage = 1; fetchProducts()" 
+                  class="px-3 py-2.5 card-theme text-title rounded-xl text-xs font-semibold focus:outline-none focus:border-blue-500 shadow-sm cursor-pointer">
+            <option value="">📂 Tất cả danh mục ({{ availableCategories.length }})</option>
+            <option v-for="cat in availableCategories" :key="cat" :value="cat">🏷️ {{ cat }}</option>
+          </select>
         </div>
 
-        <!-- Product Filter Tabs with Badge Counts -->
-        <div class="flex space-x-1.5 overflow-x-auto pb-1 text-xs font-bold no-scrollbar">
+        <!-- Product Filter Tabs with Badge Counts (Responsive Flex-Wrap, NEVER CUT OFF) -->
+        <div class="flex items-center gap-1.5 flex-wrap overflow-x-auto pb-1 text-xs font-bold no-scrollbar">
           <button v-for="tab in [
                     {id: 'all', label: 'Tất cả', count: productCounts.all},
                     {id: 'instock', label: 'Còn hàng', count: productCounts.instock},
@@ -307,7 +378,7 @@
                     productFilter === tab.id ? (tab.id === 'variable' ? 'bg-purple-600 text-white shadow-sm' : 'bg-blue-600 text-white shadow-sm') : 'card-theme text-main',
                     tab.id === 'variable' && productFilter !== 'variable' ? 'border-purple-500/40 text-purple-600 dark:text-purple-400 font-black' : ''
                   ]"
-                  class="px-3 py-1.5 rounded-full whitespace-nowrap transition-all border border-transparent flex items-center space-x-1">
+                  class="px-3.5 py-1.5 rounded-full whitespace-nowrap transition-all border border-transparent flex items-center space-x-1.5 hover:scale-[1.02] active:scale-95">
             <span>{{ tab.label }}</span>
             <span v-if="tab.count !== undefined" 
                   :class="productFilter === tab.id ? 'bg-white/20 text-white' : (tab.id === 'variable' ? 'bg-purple-500/20 text-purple-600 dark:text-purple-300 font-bold' : 'card-sub text-sub')"
@@ -320,167 +391,206 @@
         <!-- Product Count & Current Page Banner -->
         <div class="flex items-center justify-between text-[11px] text-sub px-1">
           <span>Đang xem: <b>{{ totalProducts }}</b> sản phẩm <span v-if="productCounts.variable > 0 && productFilter !== 'variable'" class="text-purple-600 dark:text-purple-400 font-semibold">(có {{ productCounts.variable }} SP biến thể)</span></span>
-          <span>Trang <b>{{ currentPage }}</b> / {{ totalPages }}</span>
+          <div class="flex items-center space-x-2">
+            <span>Trang <b>{{ currentPage }}</b> / {{ totalPages }}</span>
+            <div class="flex space-x-1">
+              <button @click="goToPage(currentPage - 1)" :disabled="currentPage <= 1" class="px-2 py-0.5 rounded card-sub text-sub font-bold disabled:opacity-30">◀</button>
+              <button @click="goToPage(currentPage + 1)" :disabled="currentPage >= totalPages" class="px-2 py-0.5 rounded card-sub text-sub font-bold disabled:opacity-30">▶</button>
+            </div>
+          </div>
         </div>
 
         <!-- Products Loading Skeleton -->
-        <div v-if="isProductsLoading" class="space-y-3">
-          <div v-for="i in 5" :key="i" class="card-theme p-4 rounded-2xl h-28 shimmer"></div>
+        <div v-if="isProductsLoading" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div v-for="i in 6" :key="i" class="card-theme p-4 rounded-2xl h-44 shimmer"></div>
         </div>
 
-        <!-- Products List -->
-        <div v-else-if="products.length > 0" class="space-y-3">
+        <!-- Products Responsive Grid (1 col on mobile, 2 on tablet, 3 on desktop) -->
+        <div v-else-if="products.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           <div v-for="prod in products" :key="prod.id" 
                :class="{'border-purple-400/50 dark:border-purple-600/50 shadow-sm': prod.type === 'variable'}"
-               class="card-theme p-4 rounded-2xl space-y-3 transition-all">
+               class="card-theme p-4 rounded-2xl flex flex-col justify-between space-y-3 transition-all hover:shadow-md">
             
-            <!-- Variable product badge header banner -->
-            <div v-if="prod.type === 'variable'" class="flex items-center justify-between pb-1 border-b border-purple-500/15">
-              <span class="inline-flex items-center space-x-1 text-[10px] font-black px-2 py-0.5 rounded-md bg-purple-500/20 text-purple-600 dark:text-purple-300 border border-purple-500/30">
-                <span>🔀</span>
-                <span>SẢN PHẨM CÓ BIẾN THỂ ({{ prod.variations ? prod.variations.length : 'Nhiều' }} loại)</span>
-              </span>
-              <button @click="toggleVariationsExpand(prod.id)" class="text-[10px] text-purple-600 dark:text-purple-400 font-bold hover:underline">
-                {{ expandedVariations[prod.id] ? 'Thu gọn ▲' : 'Xem biến thể ▼' }}
-              </button>
-            </div>
-
-            <div class="flex space-x-3">
-              <img :src="prod.images && prod.images[0] ? prod.images[0].src : 'https://placehold.co/100x100?text=No+Img'" 
-                   class="w-16 h-16 rounded-xl object-cover card-sub flex-shrink-0" alt="">
-              <div class="flex-1 min-w-0">
-                <h4 class="font-bold text-xs text-title line-clamp-2 leading-snug">{{ prod.name }}</h4>
-                <div class="text-[11px] text-sub mt-0.5">
-                  ID: #{{ prod.id }} <span v-if="prod.sku">| SKU: {{ prod.sku }}</span>
-                </div>
-                
-                <!-- Price Display: Regular, Sale, Discount % & Variations Range -->
-                <div class="flex items-baseline flex-wrap gap-1.5 mt-1.5">
-                  <!-- Case 1: Simple Product with Sale Price -->
-                  <template v-if="prod.type !== 'variable' && prod.sale_price">
-                    <span class="price-sale text-sm font-extrabold">
-                      {{ formatMoney(prod.sale_price) }}
-                    </span>
-                    <span class="price-regular text-[11px]">
-                      {{ formatMoney(prod.regular_price) }}
-                    </span>
-                    <span v-if="prod.discount_percent" class="badge-discount">
-                      -{{ prod.discount_percent }}%
-                    </span>
-                  </template>
-
-                  <!-- Case 2: Simple Product with Regular Price -->
-                  <template v-else-if="prod.type !== 'variable'">
-                    <span class="font-extrabold text-blue-600 dark:text-sky-400 text-sm">
-                      {{ formatMoney(prod.regular_price || prod.price) }}
-                    </span>
-                  </template>
-
-                  <!-- Case 3: Variable Product Price Range -->
-                  <template v-else>
-                    <span v-if="prod.min_price && prod.max_price && prod.min_price !== prod.max_price" class="font-extrabold text-blue-600 dark:text-sky-400 text-sm">
-                      {{ formatMoney(prod.min_price) }} – {{ formatMoney(prod.max_price) }}
-                    </span>
-                    <span v-else class="font-extrabold text-blue-600 dark:text-sky-400 text-sm">
-                      {{ formatMoney(prod.price || prod.min_price) }}
-                    </span>
-                  </template>
-                </div>
-
-                <!-- Compact Variation preview chips directly visible on the card -->
-                <div v-if="prod.type === 'variable' && prod.variations && prod.variations.length > 0" class="flex flex-wrap gap-1 mt-1.5">
-                  <span v-for="v in prod.variations" :key="v.id" 
-                        :class="v.stock_status === 'instock' ? 'bg-purple-500/10 text-purple-700 dark:text-purple-300 border-purple-500/20' : 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20'"
-                        class="text-[10px] px-2 py-0.5 rounded-lg border font-medium flex items-center space-x-1">
-                    <span>{{ v.name_label }}:</span>
-                    <b class="font-bold">{{ formatMoney(v.sale_price || v.regular_price || v.price) }}</b>
-                    <span v-if="v.stock_status === 'outofstock'" class="text-[9px] font-bold text-rose-500">(Hết)</span>
+            <div class="space-y-2.5">
+              <!-- Top Category & Badges Bar -->
+              <div class="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800 gap-2">
+                <div class="flex items-center space-x-1.5 min-w-0">
+                  <span v-if="prod.categories && prod.categories.length > 0" 
+                        class="text-[10px] font-bold px-2 py-0.5 rounded-md card-sub text-sub truncate" 
+                        :title="prod.categories.join(', ')">
+                    🏷️ {{ prod.categories[0] }}
                   </span>
+                  <span v-else class="text-[10px] font-bold px-2 py-0.5 rounded-md card-sub text-muted">
+                    🏷️ Khác
+                  </span>
+                </div>
+
+                <div class="flex items-center space-x-1.5 flex-shrink-0">
+                  <span v-if="prod.type === 'variable'" class="text-[10px] font-black px-2 py-0.5 rounded-md bg-purple-500/20 text-purple-600 dark:text-purple-300 border border-purple-500/30">
+                    🔀 Biến thể ({{ prod.variations ? prod.variations.length : 'Nhiều' }})
+                  </span>
+                  <span v-if="prod.discount_percent" class="badge-discount text-[10px] py-0.5 px-1.5">
+                    -{{ prod.discount_percent }}%
+                  </span>
+                </div>
+              </div>
+
+              <!-- Product Image & Core Details -->
+              <div class="flex space-x-3">
+                <img :src="prod.images && prod.images[0] ? prod.images[0].src : 'https://placehold.co/100x100?text=No+Img'" 
+                     class="w-20 h-20 rounded-xl object-cover card-sub flex-shrink-0 shadow-sm" alt="">
+                <div class="flex-1 min-w-0 space-y-1">
+                  <h4 class="font-bold text-xs text-title line-clamp-2 leading-snug" :title="prod.name">
+                    {{ prod.name }}
+                  </h4>
+                  
+                  <!-- Metadata Row: ID, SKU, Total Sales, Rating -->
+                  <div class="text-[11px] text-sub flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                    <span>ID: #{{ prod.id }}</span>
+                    <span>•</span>
+                    <span v-if="prod.sku" class="font-semibold text-main">SKU: {{ prod.sku }}</span>
+                    <span v-else class="text-muted italic">Chưa có SKU</span>
+                    <template v-if="prod.total_sales > 0">
+                      <span>•</span>
+                      <span class="text-muted text-[10px]">Đã bán: {{ prod.total_sales }}</span>
+                    </template>
+                    <template v-if="prod.rating_count > 0">
+                      <span>•</span>
+                      <span class="text-amber-500 font-semibold text-[10px]">⭐ {{ prod.average_rating }} ({{ prod.rating_count }})</span>
+                    </template>
+                  </div>
+                  
+                  <!-- Price Display -->
+                  <div class="flex items-baseline flex-wrap gap-1.5 pt-0.5">
+                    <!-- Simple Product with Sale Price -->
+                    <template v-if="prod.type !== 'variable' && prod.sale_price">
+                      <span class="price-sale text-sm font-extrabold text-rose-600 dark:text-rose-400">
+                        {{ formatMoney(prod.sale_price) }}
+                      </span>
+                      <span class="price-regular text-[11px] line-through text-muted">
+                        {{ formatMoney(prod.regular_price) }}
+                      </span>
+                    </template>
+
+                    <!-- Simple Product Regular Price -->
+                    <template v-else-if="prod.type !== 'variable'">
+                      <span class="font-extrabold text-blue-600 dark:text-sky-400 text-sm">
+                        {{ formatMoney(prod.regular_price || prod.price) }}
+                      </span>
+                    </template>
+
+                    <!-- Variable Product Price Range -->
+                    <template v-else>
+                      <span v-if="prod.min_price && prod.max_price && prod.min_price !== prod.max_price" class="font-extrabold text-purple-600 dark:text-purple-400 text-sm">
+                        {{ formatMoney(prod.min_price) }} – {{ formatMoney(prod.max_price) }}
+                      </span>
+                      <span v-else class="font-extrabold text-purple-600 dark:text-purple-400 text-sm">
+                        {{ formatMoney(prod.price || prod.min_price) }}
+                      </span>
+                    </template>
+                  </div>
+
+                  <!-- Variation Preview Chips -->
+                  <div v-if="prod.type === 'variable' && prod.variations && prod.variations.length > 0" class="flex flex-wrap gap-1 pt-1">
+                    <span v-for="v in prod.variations.slice(0, 4)" :key="v.id" 
+                          :class="v.stock_status === 'instock' ? 'bg-purple-500/10 text-purple-700 dark:text-purple-300 border-purple-500/20' : 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20'"
+                          class="text-[10px] px-2 py-0.5 rounded-lg border font-medium flex items-center space-x-1">
+                      <span>{{ v.name_label }}:</span>
+                      <b class="font-bold">{{ formatMoney(v.sale_price || v.regular_price || v.price) }}</b>
+                      <span v-if="v.stock_status === 'outofstock'" class="text-[9px] font-bold text-rose-500">(Hết)</span>
+                    </span>
+                    <span v-if="prod.variations.length > 4" class="text-[9px] text-purple-600 dark:text-purple-400 font-bold self-center">
+                      +{{ prod.variations.length - 4 }} loại khác...
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Nested Variations List when expanded -->
+              <div v-if="prod.type === 'variable' && (expandedVariations[prod.id] || productFilter === 'variable')" 
+                   class="mt-2.5 pt-2 border-t border-slate-100 dark:border-slate-800 space-y-2">
+                <div class="text-[11px] font-bold text-sub">Danh sách phân loại biến thể:</div>
+                <div v-for="v in prod.variations" :key="v.id" class="variation-chip flex items-center justify-between text-xs p-2 rounded-xl card-sub">
+                  <div class="min-w-0 pr-2">
+                    <div class="font-bold text-title truncate">{{ v.name_label }}</div>
+                    <div class="flex items-baseline space-x-1.5 mt-0.5">
+                      <template v-if="v.sale_price">
+                        <span class="price-sale text-[11px] font-bold">{{ formatMoney(v.sale_price) }}</span>
+                        <span class="price-regular text-[9px] line-through text-muted">{{ formatMoney(v.regular_price) }}</span>
+                        <span v-if="v.discount_percent" class="badge-discount text-[8px] py-0 px-1">-{{ v.discount_percent }}%</span>
+                      </template>
+                      <template v-else>
+                        <span class="text-[11px] font-bold text-blue-600 dark:text-sky-400">{{ formatMoney(v.regular_price || v.price) }}</span>
+                      </template>
+                    </div>
+                  </div>
+
+                  <div class="flex items-center space-x-1 flex-shrink-0">
+                    <button @click="toggleStock(prod, v)" 
+                            :class="v.stock_status === 'instock' ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'" 
+                            class="px-2 py-1 text-[10px] font-bold rounded-lg card-theme border">
+                      {{ v.stock_status === 'instock' ? '🟢 Còn' : '🔴 Hết' }}
+                    </button>
+                    <button @click="openEditPriceModal(prod, v)" class="px-2 py-1 text-[10px] font-bold rounded-lg bg-blue-500/10 text-blue-600 dark:text-sky-400 border border-blue-500/20">
+                      Sửa giá
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
 
-            <!-- Stock Toggle & Quick Edit Price -->
-            <div class="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-slate-800">
+            <!-- Action Buttons Footer -->
+            <div class="flex items-center justify-between pt-2.5 border-t border-slate-100 dark:border-slate-800 gap-2">
+              <!-- Stock toggle with quantity badge -->
               <button @click="toggleStock(prod)" 
                       :class="prod.stock_status === 'instock' ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20' : 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20'"
                       class="text-[11px] font-bold px-2.5 py-1 rounded-xl flex items-center space-x-1 active:scale-95 transition-all">
                 <span>{{ prod.stock_status === 'instock' ? '🟢 Còn hàng' : '🔴 Hết hàng' }}</span>
+                <span v-if="prod.manage_stock && prod.stock_quantity !== null" class="text-[10px] font-semibold text-muted">
+                  ({{ prod.stock_quantity }})
+                </span>
               </button>
 
-              <div class="flex items-center space-x-1.5">
-                <button v-if="prod.type !== 'variable'" @click="openEditPriceModal(prod)" class="text-[11px] font-bold px-3 py-1 bg-blue-500/10 text-blue-600 dark:text-sky-400 rounded-xl border border-blue-500/20 active:scale-95 transition-all">
+              <div class="flex items-center space-x-1.5 flex-shrink-0">
+                <!-- Live Web Link Button -->
+                <a v-if="prod.permalink" :href="prod.permalink" target="_blank" rel="noopener" 
+                   class="text-[11px] font-bold px-2.5 py-1 bg-slate-500/10 hover:bg-slate-500/20 text-sub rounded-xl border border-slate-500/20 flex items-center space-x-1 active:scale-95 transition-all" 
+                   title="Xem sản phẩm trên website">
+                  <span>🔗</span>
+                  <span>Web</span>
+                </a>
+
+                <!-- Edit Price Button -->
+                <button v-if="prod.type !== 'variable'" @click="openEditPriceModal(prod)" 
+                        class="text-[11px] font-bold px-2.5 py-1 bg-blue-500/10 hover:bg-blue-500/20 text-blue-600 dark:text-sky-400 rounded-xl border border-blue-500/20 active:scale-95 transition-all">
                   ✏️ Sửa giá
                 </button>
-                <button v-else @click="toggleVariationsExpand(prod.id)" class="text-[11px] font-bold px-3 py-1 bg-purple-500/15 hover:bg-purple-500/25 text-purple-600 dark:text-purple-400 rounded-xl border border-purple-500/30 flex items-center space-x-1 active:scale-95 transition-all">
-                  <span>{{ expandedVariations[prod.id] ? '▲ Thu gọn' : '▼ Chi tiết biến thể (' + (prod.variations ? prod.variations.length : '') + ')' }}</span>
+                <button v-else @click="toggleVariationsExpand(prod.id)" 
+                        class="text-[11px] font-bold px-2.5 py-1 bg-purple-500/15 hover:bg-purple-500/25 text-purple-600 dark:text-purple-400 rounded-xl border border-purple-500/30 flex items-center space-x-1 active:scale-95 transition-all">
+                  <span>{{ expandedVariations[prod.id] ? '▲ Thu gọn' : '▼ Biến thể' }}</span>
                 </button>
-                <button @click="deleteProduct(prod)" class="text-[11px] font-bold px-2.5 py-1 bg-rose-500/10 text-rose-600 dark:text-rose-400 rounded-xl border border-rose-500/20 active:scale-95 transition-all" title="Chuyển vào thùng rác">
+
+                <!-- Delete / Trash Button -->
+                <button @click="deleteProduct(prod)" 
+                        class="text-[11px] font-bold px-2.5 py-1 bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 rounded-xl border border-rose-500/20 active:scale-95 transition-all" 
+                        title="Chuyển vào thùng rác">
                   🗑️
                 </button>
               </div>
             </div>
-
-            <!-- Variations Nested List (Expandable) -->
-            <div v-if="prod.type === 'variable' && (expandedVariations[prod.id] || productFilter === 'variable')" 
-                 class="mt-2 pt-2 border-t border-slate-100 dark:border-slate-800 space-y-2">
-              <div class="text-[11px] font-bold text-sub">Danh sách phân loại biến thể:</div>
-              <div v-for="v in prod.variations" :key="v.id" class="variation-chip flex items-center justify-between text-xs">
-                <div class="min-w-0 pr-2">
-                  <div class="font-bold text-title truncate">{{ v.name_label }}</div>
-                  <div class="flex items-baseline space-x-1.5 mt-0.5">
-                    <template v-if="v.sale_price">
-                      <span class="price-sale text-[11px] font-bold">{{ formatMoney(v.sale_price) }}</span>
-                      <span class="price-regular text-[9px]">{{ formatMoney(v.regular_price) }}</span>
-                      <span v-if="v.discount_percent" class="badge-discount text-[8px] py-0 px-1">-{{ v.discount_percent }}%</span>
-                    </template>
-                    <template v-else>
-                      <span class="text-[11px] font-bold text-blue-600 dark:text-sky-400">{{ formatMoney(v.regular_price || v.price) }}</span>
-                    </template>
-                  </div>
-                </div>
-
-                <div class="flex items-center space-x-1 flex-shrink-0">
-                  <button @click="toggleStock(prod, v)" 
-                          :class="v.stock_status === 'instock' ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'" 
-                          class="px-2 py-1 text-[10px] font-bold rounded-lg card-theme border">
-                    {{ v.stock_status === 'instock' ? 'Còn' : 'Hết' }}
-                  </button>
-                  <button @click="openEditPriceModal(prod, v)" class="px-2 py-1 text-[10px] font-bold rounded-lg bg-blue-500/10 text-blue-600 dark:text-sky-400 border border-blue-500/20">
-                    Sửa giá
-                  </button>
-                </div>
-              </div>
-            </div>
-
-          </div>
-
-          <!-- Pagination Bar -->
-          <div class="pt-3 flex items-center justify-between border-t border-slate-200 dark:border-slate-800 text-xs font-bold">
-            <button @click="goToPage(currentPage - 1)" :disabled="currentPage <= 1"
-                    class="px-3.5 py-2 card-theme text-main rounded-xl disabled:opacity-40 active:scale-95 transition-all">
-              ⬅️ Trang trước
-            </button>
-            <span class="text-sub">
-              {{ currentPage }} / {{ totalPages }}
-            </span>
-            <button @click="goToPage(currentPage + 1)" :disabled="currentPage >= totalPages"
-                    class="px-3.5 py-2 card-theme text-main rounded-xl disabled:opacity-40 active:scale-95 transition-all">
-              Trang sau ➡️
-            </button>
           </div>
         </div>
 
-        <!-- Empty Products -->
+        <!-- Empty State -->
         <div v-else class="card-theme p-8 rounded-2xl text-center text-sub text-xs">
-          Không tìm thấy sản phẩm phù hợp.
+          Không tìm thấy sản phẩm nào phù hợp.
         </div>
       </section>
 
       <!-- ================= TAB 4: REVIEWS ================= -->
       <section v-if="currentTab === 'reviews'" class="space-y-3">
         <!-- Review Filter Tabs -->
-        <div class="flex space-x-1.5 overflow-x-auto pb-1 text-xs font-bold no-scrollbar">
+        <div class="flex items-center gap-1.5 flex-wrap overflow-x-auto pb-1 text-xs font-bold no-scrollbar">
           <button @click="reviewsFilter = 'hold'; fetchReviews()" 
                   :class="reviewsFilter === 'hold' ? 'bg-amber-600 text-white shadow-sm' : 'card-theme text-main'"
                   class="px-3.5 py-1.5 rounded-full whitespace-nowrap transition-all border border-transparent flex items-center space-x-1.5">
@@ -509,45 +619,47 @@
           </button>
         </div>
 
-        <!-- Reviews Loading -->
-        <div v-if="isReviewsLoading" class="space-y-3">
-          <div v-for="i in 3" :key="i" class="card-theme p-4 rounded-2xl h-32 shimmer"></div>
+        <!-- Reviews Loading Skeleton -->
+        <div v-if="isReviewsLoading" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div v-for="i in 6" :key="i" class="card-theme p-4 rounded-2xl h-36 shimmer"></div>
         </div>
 
-        <!-- Reviews List -->
-        <div v-else-if="reviews.length > 0" class="space-y-3">
-          <div v-for="rev in reviews" :key="rev.id" class="card-theme p-4 rounded-2xl space-y-2.5">
-            <div class="flex items-start justify-between">
-              <div>
-                <div class="flex items-center space-x-2">
-                  <h4 class="font-bold text-xs text-title">{{ rev.reviewer || 'Ẩn danh' }}</h4>
-                  <span :class="rev.status === 'hold' ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30' : 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'" 
-                        class="text-[9px] font-black px-1.5 py-0.2 rounded-full border uppercase">
-                    {{ rev.status === 'hold' ? 'Chờ duyệt' : 'Đã duyệt' }}
-                  </span>
+        <!-- Reviews Responsive Grid on Desktop -->
+        <div v-else-if="reviews.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div v-for="rev in reviews" :key="rev.id" class="card-theme p-4 rounded-2xl space-y-2.5 flex flex-col justify-between hover:shadow-md transition-all">
+            <div class="space-y-2">
+              <div class="flex items-start justify-between">
+                <div>
+                  <div class="flex items-center space-x-2">
+                    <h4 class="font-bold text-xs text-title">{{ rev.reviewer || 'Ẩn danh' }}</h4>
+                    <span :class="rev.status === 'hold' ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30' : 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'" 
+                          class="text-[9px] font-black px-1.5 py-0.2 rounded-full border uppercase">
+                      {{ rev.status === 'hold' ? 'Chờ duyệt' : 'Đã duyệt' }}
+                    </span>
+                  </div>
+                  <div class="text-[10px] text-muted">{{ rev.reviewer_email }}</div>
                 </div>
-                <div class="text-[10px] text-muted">{{ rev.reviewer_email }}</div>
+                <div class="text-amber-400 text-xs font-black">
+                  {{ '★'.repeat(rev.rating || 5) }}{{ '☆'.repeat(5 - (rev.rating || 5)) }}
+                </div>
               </div>
-              <div class="text-amber-400 text-xs font-black">
-                {{ '★'.repeat(rev.rating || 5) }}{{ '☆'.repeat(5 - (rev.rating || 5)) }}
+
+              <!-- Product Name -->
+              <div class="text-[11px] font-semibold text-blue-600 dark:text-sky-400 bg-blue-500/10 px-2.5 py-1 rounded-xl truncate" :title="rev.product_name">
+                Sản phẩm: {{ rev.product_name || ('#' + rev.product_id) }}
               </div>
-            </div>
 
-            <!-- Product Name -->
-            <div class="text-[11px] font-semibold text-blue-600 dark:text-sky-400 bg-blue-500/10 px-2.5 py-1 rounded-xl">
-              Sản phẩm: {{ rev.product_name || ('#' + rev.product_id) }}
+              <!-- Review Content -->
+              <p class="text-xs text-main italic card-sub p-2.5 rounded-xl border border-slate-100 dark:border-slate-800 line-clamp-4">
+                "{{ rev.review_text || rev.review }}"
+              </p>
             </div>
-
-            <!-- Review Content -->
-            <p class="text-xs text-main italic card-sub p-2.5 rounded-xl border border-slate-100 dark:border-slate-800">
-              "{{ rev.review_text || rev.review }}"
-            </p>
 
             <!-- Action Buttons -->
-            <div class="flex space-x-2 pt-1">
+            <div class="flex space-x-2 pt-1 border-t border-slate-100 dark:border-slate-800">
               <button v-if="rev.status === 'hold'" @click="approveReview(rev.id)" class="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center justify-center space-x-1 shadow-sm active:scale-95 transition-all">
                 <span>✅</span>
-                <span>Phê duyệt ngay</span>
+                <span>Phê duyệt</span>
               </button>
               <button @click="deleteReview(rev.id)" 
                       :class="rev.status === 'hold' ? 'flex-1 bg-rose-600 hover:bg-rose-700 text-white' : 'w-full bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20'"
@@ -575,145 +687,127 @@
 
       <!-- ================= TAB 5: NOTION & AI TOOLS ================= -->
       <section v-if="currentTab === 'tools'" class="space-y-4">
-        <!-- Notion Sync Section -->
-        <div class="card-theme p-4 rounded-2xl space-y-3">
-          <div class="flex items-center justify-between">
-            <h3 class="text-xs font-bold uppercase tracking-wider text-muted">Đồng Bộ Bài Viết Notion</h3>
-            <span class="text-xs font-bold px-2 py-0.5 rounded-full bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/20">
-              {{ notionPages.length }} bài chờ đăng
-            </span>
-          </div>
+        <!-- Desktop Grid: Left Controls, Right Live Logs -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <!-- Left Column: Notion Sync & AI Assistant -->
+          <div class="space-y-4">
+            <!-- Notion Sync Card -->
+            <div class="card-theme p-4 md:p-5 rounded-2xl space-y-3">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-2">
+                  <span class="text-xl">📝</span>
+                  <h3 class="font-bold text-sm text-title">Đồng Bộ Bài Viết Notion</h3>
+                </div>
+                <span class="text-[10px] font-bold px-2 py-0.5 rounded-full card-sub text-sub">
+                  Tự động quét
+                </span>
+              </div>
 
-          <p class="text-xs text-sub leading-relaxed">
-            Các bài viết có trạng thái <b>Báo IT đăng</b> trên Notion sẽ tự động tải hình ảnh Google Drive và xuất bản lên WooCommerce.
-          </p>
+              <p class="text-xs text-sub leading-relaxed">
+                Hệ thống tự động đồng bộ sản phẩm trạng thái <b>'Báo IT đăng'</b> từ Notion lên website WooCommerce, tự động nén ảnh WebP chuẩn SEO và nhúng video gallery.
+              </p>
 
-          <!-- Sync Progress or Trigger Button -->
-          <div v-if="isSyncRunning" class="p-3 bg-purple-500/10 rounded-xl space-y-2 border border-purple-500/20">
-            <div class="flex items-center space-x-2 text-xs font-bold text-purple-600 dark:text-purple-400">
-              <span class="animate-spin text-base">⏳</span>
-              <span>{{ syncStatusText }}</span>
-            </div>
-            <div class="w-full bg-purple-200 dark:bg-purple-900 h-1.5 rounded-full overflow-hidden">
-              <div class="bg-purple-600 h-full w-2/3 animate-pulse"></div>
-            </div>
-          </div>
-
-          <button v-else @click="triggerNotionSync"
-                  class="w-full py-2.5 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-xl text-xs flex items-center justify-center space-x-1.5 shadow-sm active:scale-95 transition-all">
-            <span>🚀</span>
-            <span>Bắt đầu quét & đăng bài Notion ngay</span>
-          </button>
-        </div>
-
-        <!-- Live System & Sync Logs Console -->
-        <div class="card-theme p-4 rounded-2xl space-y-3">
-          <div class="flex items-center justify-between">
-            <div class="flex items-center space-x-2">
-              <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
-              <h3 class="text-xs font-bold uppercase tracking-wider text-muted">Nhật Ký Đồng Bộ & Hệ Thống (Live Logs)</h3>
-            </div>
-            <div class="flex items-center space-x-1.5">
-              <button @click="fetchLogs" class="text-[11px] font-bold text-blue-600 dark:text-sky-400 px-2 py-0.5 rounded-lg card-sub hover:opacity-80 transition-all">
-                🔄 Làm mới
+              <!-- Sync Action Button -->
+              <button @click="triggerNotionSync" :disabled="isSyncRunning" 
+                      class="w-full py-2.5 px-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-xl text-xs font-bold flex items-center justify-center space-x-2 shadow-md active:scale-95 transition-all disabled:opacity-50">
+                <span v-if="isSyncRunning" class="animate-spin">🔄</span>
+                <span v-else>🚀</span>
+                <span>{{ isSyncRunning ? 'Đang quét và đăng sản phẩm...' : 'Bắt đầu quét & đăng bài Notion ngay' }}</span>
               </button>
-              <button @click="clearLogView" class="text-[11px] font-bold text-rose-500 px-2 py-0.5 rounded-lg card-sub hover:opacity-80 transition-all">
-                🗑️ Xóa xem
-              </button>
-            </div>
-          </div>
 
-          <!-- Log Filters -->
-          <div class="flex space-x-1 text-[10px] font-bold">
-            <button @click="logFilter = ''; fetchLogs()" :class="logFilter === '' ? 'bg-blue-600 text-white' : 'card-sub text-sub'" class="px-2.5 py-1 rounded-lg transition-all">
-              Tất cả
-            </button>
-            <button @click="logFilter = 'notionsync'; fetchLogs()" :class="logFilter === 'notionsync' ? 'bg-purple-600 text-white' : 'card-sub text-sub'" class="px-2.5 py-1 rounded-lg transition-all">
-              Đồng bộ Notion
-            </button>
-            <button @click="logFilter = 'lỗi'; fetchLogs()" :class="logFilter === 'lỗi' ? 'bg-rose-600 text-white' : 'card-sub text-sub'" class="px-2.5 py-1 rounded-lg transition-all">
-              Lỗi (Errors)
-            </button>
-          </div>
-
-          <!-- Terminal Window -->
-          <div ref="logContainer" class="bg-slate-950 text-slate-200 p-3 rounded-xl max-h-64 overflow-y-auto font-mono text-[11px] space-y-1.5 border border-slate-800 shadow-inner">
-            <div v-if="systemLogs.length === 0" class="text-slate-500 italic text-center py-4">
-              {{ isLogsLoading ? 'Đang tải nhật ký...' : 'Chưa có nhật ký hoạt động nào gần đây...' }}
-            </div>
-            <div v-for="(log, idx) in systemLogs" :key="idx" class="leading-relaxed flex items-start space-x-1.5">
-              <span class="text-slate-500 text-[10px] flex-shrink-0 select-none">[{{ log.timestamp || 'LOG' }}]</span>
-              <span :class="{
-                'text-emerald-400': log.level === 'success',
-                'text-rose-400 font-bold': log.level === 'error',
-                'text-amber-400': log.level === 'warn',
-                'text-purple-400 font-semibold': log.level === 'sync',
-                'text-slate-300': log.level === 'info'
-              }" class="break-words flex-1">
-                {{ log.message }}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <!-- Gemini AI Assistant Chat -->
-        <div class="card-theme p-4 rounded-2xl space-y-3">
-          <div class="flex items-center justify-between">
-            <h3 class="text-xs font-bold uppercase tracking-wider text-muted">Trợ Lý AI Gemini 3.8 Flash</h3>
-            <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-600 dark:text-sky-400 border border-blue-500/20">
-              3.8 Flash
-            </span>
-          </div>
-
-          <!-- Chat Window -->
-          <div class="max-h-60 overflow-y-auto space-y-2.5 p-3 card-sub rounded-xl text-xs">
-            <div v-for="(msg, idx) in aiMessages" :key="idx" 
-                 :class="msg.role === 'user' ? 'justify-end' : 'justify-start'" class="flex">
-              <div :class="msg.role === 'user' ? 'bg-blue-600 text-white rounded-br-none' : 'card-theme text-main rounded-bl-none'"
-                   class="max-w-[85%] px-3.5 py-2 rounded-2xl text-xs leading-relaxed shadow-sm whitespace-pre-wrap">
-                {{ msg.text }}
+              <div v-if="syncStatusText" class="text-xs p-2.5 rounded-xl bg-blue-500/10 text-blue-600 dark:text-sky-400 font-medium">
+                {{ syncStatusText }}
               </div>
             </div>
-            <div v-if="isAiThinking" class="flex justify-start">
-              <div class="card-theme px-3 py-2 rounded-2xl text-xs text-muted flex items-center space-x-1 border">
-                <span class="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce"></span>
-                <span class="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce delay-100"></span>
-                <span class="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce delay-200"></span>
+
+            <!-- AI Marketing & SEO Assistant -->
+            <div class="card-theme p-4 md:p-5 rounded-2xl space-y-3">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-2">
+                  <span class="text-xl">🤖</span>
+                  <h3 class="font-bold text-sm text-title">Trợ Lý AI Khải Hoàn Derma</h3>
+                </div>
+                <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-600 dark:text-indigo-400">
+                  Gemini 3.8 Flash
+                </span>
+              </div>
+
+              <div class="space-y-2 max-h-56 overflow-y-auto p-2 card-sub rounded-xl text-xs no-scrollbar">
+                <div v-for="(msg, idx) in aiMessages" :key="idx" 
+                     :class="msg.role === 'user' ? 'text-right' : 'text-left'">
+                  <div :class="msg.role === 'user' ? 'bg-blue-600 text-white inline-block' : 'card-theme text-main inline-block border border-slate-200 dark:border-slate-800'"
+                       class="p-2.5 rounded-2xl max-w-[85%] text-xs font-medium leading-relaxed">
+                    {{ msg.text }}
+                  </div>
+                </div>
+                <div v-if="isAiThinking" class="text-left">
+                  <div class="card-theme text-sub inline-block p-2 rounded-xl text-xs animate-pulse">
+                    Đang phân tích dữ liệu...
+                  </div>
+                </div>
+              </div>
+
+              <div class="flex space-x-2">
+                <input v-model="aiPrompt" @keyup.enter="askGemini" type="text" placeholder="Hỏi AI về mô tả sản phẩm, gợi ý SEO..." 
+                       class="flex-1 px-3 py-2 card-sub text-title rounded-xl text-xs focus:outline-none focus:border-blue-500 border border-transparent">
+                <button @click="askGemini" :disabled="isAiThinking" class="px-3.5 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 active:scale-95 transition-all">
+                  Gửi
+                </button>
               </div>
             </div>
           </div>
 
-          <!-- Quick Suggestion Chips -->
-          <div class="flex space-x-1.5 overflow-x-auto text-[11px] pb-1 no-scrollbar">
-            <button @click="aiPrompt = 'Tóm tắt tình hình doanh thu hôm nay'; askGemini()" class="px-2.5 py-1 card-sub rounded-full whitespace-nowrap text-sub font-medium hover:text-main">
-              💡 Báo cáo hôm nay
-            </button>
-            <button @click="aiPrompt = 'Viết mô tả ngắn hấp dẫn cho Serum B5 phục hồi da'; askGemini()" class="px-2.5 py-1 card-sub rounded-full whitespace-nowrap text-sub font-medium hover:text-main">
-              ✨ Viết mô tả Serum B5
-            </button>
-          </div>
+          <!-- Right Column: Real-time Live Log Terminal -->
+          <div class="card-theme p-4 md:p-5 rounded-2xl flex flex-col justify-between space-y-3">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center space-x-2">
+                <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping"></span>
+                <h3 class="font-bold text-sm text-title">Live Log Terminal Hệ Thống</h3>
+              </div>
 
-          <!-- Prompt Input -->
-          <div class="flex space-x-2">
-            <input v-model="aiPrompt" @keydown.enter="askGemini" type="text" placeholder="Hỏi AI về sản phẩm, viết bài..." 
-                   class="flex-1 px-3 py-2 card-theme text-title rounded-xl text-xs focus:outline-none focus:border-blue-500">
-            <button @click="askGemini" :disabled="isAiThinking || !aiPrompt.trim()"
-                    class="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold rounded-xl text-xs active:scale-95 transition-all">
-              Gửi
-            </button>
+              <!-- Log Filter Pills -->
+              <div class="flex space-x-1 text-[10px] font-bold">
+                <button @click="logFilter = ''; fetchLogs()" :class="!logFilter ? 'bg-blue-600 text-white' : 'card-sub text-sub'" class="px-2 py-0.5 rounded-md">Tất cả</button>
+                <button @click="logFilter = 'NotionSync'; fetchLogs()" :class="logFilter === 'NotionSync' ? 'bg-purple-600 text-white' : 'card-sub text-sub'" class="px-2 py-0.5 rounded-md">Notion</button>
+                <button @click="logFilter = 'error'; fetchLogs()" :class="logFilter === 'error' ? 'bg-rose-600 text-white' : 'card-sub text-sub'" class="px-2 py-0.5 rounded-md">Lỗi</button>
+                <button @click="clearLogView" class="px-2 py-0.5 rounded-md card-sub text-muted hover:text-main" title="Xóa màn hình log">Xóa</button>
+              </div>
+            </div>
+
+            <!-- Terminal Output Window -->
+            <div ref="logContainer" class="flex-1 min-h-[360px] max-h-[500px] overflow-y-auto p-3 rounded-xl bg-slate-950 text-slate-200 font-mono text-[11px] space-y-1 border border-slate-800 shadow-inner">
+              <div v-if="systemLogs.length === 0" class="text-slate-500 italic py-8 text-center">
+                Chưa có log mới. Nhấn "Bắt đầu quét & đăng bài Notion" để xem tiến trình thời gian thực.
+              </div>
+              <div v-for="(log, idx) in systemLogs" :key="idx" class="leading-relaxed flex items-start space-x-1.5">
+                <span class="text-slate-500 flex-shrink-0">[{{ log.time }}]</span>
+                <span :class="{
+                  'text-emerald-400 font-bold': log.level === 'success',
+                  'text-rose-400 font-bold': log.level === 'error',
+                  'text-amber-300': log.level === 'warn',
+                  'text-purple-300': log.level === 'sync',
+                  'text-slate-300': log.level === 'info'
+                }">{{ log.text }}</span>
+              </div>
+            </div>
+
+            <div class="flex items-center justify-between text-[11px] text-muted pt-1">
+              <span>Tự động cập nhật mỗi 3s khi tiến trình đang chạy</span>
+              <button @click="fetchLogs" class="text-blue-600 dark:text-sky-400 font-bold hover:underline">
+                Làm mới ngay ↻
+              </button>
+            </div>
           </div>
         </div>
 
-        <!-- System Utilities & Google SEO (Site Kit) -->
-        <div class="card-theme p-4 rounded-2xl space-y-3">
+        <!-- System Utilities Toolbar -->
+        <div class="card-theme p-4 md:p-5 rounded-2xl space-y-3">
           <div class="flex items-center justify-between">
-            <h3 class="text-xs font-bold uppercase tracking-wider text-muted">Tiện Ích Quản Trị & SEO</h3>
-            <span class="text-[10px] font-bold px-2 py-0.5 rounded-full card-sub text-sub">
-              Hệ thống
-            </span>
+            <h3 class="text-xs font-bold uppercase tracking-wider text-muted">Tiện Ích Nâng Cao & Xuất Báo Cáo</h3>
+            <span class="text-[10px] font-bold px-2 py-0.5 rounded-full card-sub text-sub">Hệ thống</span>
           </div>
 
-          <div class="grid grid-cols-2 gap-2 text-xs">
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-2.5 text-xs">
             <button @click="runPingTest" :disabled="isSystemActionRunning" class="p-2.5 card-sub rounded-xl font-bold flex items-center justify-center space-x-1.5 active:scale-95 transition-all text-main">
               <span>⚡</span>
               <span>Kiểm tra Ping</span>
@@ -726,16 +820,11 @@
               <span>⚙️</span>
               <span>Quét lại đánh giá</span>
             </button>
-            <button @click="fetchGoogleReport('traffic')" :disabled="isSystemActionRunning" class="p-2.5 card-sub rounded-xl font-bold flex items-center justify-center space-x-1.5 active:scale-95 transition-all text-main">
-              <span>📈</span>
-              <span>Traffic 28 ngày</span>
+            <button @click="exportExcel" class="p-2.5 card-sub rounded-xl font-bold flex items-center justify-center space-x-1.5 active:scale-95 transition-all text-main">
+              <span>📥</span>
+              <span>Xuất Excel Đơn hàng</span>
             </button>
           </div>
-
-          <button @click="fetchGoogleReport('keywords')" :disabled="isSystemActionRunning" class="w-full py-2.5 px-3 bg-blue-500/10 text-blue-600 dark:text-sky-400 border border-blue-500/20 rounded-xl text-xs font-bold flex items-center justify-center space-x-1.5 active:scale-95 transition-all">
-            <span>🔍</span>
-            <span>Xem từ khóa Google Search Console</span>
-          </button>
         </div>
       </section>
 
@@ -743,12 +832,12 @@
 
     <!-- ================= SYSTEM & SEO REPORT MODAL ================= -->
     <div v-if="systemReportModal.show" class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div class="card-theme w-full max-w-lg max-h-[88vh] flex flex-col rounded-t-3xl sm:rounded-2xl p-4 sm:p-5 animate-in slide-in-from-bottom duration-200">
+      <div class="card-theme w-full max-w-3xl max-h-[88vh] flex flex-col rounded-t-3xl sm:rounded-2xl p-4 sm:p-6 animate-in slide-in-from-bottom duration-200 shadow-2xl">
         <!-- Modal Header -->
         <div class="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
           <div class="flex items-center space-x-2">
-            <span class="text-lg">📊</span>
-            <h3 class="font-black text-sm text-title">{{ systemReportModal.title }}</h3>
+            <span class="text-xl">📊</span>
+            <h3 class="font-black text-sm md:text-base text-title">{{ systemReportModal.title }}</h3>
           </div>
           <button @click="systemReportModal.show = false" class="w-8 h-8 rounded-full card-sub flex items-center justify-center text-muted hover:text-main font-bold text-lg active:scale-90 transition-all">
             &times;
@@ -757,43 +846,36 @@
 
         <!-- Modal Body: Scrollable -->
         <div class="flex-1 overflow-y-auto py-3 space-y-3 no-scrollbar" v-html="systemReportModal.content"></div>
-
-        <!-- Modal Footer -->
-        <div class="pt-3 border-t border-slate-200 dark:border-slate-800 flex justify-end">
-          <button @click="systemReportModal.show = false" class="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs active:scale-95 transition-all">
-            Đóng báo cáo
-          </button>
-        </div>
       </div>
     </div>
 
     <!-- ================= EDIT PRICE MODAL ================= -->
     <div v-if="editPriceModal.show" class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div class="card-theme w-full max-w-sm rounded-t-3xl sm:rounded-2xl p-5 space-y-4 animate-in slide-in-from-bottom duration-200">
+      <div class="card-theme w-full max-w-sm rounded-t-3xl sm:rounded-2xl p-5 space-y-4 shadow-2xl">
         <div class="flex items-center justify-between">
           <h3 class="font-bold text-sm text-title">
-            Chỉnh Sửa Giá {{ editPriceModal.variation ? '(Biến thể)' : '' }}
+            {{ editPriceModal.variation ? 'Sửa Giá Biến Thể' : 'Sửa Giá Sản Phẩm' }}
           </h3>
           <button @click="editPriceModal.show = false" class="text-muted hover:text-main font-black text-xl">&times;</button>
         </div>
 
-        <div class="text-xs text-sub truncate">
-          {{ editPriceModal.product?.name }}
-          <span v-if="editPriceModal.variation" class="font-bold text-blue-600 dark:text-sky-400">
-            ({{ editPriceModal.variation.name_label || '#' + editPriceModal.variation.id }})
-          </span>
+        <div class="text-xs text-sub">
+          <div class="font-semibold text-title line-clamp-1">{{ editPriceModal.product?.name }}</div>
+          <div v-if="editPriceModal.variation" class="text-purple-600 dark:text-purple-400 font-bold mt-0.5">
+            Phân loại: {{ editPriceModal.variation.name_label }}
+          </div>
         </div>
 
-        <div class="space-y-3">
+        <div class="space-y-3 text-xs">
           <div>
-            <label class="text-[11px] font-bold text-sub">Giá thường (VND):</label>
-            <input v-model="editPriceModal.regular_price" type="number" placeholder="Ví dụ: 350000" 
-                   class="w-full mt-1 px-3 py-2 card-sub text-title border rounded-xl text-xs focus:outline-none focus:border-blue-500">
+            <label class="block font-bold text-title mb-1">Giá thường (VNĐ):</label>
+            <input v-model="editPriceModal.regular_price" type="number" placeholder="Ví dụ: 250000" 
+                   class="w-full px-3 py-2 card-sub rounded-xl text-title font-bold focus:outline-none focus:border-blue-500">
           </div>
           <div>
-            <label class="text-[11px] font-bold text-sub">Giá khuyến mãi (Sale VND):</label>
-            <input v-model="editPriceModal.sale_price" type="number" placeholder="Để trống nếu không sale" 
-                   class="w-full mt-1 px-3 py-2 card-sub text-title border rounded-xl text-xs focus:outline-none focus:border-blue-500">
+            <label class="block font-bold text-title mb-1">Giá khuyến mãi (để trống nếu không giảm):</label>
+            <input v-model="editPriceModal.sale_price" type="number" placeholder="Ví dụ: 190000" 
+                   class="w-full px-3 py-2 card-sub rounded-xl text-title font-bold focus:outline-none focus:border-blue-500">
           </div>
         </div>
 
@@ -811,7 +893,7 @@
 
     <!-- ================= ORDER DETAIL MODAL ================= -->
     <div v-if="selectedOrder" class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div class="card-theme w-full max-w-sm max-h-[85vh] overflow-y-auto rounded-t-3xl sm:rounded-2xl p-5 space-y-4">
+      <div class="card-theme w-full max-w-lg max-h-[85vh] overflow-y-auto rounded-t-3xl sm:rounded-2xl p-5 space-y-4 shadow-2xl">
         <div class="flex items-center justify-between">
           <h3 class="font-bold text-sm text-title">Chi Tiết Đơn Hàng #{{ selectedOrder.id }}</h3>
           <button @click="selectedOrder = null" class="text-muted hover:text-main font-black text-xl">&times;</button>
@@ -890,7 +972,7 @@
     </div>
 
     <!-- ================= BOTTOM NAVIGATION BAR ================= -->
-    <nav class="fixed bottom-0 left-0 right-0 z-40 bottom-nav max-w-lg mx-auto flex items-center justify-around py-2">
+    <nav class="fixed bottom-0 left-0 right-0 z-40 bottom-nav max-w-6xl xl:max-w-7xl mx-auto flex items-center justify-around py-2 px-4 border-t border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md">
       <button @click="switchTab('dashboard')" 
               :class="currentTab === 'dashboard' ? 'text-blue-600 dark:text-sky-400 font-bold scale-105' : 'text-muted'"
               class="flex flex-col items-center text-[10px] space-y-0.5 transition-all">

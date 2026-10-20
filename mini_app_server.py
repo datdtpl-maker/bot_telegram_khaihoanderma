@@ -399,6 +399,7 @@ def update_order_status(
 def get_products(
     search: str = Query("", alias="search"),
     filter_type: str = Query("all", alias="filter"),
+    category: str = Query("", alias="category"),
     per_page: int = Query(20),
     page: int = Query(1),
     current_user: dict = Depends(get_current_admin)
@@ -408,6 +409,14 @@ def get_products(
 
     try:
         all_cached = bot.get_cached_all_products()
+
+        # Thu thập danh sách tất cả danh mục của shop
+        all_categories = sorted(list({
+            c.get("name") 
+            for prod in all_cached 
+            for c in (prod.get("categories") or []) 
+            if c.get("name")
+        }))
 
         # Thống kê số lượng tổng theo từng loại
         counts = {
@@ -425,7 +434,15 @@ def get_products(
         else:
             matched = all_cached
 
-        # 2. Bộ lọc tab
+        # 2. Lọc theo danh mục (nếu có)
+        category_term = str(category or "").strip()
+        if category_term:
+            matched = [
+                p for p in matched
+                if any(c.get("name") == category_term for c in (p.get("categories") or []))
+            ]
+
+        # 3. Bộ lọc tab
         if filter_type == "instock":
             matched = [p for p in matched if p.get("stock_status") == "instock"]
         elif filter_type == "outofstock":
@@ -444,7 +461,7 @@ def get_products(
         end_idx = start_idx + per_page
         page_items = matched[start_idx:end_idx]
 
-        # 3. Tải song song thông tin biến thể cho các sản phẩm biến thể trong trang này
+        # 4. Tải song song thông tin biến thể cho các sản phẩm biến thể trong trang này
         variable_prods_to_fetch = [
             p.get("id") for p in page_items 
             if p.get("type") == "variable" and p.get("id") not in _VARIATIONS_CACHE
@@ -459,7 +476,7 @@ def get_products(
                     except Exception:
                         pass
 
-        # 4. Định dạng dữ liệu trả về giao diện
+        # 5. Định dạng dữ liệu trả về giao diện đầy đủ thông tin
         formatted = []
         for p in page_items:
             p_id = p.get("id")
@@ -487,8 +504,8 @@ def get_products(
                 except Exception:
                     pass
 
-            # Lấy ảnh đại diện
             images = p.get("images") or []
+            categories = [c.get("name") for c in (p.get("categories") or []) if c.get("name")]
 
             formatted.append({
                 "id": p_id,
@@ -501,8 +518,15 @@ def get_products(
                 "min_price": min_price,
                 "max_price": max_price,
                 "stock_status": p.get("stock_status", "instock"),
+                "stock_quantity": p.get("stock_quantity"),
+                "manage_stock": bool(p.get("manage_stock")),
                 "images": images,
                 "type": p_type,
+                "permalink": p.get("permalink") or "",
+                "categories": categories,
+                "total_sales": p.get("total_sales", 0),
+                "average_rating": p.get("average_rating", "0"),
+                "rating_count": p.get("rating_count", 0),
                 "on_sale": bool(p.get("on_sale") or discount),
                 "variations": variations_list
             })
@@ -513,7 +537,8 @@ def get_products(
             "total_pages": total_pages,
             "page": page,
             "per_page": per_page,
-            "counts": counts
+            "counts": counts,
+            "categories": all_categories
         }
     except Exception as exc:
         bot.log(f"[MiniApp] Lỗi tải sản phẩm: {exc}")
