@@ -264,6 +264,56 @@ class MiniAppTestSuite(unittest.TestCase):
             self.assertIn("test-report", data.get("html_report"))
 
 
+    def test_ai_ask_orders_history_month(self):
+        fake_orders = [
+            {
+                "id": 3001,
+                "status": "processing",
+                "total": "500000",
+                "date_created": "2026-09-15T10:00:00",
+                "billing": {"first_name": "Minh", "last_name": "Anh", "phone": "0987654321"},
+                "line_items": [{"id": 1, "name": "Kem trị mụn", "quantity": 2, "price": "250000", "total": "500000"}]
+            }
+        ]
+        with patch.dict("os.environ", {"TELEGRAM_BOT_TOKEN": self.bot_token, "GEMINI_API_KEY": "fake_key"}), \
+             patch.object(mini_app_server.bot, "fetch_orders_between", return_value=fake_orders), \
+             patch.object(mini_app_server.bot.HTTP_SESSION, "post") as mock_post:
+            mock_post.return_value.status_code = 200
+            mock_post.return_value.json.return_value = {
+                "candidates": [
+                    {"content": {"parts": [{"text": "Báo cáo tháng 09/2026: 1 đơn hàng, tổng 500.000 đ"}]}}
+                ]
+            }
+            headers = {"X-Admin-Token": self.admin_token}
+            res = self.client.post("/api/ai/ask", json={"prompt": "đơn hàng tháng 9/2026"}, headers=headers)
+            self.assertEqual(res.status_code, 200)
+            data = res.json()
+            self.assertTrue(data.get("ok"))
+            self.assertIn("tháng 09/2026", data.get("answer"))
+
+    def test_ai_ask_fallback_when_gemini_unavailable(self):
+        fake_orders = [
+            {
+                "id": 3002,
+                "status": "processing",
+                "total": "350000",
+                "date_created": "2026-09-20T10:00:00",
+                "billing": {"first_name": "Linh", "last_name": "Hoa", "phone": "0912345678"},
+                "line_items": [{"id": 2, "name": "Serum dưỡng ẩm", "quantity": 1, "price": "350000", "total": "350000"}]
+            }
+        ]
+        # Không có GEMINI_API_KEY -> tự động fallback sang báo cáo thực tế
+        with patch.dict("os.environ", {"TELEGRAM_BOT_TOKEN": self.bot_token, "GEMINI_API_KEY": ""}), \
+             patch.object(mini_app_server.bot, "fetch_orders_between", return_value=fake_orders):
+            headers = {"X-Admin-Token": self.admin_token}
+            res = self.client.post("/api/ai/ask", json={"prompt": "đơn hàng tháng 9/2026"}, headers=headers)
+            self.assertEqual(res.status_code, 200)
+            data = res.json()
+            self.assertTrue(data.get("ok"))
+            self.assertIn("Báo cáo đơn hàng", data.get("answer"))
+            self.assertIn("350,000", data.get("answer"))
+
+
 if __name__ == "__main__":
     unittest.main()
 

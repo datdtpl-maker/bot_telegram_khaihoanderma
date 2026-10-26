@@ -3521,7 +3521,10 @@ def handle_message(chat_id: int, text: str) -> None:
                 "<b>6. Duyệt đánh giá thủ công</b>\n"
                 "• Duyệt nhanh: <code>duyệt đánh giá [ID]</code>\n"
                 "• Xóa nhanh: <code>xóa [ID]</code> hoặc <code>từ chối [ID]</code>\n"
-                "• Ví dụ: <code>duyệt đánh giá 2350</code>"
+                "• Ví dụ: <code>duyệt đánh giá 2350</code>\n\n"
+                "<b>7. Trợ lý AI Khải Hoàn Derma (Gemini 3.8 Flash)</b>\n"
+                "• Cú pháp: <code>/ai [câu hỏi]</code> hoặc <code>hỏi ai [câu hỏi]</code>\n"
+                "• Ví dụ: <code>/ai đơn hàng tháng 9/2026</code> hoặc <code>/ai sản phẩm nào có biến thể?</code>"
             )
         elif wants_order_details_export(text):
             send_typing(chat_id)
@@ -3570,6 +3573,18 @@ def handle_message(chat_id: int, text: str) -> None:
         elif (product_post := parse_product_post_request(text)):
             send_typing(chat_id)
             html_text = prepare_product_post(chat_id, product_post)
+        elif text.strip().lower().startswith("/ai") or text.strip().lower().startswith("hỏi ai"):
+            send_typing(chat_id)
+            ai_query = re.sub(r"^(/ai|hỏi ai)\s*[:\s]*", "", text, flags=re.IGNORECASE).strip()
+            if not ai_query:
+                send_message(chat_id, "Bạn hãy nhập câu hỏi sau lệnh <code>/ai</code> (ví dụ: <code>/ai đơn hàng tháng 9/2026</code> hoặc <code>/ai sản phẩm nào có biến thể?</code>).")
+                return
+            try:
+                ai_answer = ask_gemini_store(ai_query)
+                send_message(chat_id, ai_answer, parse_mode="")
+            except Exception as exc:
+                send_message(chat_id, f"<b>Lỗi AI:</b>\n<code>{h(exc)}</code>")
+            return
         elif (search_query := parse_product_search_request(text)):
             send_typing(chat_id)
             html_text = build_product_search_response_html(search_query)
@@ -3627,6 +3642,8 @@ def is_lock_free_text(text: str) -> bool:
         stripped.startswith("/whoami") or
         stripped.startswith("/app") or
         stripped in {"app", "mini app", "miniapp"} or
+        stripped.startswith("/ai") or
+        stripped.startswith("hỏi ai") or
         wants_ping(text) or
         bool(parse_review_action(text))
     )
@@ -4217,6 +4234,298 @@ def auto_moderate_review(rev: dict) -> tuple[bool, str]:
         return False, f"AI đánh giá là spam: {ai_reason}"
         
     return True, f"Thỏa mãn tất cả các tiêu chuẩn duyệt tự động. {ai_reason}"
+
+
+def get_store_ai_context(prompt: str) -> tuple[str, str | None]:
+    """
+    Phân tích câu hỏi của người dùng và truy xuất dữ liệu thực tế từ WooCommerce:
+    1. Đơn hàng cụ thể theo mã (ID: #1234)
+    2. Đơn hàng / doanh thu theo mốc thời gian (hôm nay, tháng 9/2026, tháng này, năm nay...)
+    3. Tra cứu sản phẩm (sản phẩm có biến thể, sản phẩm hết hàng, giá/kho sản phẩm cụ thể...)
+    4. Thống kê tổng quan cửa hàng (hôm nay, tháng này)
+    Trả về: (store_context_str, fallback_direct_markdown)
+    """
+    now = datetime.now()
+    p_norm = normalize_text(prompt)
+    p_lower = prompt.lower().strip()
+    p_plain = plain_ascii(prompt).lower().strip()
+
+    # 1. Tra cứu đơn hàng theo ID (ví dụ: đơn #3333, đơn 3333, chi tiết đơn 3333)
+    order_id_match = re.search(r"(?:chi\s*tiết\s*)?(?:đơn\s*(?:hàng)?|order)\s*(?:số|mã)?\s*#?(\d{2,8})\b", prompt, re.IGNORECASE)
+    if not order_id_match:
+        order_id_match = re.search(r"#(\d{2,8})\b", prompt)
+
+    if order_id_match:
+        oid = int(order_id_match.group(1))
+        try:
+            order_data = wc_get(f"orders/{oid}", {})
+            if isinstance(order_data, dict) and order_data.get("id"):
+                status_map = {
+                    "processing": "Đang xử lý",
+                    "completed": "Hoàn thành",
+                    "on-hold": "Tạm giữ",
+                    "cancelled": "Đã hủy",
+                    "refunded": "Đã hoàn tiền",
+                    "pending": "Chờ thanh toán",
+                    "failed": "Thất bại"
+                }
+                status = status_map.get(order_data.get("status"), order_data.get("status"))
+                total = float(order_data.get("total") or 0)
+                date_c = order_data.get("date_created") or ""
+                billing = order_data.get("billing") or {}
+                cust_name = f"{billing.get('first_name', '')} {billing.get('last_name', '')}".strip() or "Khách hàng"
+                phone = billing.get("phone") or "Chưa có"
+                address = f"{billing.get('address_1', '')}, {billing.get('city', '')}".strip(", ") or "Chưa có"
+                items = order_data.get("line_items") or []
+                item_lines = [f"- {it.get('name')}: SL {it.get('quantity')} x {float(it.get('price') or 0):,.0f} đ = {float(it.get('total') or 0):,.0f} đ" for it in items]
+                items_str = "\n".join(item_lines) if item_lines else "- Không có sản phẩm"
+
+                context = (
+                    f"=== THÔNG TIN CHI TIẾT ĐƠN HÀNG #{oid} TỪ WOOCOMMERCE ===\n"
+                    f"- Mã đơn: #{oid}\n"
+                    f"- Ngày tạo: {date_c}\n"
+                    f"- Trạng thái: {status}\n"
+                    f"- Khách hàng: {cust_name} (SĐT: {phone})\n"
+                    f"- Địa chỉ: {address}\n"
+                    f"- Tổng tiền thanh toán: {total:,.0f} VND\n"
+                    f"- Chi tiết sản phẩm:\n{items_str}\n"
+                    "==========================================================\n"
+                )
+                fallback = (
+                    f"### 📦 Chi tiết đơn hàng #{oid}\n\n"
+                    f"- **Trạng thái:** `{status}`\n"
+                    f"- **Ngày đặt:** {date_c}\n"
+                    f"- **Khách hàng:** {cust_name} - SĐT: `{phone}`\n"
+                    f"- **Địa chỉ:** {address}\n"
+                    f"- **Tổng tiền:** **{total:,.0f} đ**\n\n"
+                    f"**Sản phẩm:**\n{items_str}"
+                )
+                return context, fallback
+        except Exception as e:
+            log(f"[AI Store] Lỗi tra cứu đơn #{oid}: {e}")
+
+    # 2. Tra cứu sản phẩm / tồn kho / biến thể
+    product_intent = any(k in p_plain for k in ["bien the", "phan loai", "het hang", "ton kho", "con hang"]) or (
+        any(k in p_plain for k in ["san pham", "gia ", "gia:"]) and not any(k in p_plain for k in ["don hang", "doanh thu", "bao cao", "ban duoc"])
+    )
+    if product_intent:
+        try:
+            all_prods = get_cached_all_products()
+            if any(k in p_plain for k in ["bien the", "phan loai"]):
+                vars_prods = [p for p in all_prods if p.get("type") == "variable"]
+                sample_vars = [f"- #{p.get('id')} **{p.get('name')}**" for p in vars_prods[:12]]
+                context = (
+                    f"=== DỮ LIỆU SẢN PHẨM CÓ BIẾN THỂ (WOOCOMMERCE) ===\n"
+                    f"- Tổng cộng: {len(vars_prods)} sản phẩm có biến thể/phân loại.\n"
+                    f"- Danh sách tiêu biểu:\n" + "\n".join(sample_vars) + "\n"
+                    f"==================================================\n"
+                )
+                fallback = (
+                    f"### 🔀 Danh sách sản phẩm có biến thể ({len(vars_prods)} sản phẩm)\n\n"
+                    + "\n".join(sample_vars)
+                )
+                return context, fallback
+
+            if any(k in p_plain for k in ["het hang", "het"]):
+                outofstock_prods = [p for p in all_prods if p.get("stock_status") == "outofstock"]
+                sample_out = [f"- #{p.get('id')} **{p.get('name')}**" for p in outofstock_prods[:12]]
+                context = (
+                    f"=== DỮ LIỆU SẢN PHẨM HẾT HÀNG (WOOCOMMERCE) ===\n"
+                    f"- Tổng cộng: {len(outofstock_prods)} sản phẩm hiện đang hết hàng.\n"
+                    f"- Danh sách tiêu biểu:\n" + "\n".join(sample_out) + "\n"
+                    f"===============================================\n"
+                )
+                fallback = (
+                    f"### ⚠️ Danh sách sản phẩm hết hàng ({len(outofstock_prods)} sản phẩm)\n\n"
+                    + "\n".join(sample_out)
+                )
+                return context, fallback
+
+            matched = find_products_by_fuzzy_name(prompt)
+            if matched:
+                lines = []
+                for p in matched[:5]:
+                    price = p.get("price") or p.get("regular_price") or "0"
+                    lines.append(f"- #{p.get('id')} **{p.get('name')}** | Giá: {float(price):,.0f} đ | Kho: {p.get('stock_status', 'instock')}")
+                context = (
+                    f"=== DỮ LIỆU TÌM KIẾM SẢN PHẨM TỪ CƠ SỞ DỮ LIỆU ===\n"
+                    + "\n".join(lines) + "\n"
+                    f"===================================================\n"
+                )
+                fallback = (
+                    f"### 🔍 Kết quả tìm kiếm sản phẩm:\n\n"
+                    + "\n".join(lines)
+                )
+                return context, fallback
+        except Exception as e:
+            log(f"[AI Store] Lỗi trích xuất sản phẩm: {e}")
+
+    # 3. Đơn hàng / doanh thu / báo cáo theo mốc thời gian
+    has_order_intent = any(k in p_plain for k in ["don hang", "don", "order", "doanh thu", "doanh so", "bao cao", "ban duoc", "thong ke", "tong ket", "tinh hinh"])
+    has_date_indicator = bool(
+        extract_date_range_to_now(prompt) or
+        extract_date_range(prompt) or
+        extract_day(prompt) or
+        re.search(r"\bth[aá]ng\s+(0?[1-9]|1[0-2])(?:\s*(?:n[aăâ]m)?\s*(20\d{2}))?", p_norm) or
+        re.search(r"\b(20\d{2})[-/.](0?[1-9]|1[0-2])\b", p_norm) or
+        "hôm nay" in p_lower or "hom nay" in p_plain or
+        "hôm qua" in p_lower or "hom qua" in p_plain or
+        "tháng này" in p_lower or "thang nay" in p_plain or
+        "tháng trước" in p_lower or "thang truoc" in p_plain or
+        "tuần" in p_lower or "tuan" in p_plain or
+        "năm nay" in p_lower or "nam nay" in p_plain or
+        re.search(r"\b20\d\d\b", prompt)
+    )
+
+    if has_order_intent or has_date_indicator:
+        try:
+            after, before, label = report_period_from_text(prompt)
+            orders = fetch_orders_between(after, before)
+            order_rows, products, statuses, total_revenue, line_revenue, sources = summarize_orders(orders)
+
+            status_map = {
+                "processing": "Đang xử lý",
+                "completed": "Hoàn thành",
+                "on-hold": "Tạm giữ",
+                "cancelled": "Đã hủy",
+                "refunded": "Đã hoàn tiền",
+                "pending": "Chờ thanh toán",
+                "failed": "Thất bại"
+            }
+            status_summary = ", ".join([f"{status_map.get(k, k)}: {v} đơn" for k, v in statuses.items()]) or "0 đơn"
+
+            # Top products
+            top_prods = sorted(products, key=lambda x: x.get("quantity", 0), reverse=True)[:8]
+            top_str_list = [
+                f"- {p.get('name')}: {p.get('quantity')} cái | Doanh thu: {p.get('total', 0):,.0f} VND"
+                for p in top_prods
+            ]
+            top_str = "\n".join(top_str_list) if top_str_list else "- Không có dữ liệu sản phẩm trong kỳ."
+
+            # Sample recent orders
+            recent_orders_sample = []
+            for o in orders[:8]:
+                oid = o.get("id")
+                billing = o.get("billing") or {}
+                cust = f"{billing.get('first_name', '')} {billing.get('last_name', '')}".strip() or "Khách hàng"
+                tot = float(o.get("total") or 0)
+                st = status_map.get(o.get("status"), o.get("status"))
+                dt = (o.get("date_created") or "")[:10]
+                recent_orders_sample.append(f"  * Đơn #{oid} ({dt}) - {cust}: {tot:,.0f} VND [{st}]")
+            recent_str = "\n".join(recent_orders_sample) if recent_orders_sample else "  * Không có đơn hàng"
+
+            context = (
+                f"=== DỮ LIỆU ĐƠN HÀNG THỰC TẾ WOOCOMMERCE KHẢI HOÀN DERMA ===\n"
+                f"- Kỳ truy vấn: {label}\n"
+                f"- Tổng số đơn hàng: {len(orders)} đơn\n"
+                f"- Tổng doanh thu: {total_revenue:,.0f} VND\n"
+                f"- Doanh thu thuần sản phẩm: {line_revenue:,.0f} VND\n"
+                f"- Trạng thái đơn hàng: {status_summary}\n"
+                f"- Top sản phẩm bán chạy nhất trong kỳ:\n{top_str}\n"
+                f"- Danh sách một số đơn hàng tiêu biểu:\n{recent_str}\n"
+                f"===========================================================\n"
+            )
+
+            fallback = (
+                f"### 📊 Báo cáo đơn hàng & doanh thu {label}\n\n"
+                f"- **Tổng số đơn hàng:** **{len(orders)} đơn**\n"
+                f"- **Tổng doanh thu:** **{total_revenue:,.0f} đ**\n"
+                f"- **Doanh thu sản phẩm:** **{line_revenue:,.0f} đ**\n"
+                f"- **Trạng thái đơn hàng:** {status_summary}\n\n"
+                f"**Top sản phẩm bán chạy:**\n{top_str}\n\n"
+                f"**Đơn hàng tiêu biểu:**\n{recent_str}"
+            )
+            return context, fallback
+        except Exception as e:
+            log(f"[AI Store] Lỗi trích xuất đơn hàng: {e}")
+
+    # 4. Mặc định: Snapshot tổng quan cửa hàng hôm nay
+    try:
+        today = datetime.now()
+        t_after, t_before = day_bounds(today)
+        today_orders = fetch_orders_between(t_after, t_before)
+        today_rev = sum(float(o.get("total") or 0) for o in today_orders)
+
+        context = (
+            f"=== THÔNG TIN TỔNG QUAN CỬA HÀNG KHẢI HOÀN DERMA (HÔM NAY {today.strftime('%d/%m/%Y')}) ===\n"
+            f"- Ngày hiện tại: {today.strftime('%A, ngày %d/%m/%Y')}\n"
+            f"- Đơn hàng hôm nay: {len(today_orders)} đơn ({today_rev:,.0f} VND)\n"
+            f"- Cửa hàng: Mỹ phẩm & Dược mỹ phẩm Khải Hoàn Derma (khaihoanderma.com)\n"
+            f"=====================================================================================\n"
+        )
+        return context, None
+    except Exception:
+        return "", None
+
+
+def ask_gemini_store(prompt: str) -> str:
+    """
+    Gửi câu hỏi tới Gemini AI kèm theo context dữ liệu thời gian thực từ WooCommerce.
+    Tự động thử các model fallback (gemini-3.8-flash, 3.7-flash, 2.5-flash).
+    Nếu lỗi mạng hoặc API, trả về fallback report trực tiếp từ dữ liệu WooCommerce.
+    """
+    api_key = os.environ.get("GEMINI_API_KEY")
+    store_context, fallback = get_store_ai_context(prompt)
+
+    if not api_key:
+        if fallback:
+            return fallback
+        raise ValueError("Chưa cấu hình GEMINI_API_KEY trong file telegram_bot.env.")
+
+    model = os.environ.get("GEMINI_MODEL", "gemini-3.8-flash").strip()
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+
+    now = datetime.now()
+    now_str = now.strftime("%A, ngày %d/%m/%Y (năm %Y)")
+
+    system_instruction = (
+        f"Bạn là Trợ lý AI Khải Hoàn Derma (Gemini 3.8 Flash), được tích hợp TRỰC TIẾP vào hệ thống WooCommerce của cửa hàng Khải Hoàn Derma (khaihoanderma.com).\n"
+        f"HÔM NAY LÀ: {now_str}. Năm hiện tại là {now.year}.\n"
+        "Bạn có toàn quyền truy cập cơ sở dữ liệu thời gian thực về đơn hàng, doanh thu, sản phẩm và khách hàng.\n"
+        f"TUYỆT ĐỐI KHÔNG BAO GIỜ nói rằng năm {now.year} là 'tương lai', hay 'hệ thống chưa kết nối ERP/CRM', hay từ chối tra cứu vì bảo mật nội bộ, bởi vì người đang nhắn tin với bạn là Quản trị viên (Admin) của cửa hàng.\n"
+        "Hãy trả lời chính xác, súc tích, chuyên nghiệp và có bố cục Markdown rõ ràng (tiêu đề, bullet points, in đậm số liệu, bảng biểu nếu phù hợp)."
+    )
+
+    full_prompt = f"{system_instruction}\n\n{store_context}\n\nCâu hỏi của Quản trị viên: {prompt}"
+    req_body = {
+        "contents": [
+            {
+                "parts": [
+                    {"text": full_prompt}
+                ]
+            }
+        ]
+    }
+
+    verify_ssl = not (os.environ.get("SSL_NO_VERIFY", "").strip().lower() in {"1", "true", "yes", "on"})
+    res = HTTP_SESSION.post(
+        url,
+        json=req_body,
+        headers={"Content-Type": "application/json"},
+        timeout=25,
+        verify=verify_ssl
+    )
+    if res.status_code == 404 and model != "gemini-3.7-flash":
+        fb_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.7-flash:generateContent?key={api_key}"
+        res = HTTP_SESSION.post(fb_url, json=req_body, headers={"Content-Type": "application/json"}, timeout=25, verify=verify_ssl)
+    if res.status_code == 404 and model != "gemini-2.5-flash":
+        fb_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+        res = HTTP_SESSION.post(fb_url, json=req_body, headers={"Content-Type": "application/json"}, timeout=25, verify=verify_ssl)
+
+    if res.status_code != 200:
+        if fallback:
+            log(f"[Gemini AI] HTTP {res.status_code}, dùng fallback report thực tế.")
+            return fallback
+        raise RuntimeError(f"Lỗi phản hồi từ Gemini API HTTP {res.status_code}")
+
+    res_data = res.json()
+    candidates = res_data.get("candidates") or []
+    answer = fallback or "Không có câu trả lời từ AI."
+    if candidates:
+        parts = (candidates[0].get("content") or {}).get("parts") or []
+        if parts:
+            answer = parts[0].get("text") or answer
+    return answer
 
 
 def scan_and_notify_reviews() -> int:

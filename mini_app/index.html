@@ -720,7 +720,7 @@
               </div>
             </div>
 
-            <!-- AI Marketing & SEO Assistant -->
+            <!-- AI Store & Assistant -->
             <div class="card-theme p-4 md:p-5 rounded-2xl space-y-3">
               <div class="flex items-center justify-between">
                 <div class="flex items-center space-x-2">
@@ -728,27 +728,43 @@
                   <h3 class="font-bold text-sm text-title">Trợ Lý AI Khải Hoàn Derma</h3>
                 </div>
                 <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-600 dark:text-indigo-400">
-                  Gemini 3.8 Flash
+                  Gemini 3.8 Flash • Realtime Store
                 </span>
               </div>
 
-              <div class="space-y-2 max-h-56 overflow-y-auto p-2 card-sub rounded-xl text-xs no-scrollbar">
+              <!-- Quick prompt suggestion pills -->
+              <div class="flex flex-wrap gap-1.5 text-[11px]">
+                <button @click="sendAiPrompt('đơn hàng tháng 9/2026')" class="px-2.5 py-1 rounded-lg card-sub hover:border-blue-500 border border-slate-200 dark:border-slate-700 text-sub hover:text-main active:scale-95 transition-all">
+                  📦 Đơn hàng tháng 9/2026
+                </button>
+                <button @click="sendAiPrompt('doanh thu tháng này')" class="px-2.5 py-1 rounded-lg card-sub hover:border-blue-500 border border-slate-200 dark:border-slate-700 text-sub hover:text-main active:scale-95 transition-all">
+                  📊 Doanh thu tháng này
+                </button>
+                <button @click="sendAiPrompt('đơn hàng hôm nay')" class="px-2.5 py-1 rounded-lg card-sub hover:border-blue-500 border border-slate-200 dark:border-slate-700 text-sub hover:text-main active:scale-95 transition-all">
+                  ⚡ Đơn hôm nay
+                </button>
+                <button @click="sendAiPrompt('sản phẩm có biến thể')" class="px-2.5 py-1 rounded-lg card-sub hover:border-blue-500 border border-slate-200 dark:border-slate-700 text-sub hover:text-main active:scale-95 transition-all">
+                  🔀 Sản phẩm biến thể
+                </button>
+              </div>
+
+              <div class="space-y-2 max-h-80 md:max-h-96 overflow-y-auto p-2.5 card-sub rounded-xl text-xs no-scrollbar">
                 <div v-for="(msg, idx) in aiMessages" :key="idx" 
                      :class="msg.role === 'user' ? 'text-right' : 'text-left'">
                   <div :class="msg.role === 'user' ? 'bg-blue-600 text-white inline-block' : 'card-theme text-main inline-block border border-slate-200 dark:border-slate-800'"
-                       class="p-2.5 rounded-2xl max-w-[85%] text-xs font-medium leading-relaxed">
+                       class="p-3 rounded-2xl max-w-[90%] text-xs font-medium leading-relaxed whitespace-pre-wrap break-words text-left">
                     {{ msg.text }}
                   </div>
                 </div>
                 <div v-if="isAiThinking" class="text-left">
                   <div class="card-theme text-sub inline-block p-2 rounded-xl text-xs animate-pulse">
-                    Đang phân tích dữ liệu...
+                    Đang tra cứu dữ liệu & phân tích...
                   </div>
                 </div>
               </div>
 
               <div class="flex space-x-2">
-                <input v-model="aiPrompt" @keyup.enter="askGemini" type="text" placeholder="Hỏi AI về mô tả sản phẩm, gợi ý SEO..." 
+                <input v-model="aiPrompt" @keyup.enter="askGemini" type="text" placeholder="Hỏi về đơn hàng (vd: đơn hàng tháng 9/2026), doanh thu, sản phẩm..." 
                        class="flex-1 px-3 py-2 card-sub text-title rounded-xl text-xs focus:outline-none focus:border-blue-500 border border-transparent">
                 <button @click="askGemini" :disabled="isAiThinking" class="px-3.5 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 active:scale-95 transition-all">
                   Gửi

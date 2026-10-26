@@ -92,7 +92,7 @@ const app = createApp({
     const aiMessages = ref([
       {
         role: "assistant",
-        text: "Xin chào! Tôi là Trợ lý AI Khải Hoàn Derma (Gemini 3.8 Flash). Bạn cần hỗ trợ viết mô tả, tư vấn mỹ phẩm hay phân tích báo cáo doanh thu?"
+        text: "Xin chào! Tôi là Trợ lý AI Khải Hoàn Derma (Gemini 3.8 Flash). Tôi đã kết nối dữ liệu cửa hàng thời gian thực. Bạn cần tra cứu đơn hàng trong quá khứ, doanh thu, sản phẩm hay tư vấn quản trị?"
       }
     ]);
     const aiPrompt = ref("");
@@ -532,6 +532,11 @@ const app = createApp({
       }, 2500);
     };
 
+    const sendAiPrompt = (text) => {
+      aiPrompt.value = text;
+      askGemini();
+    };
+
     // Gemini AI Chat
     const askGemini = async () => {
       if (!aiPrompt.value.trim() || isAiThinking.value) return;
@@ -762,6 +767,7 @@ const app = createApp({
       fetchNotionQueue,
       triggerNotionSync,
       askGemini,
+      sendAiPrompt,
       exportExcel,
       exportProductCatalog,
       runPingTest,

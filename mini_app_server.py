@@ -761,56 +761,11 @@ class AskGeminiRequest(BaseModel):
 
 @app.post("/api/ai/ask")
 def ask_gemini(body: AskGeminiRequest, current_user: dict = Depends(get_current_admin)):
-    api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key:
-        raise HTTPException(status_code=400, detail="Chưa cấu hình GEMINI_API_KEY trong file telegram_bot.env.")
-
-    model = os.environ.get("GEMINI_MODEL", "gemini-3.8-flash").strip()
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
-
-    system_instruction = (
-        "Bạn là Trợ lý AI Khải Hoàn Derma (Gemini 3.8 Flash). "
-        "Hãy trả lời súc tích, chuyên nghiệp, chính xác về mỹ phẩm, da liễu hoặc quản lý kinh doanh. "
-        "Không chào hỏi rườm rà. Định dạng câu trả lời bằng Markdown rõ ràng."
-    )
-
-    req_body = {
-        "contents": [
-            {
-                "parts": [
-                    {"text": f"{system_instruction}\n\nCâu hỏi: {body.prompt}"}
-                ]
-            }
-        ]
-    }
-
     try:
-        verify_ssl = not (os.environ.get("SSL_NO_VERIFY", "").strip().lower() in {"1", "true", "yes", "on"})
-        res = bot.HTTP_SESSION.post(
-            url,
-            json=req_body,
-            headers={"Content-Type": "application/json"},
-            timeout=25,
-            verify=verify_ssl
-        )
-        if res.status_code == 404 and model != "gemini-3.7-flash":
-            fb_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.7-flash:generateContent?key={api_key}"
-            res = bot.HTTP_SESSION.post(fb_url, json=req_body, headers={"Content-Type": "application/json"}, timeout=25, verify=verify_ssl)
-        if res.status_code == 404 and model != "gemini-2.5-flash":
-            fb_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
-            res = bot.HTTP_SESSION.post(fb_url, json=req_body, headers={"Content-Type": "application/json"}, timeout=25, verify=verify_ssl)
-
-        if res.status_code != 200:
-            raise HTTPException(status_code=502, detail=f"Lỗi phản hồi từ Gemini API HTTP {res.status_code}")
-
-        res_data = res.json()
-        candidates = res_data.get("candidates") or []
-        answer = "Không có câu trả lời từ AI."
-        if candidates:
-            parts = (candidates[0].get("content") or {}).get("parts") or []
-            if parts:
-                answer = parts[0].get("text") or answer
+        answer = bot.ask_gemini_store(body.prompt)
         return {"ok": True, "answer": answer}
+    except ValueError as val_err:
+        raise HTTPException(status_code=400, detail=str(val_err))
     except HTTPException:
         raise
     except Exception as exc:
