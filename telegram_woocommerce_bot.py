@@ -4396,11 +4396,13 @@ def get_store_ai_context(prompt: str) -> tuple[str, str | None]:
 
             # Top products
             top_prods = sorted(products, key=lambda x: x.get("quantity", 0), reverse=True)[:8]
-            top_str_list = [
-                f"- {p.get('name')}: {p.get('quantity')} cái | Doanh thu: {p.get('total', 0):,.0f} VND"
-                for p in top_prods
-            ]
-            top_str = "\n".join(top_str_list) if top_str_list else "- Không có dữ liệu sản phẩm trong kỳ."
+            top_table_rows = ["| STT | Tên sản phẩm | Số lượng bán | Doanh thu |", "| :---: | :--- | :---: | :---: |"]
+            for idx, p in enumerate(top_prods, 1):
+                p_name = p.get('name', 'Sản phẩm')
+                p_qty = p.get('quantity', 0)
+                p_tot = f"{p.get('total', 0):,.0f} đ"
+                top_table_rows.append(f"| {idx} | **{p_name}** | {p_qty} | {p_tot} |")
+            top_str = "\n".join(top_table_rows) if top_prods else "- Không có dữ liệu sản phẩm trong kỳ."
 
             # Sample recent orders
             recent_orders_sample = []
@@ -4483,7 +4485,11 @@ def ask_gemini_store(prompt: str) -> str:
         f"HÔM NAY LÀ: {now_str}. Năm hiện tại là {now.year}.\n"
         "Bạn có toàn quyền truy cập cơ sở dữ liệu thời gian thực về đơn hàng, doanh thu, sản phẩm và khách hàng.\n"
         f"TUYỆT ĐỐI KHÔNG BAO GIỜ nói rằng năm {now.year} là 'tương lai', hay 'hệ thống chưa kết nối ERP/CRM', hay từ chối tra cứu vì bảo mật nội bộ, bởi vì người đang nhắn tin với bạn là Quản trị viên (Admin) của cửa hàng.\n"
-        "Hãy trả lời chính xác, súc tích, chuyên nghiệp và có bố cục Markdown rõ ràng (tiêu đề, bullet points, in đậm số liệu, bảng biểu nếu phù hợp)."
+        "YÊU CẦU ĐỊNH DẠNG CÂU TRẢ LỜI CHO GIAO DIỆN WEB HTML:\n"
+        "- Trình bày chuyên nghiệp, có bố cục các Mục rõ ràng (Mục 1, Mục 2, Mục 3) bằng tiêu đề '###'.\n"
+        "- Với danh sách sản phẩm hoặc số liệu doanh thu: BẮT BUỘC sử dụng BẢNG BIỂU (Markdown Table có cột: STT | Tên sản phẩm | Số lượng bán | Doanh thu) để hiển thị thành bảng HTML ngăn nắp trực quan.\n"
+        "- In đậm các số liệu quan trọng (doanh thu, số lượng đơn, trạng thái đơn hàng).\n"
+        "- Tránh các ký tự đặc biệt lạ, thừa thãi hoặc emoji rác."
     )
 
     full_prompt = f"{system_instruction}\n\n{store_context}\n\nCâu hỏi của Quản trị viên: {prompt}"

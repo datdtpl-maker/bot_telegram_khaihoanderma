@@ -8,6 +8,8 @@
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <!-- Vue.js 3 Production CDN -->
   <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <!-- Marked.js Markdown Parser -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="/static/style.css">
@@ -751,9 +753,15 @@
               <div class="space-y-2 max-h-80 md:max-h-96 overflow-y-auto p-2.5 card-sub rounded-xl text-xs no-scrollbar">
                 <div v-for="(msg, idx) in aiMessages" :key="idx" 
                      :class="msg.role === 'user' ? 'text-right' : 'text-left'">
-                  <div :class="msg.role === 'user' ? 'bg-blue-600 text-white inline-block' : 'card-theme text-main inline-block border border-slate-200 dark:border-slate-800'"
-                       class="p-3 rounded-2xl max-w-[90%] text-xs font-medium leading-relaxed whitespace-pre-wrap break-words text-left">
+                  <!-- User Message Bubble -->
+                  <div v-if="msg.role === 'user'"
+                       class="bg-blue-600 text-white inline-block p-3 rounded-2xl max-w-[85%] text-xs font-semibold leading-relaxed break-words text-left shadow-sm">
                     {{ msg.text }}
+                  </div>
+                  <!-- Assistant Message Card with Rich HTML Layout -->
+                  <div v-else 
+                       class="card-theme text-main inline-block border border-slate-200 dark:border-slate-800 p-3.5 md:p-4 rounded-2xl max-w-[96%] text-xs font-normal leading-relaxed break-words text-left shadow-sm ai-rendered-content"
+                       v-html="renderAiHtml(msg.text)">
                   </div>
                 </div>
                 <div v-if="isAiThinking" class="text-left">

@@ -532,6 +532,174 @@ const app = createApp({
       }, 2500);
     };
 
+    // Markdown & HTML Formatter for AI Chat
+    const parseMarkdownFallback = (rawText) => {
+      if (!rawText) return "";
+
+      const lines = rawText.split(/\r?\n/);
+      const output = [];
+      let inTable = false;
+      let inUl = false;
+      let inOl = false;
+
+      const closeLists = () => {
+        if (inUl) {
+          output.push("</ul>");
+          inUl = false;
+        }
+        if (inOl) {
+          output.push("</ol>");
+          inOl = false;
+        }
+      };
+
+      const closeTable = () => {
+        if (inTable) {
+          output.push("</tbody></table></div>");
+          inTable = false;
+        }
+      };
+
+      const formatInline = (text) => {
+        if (!text) return "";
+        return text
+          // Bold **text**
+          .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+          // Italic *text*
+          .replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, "<em>$1</em>")
+          // Inline code `code`
+          .replace(/`([^`]+)`/g, "<code>$1</code>")
+          // Status badge highlights [Đang xử lý], [Tạm giữ], [Hoàn thành]
+          .replace(/\[(Đang xử lý|Processing)\]/gi, '<span class="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/15 text-amber-600 dark:text-amber-400">Đang xử lý</span>')
+          .replace(/\[(Tạm giữ|On-hold)\]/gi, '<span class="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-500/15 text-purple-600 dark:text-purple-400">Tạm giữ</span>')
+          .replace(/\[(Hoàn thành|Completed)\]/gi, '<span class="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">Hoàn thành</span>')
+          .replace(/\[(Đã hủy|Cancelled)\]/gi, '<span class="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-500/15 text-rose-600 dark:text-rose-400">Đã hủy</span>');
+      };
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const trimmed = line.trim();
+
+        // 1. Markdown Table
+        if (trimmed.startsWith("|") && trimmed.endsWith("|")) {
+          closeLists();
+          const cells = trimmed.slice(1, -1).split("|").map(c => c.trim());
+
+          // Separator line | :--- | :---: |
+          if (cells.every(c => /^:?-+:?$/.test(c))) {
+            continue;
+          }
+
+          if (!inTable) {
+            inTable = true;
+            output.push('<div class="table-container"><table><thead><tr>');
+            cells.forEach(c => {
+              output.push(`<th>${formatInline(c)}</th>`);
+            });
+            output.push('</tr></thead><tbody>');
+          } else {
+            output.push('<tr>');
+            cells.forEach((c, idx) => {
+              const isCenter = idx === 0 || /^\d+$/.test(c);
+              const alignClass = isCenter ? ' class="text-center"' : '';
+              output.push(`<td${alignClass}>${formatInline(c)}</td>`);
+            });
+            output.push('</tr>');
+          }
+          continue;
+        } else {
+          closeTable();
+        }
+
+        // 2. Horizontal rule
+        if (/^(\-{3,}|\*{3,}|_{3,})$/.test(trimmed)) {
+          closeLists();
+          output.push("<hr>");
+          continue;
+        }
+
+        // 3. Headings
+        if (/^###\s+(.*)/.test(trimmed)) {
+          closeLists();
+          const title = trimmed.replace(/^###\s+/, "");
+          output.push(`<h3>${formatInline(title)}</h3>`);
+          continue;
+        }
+        if (/^##\s+(.*)/.test(trimmed)) {
+          closeLists();
+          const title = trimmed.replace(/^##\s+/, "");
+          output.push(`<h2>${formatInline(title)}</h2>`);
+          continue;
+        }
+        if (/^#\s+(.*)/.test(trimmed)) {
+          closeLists();
+          const title = trimmed.replace(/^#\s+/, "");
+          output.push(`<h1>${formatInline(title)}</h1>`);
+          continue;
+        }
+
+        // 4. Unordered List (* or -)
+        if (/^[\*\-]\s+(.*)/.test(trimmed)) {
+          if (!inUl) {
+            closeLists();
+            inUl = true;
+            output.push("<ul>");
+          }
+          const itemText = trimmed.replace(/^[\*\-]\s+/, "");
+          output.push(`<li>${formatInline(itemText)}</li>`);
+          continue;
+        }
+
+        // 5. Ordered List (1. or 2.)
+        if (/^\d+\.\s+(.*)/.test(trimmed)) {
+          if (!inOl) {
+            closeLists();
+            inOl = true;
+            output.push("<ol>");
+          }
+          const itemText = trimmed.replace(/^\d+\.\s+/, "");
+          output.push(`<li>${formatInline(itemText)}</li>`);
+          continue;
+        }
+
+        // 6. Empty line
+        if (!trimmed) {
+          closeLists();
+          continue;
+        }
+
+        // 7. Regular paragraph
+        closeLists();
+        output.push(`<p>${formatInline(trimmed)}</p>`);
+      }
+
+      closeLists();
+      closeTable();
+
+      return output.join("\n");
+    };
+
+    const renderAiHtml = (rawText) => {
+      if (!rawText) return "";
+
+      if (typeof window.marked !== "undefined" && typeof window.marked.parse === "function") {
+        try {
+          const parsed = window.marked.parse(rawText, { gfm: true, breaks: true });
+          return parsed
+            .replace(/<table>/g, '<div class="table-container"><table>')
+            .replace(/<\/table>/g, '</table></div>')
+            .replace(/\[(Đang xử lý|Processing)\]/gi, '<span class="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/15 text-amber-600 dark:text-amber-400">Đang xử lý</span>')
+            .replace(/\[(Tạm giữ|On-hold)\]/gi, '<span class="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-500/15 text-purple-600 dark:text-purple-400">Tạm giữ</span>')
+            .replace(/\[(Hoàn thành|Completed)\]/gi, '<span class="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">Hoàn thành</span>')
+            .replace(/\[(Đã hủy|Cancelled)\]/gi, '<span class="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-500/15 text-rose-600 dark:text-rose-400">Đã hủy</span>');
+        } catch (e) {
+          console.warn("[MiniApp] marked.js error, using fallback:", e);
+        }
+      }
+
+      return parseMarkdownFallback(rawText);
+    };
+
     const sendAiPrompt = (text) => {
       aiPrompt.value = text;
       askGemini();
@@ -768,6 +936,7 @@ const app = createApp({
       triggerNotionSync,
       askGemini,
       sendAiPrompt,
+      renderAiHtml,
       exportExcel,
       exportProductCatalog,
       runPingTest,
