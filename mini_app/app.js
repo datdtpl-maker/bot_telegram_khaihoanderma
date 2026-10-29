@@ -959,10 +959,38 @@ const app = createApp({
       }
     };
 
-    const refreshCurrentTab = () => {
+    const isRefreshingAll = ref(false);
+
+    const refreshAllData = async (forceServer = true) => {
+      if (isRefreshingAll.value) return;
       haptic("medium");
-      switchTab(currentTab.value);
-      showToast("Đã làm mới dữ liệu!", "info");
+      isRefreshingAll.value = true;
+      try {
+        if (forceServer) {
+          try {
+            await apiCall("/api/system/cache-refresh", { method: "POST" });
+          } catch (cacheErr) {
+            console.warn("Lỗi làm mới cache server:", cacheErr);
+          }
+        }
+        await Promise.allSettled([
+          fetchDashboard(),
+          fetchProducts(),
+          fetchOrders(),
+          fetchNotionQueue(),
+          currentTab.value === "reviews" ? fetchReviews() : Promise.resolve(),
+          currentTab.value === "tools" ? fetchLogs() : Promise.resolve()
+        ]);
+        showToast("✅ Đã làm mới toàn bộ dữ liệu 2 website (Derma & Pharma)!", "success");
+      } catch (err) {
+        showToast(err.message || "Lỗi khi làm mới dữ liệu", "error");
+      } finally {
+        isRefreshingAll.value = false;
+      }
+    };
+
+    const refreshCurrentTab = () => {
+      refreshAllData(true);
     };
 
     // Setup & Lifecycle
@@ -1047,6 +1075,8 @@ const app = createApp({
       toggleTheme,
       switchTab,
       refreshCurrentTab,
+      isRefreshingAll,
+      refreshAllData,
       fetchOrders,
       updateOrderStatus,
       fetchProducts,

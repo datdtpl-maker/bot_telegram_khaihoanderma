@@ -100,10 +100,12 @@
         </button>
 
         <!-- Refresh Button -->
-        <button @click="refreshCurrentTab" 
-                class="w-8 h-8 rounded-xl card-theme flex items-center justify-center text-xs hover:scale-105 active:scale-95 transition-all text-sub"
-                title="Làm mới dữ liệu">
-          <span>🔄</span>
+        <button @click="refreshAllData(true)" 
+                :disabled="isRefreshingAll"
+                class="px-2.5 py-1 rounded-xl card-theme flex items-center justify-center space-x-1 text-xs hover:scale-105 active:scale-95 transition-all text-sub border border-slate-200 dark:border-slate-700"
+                :title="isRefreshingAll ? 'Đang làm mới 2 website...' : 'Làm mới dữ liệu 2 website'">
+          <span :class="{'animate-spin inline-block': isRefreshingAll}">🔄</span>
+          <span class="hidden md:inline font-bold text-[11px]">{{ isRefreshingAll ? 'Đang tải...' : 'Làm mới' }}</span>
         </button>
 
         <span v-if="user" class="text-xs bg-blue-500/10 text-blue-600 dark:text-sky-400 font-bold px-2.5 py-1 rounded-full border border-blue-500/20">
@@ -133,6 +135,15 @@
                 class="px-3 py-1 rounded-xl text-xs transition-all flex items-center space-x-1 border border-transparent">
           <span>💊</span>
           <span>Khải Hoàn Pharma</span>
+        </button>
+
+        <!-- Nút Làm Mới Dữ Liệu 2 Web Nổi Bật -->
+        <button @click="refreshAllData(true)"
+                :disabled="isRefreshingAll"
+                class="px-3 py-1 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-sm active:scale-95 disabled:opacity-50 cursor-pointer ml-1 sm:ml-2"
+                title="Lấy dữ liệu mới nhất từ cả 2 website Khải Hoàn Derma và Khải Hoàn Pharma">
+          <span :class="{'animate-spin inline-block': isRefreshingAll}">🔄</span>
+          <span>{{ isRefreshingAll ? 'Đang làm mới 2 web...' : 'Làm mới dữ liệu 2 web' }}</span>
         </button>
       </div>
       <div class="hidden sm:flex items-center space-x-2.5 text-[11px] text-sub font-semibold">

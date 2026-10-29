@@ -1097,6 +1097,9 @@ def get_google_seo_report(
 
 @app.post("/api/system/cache-refresh")
 def refresh_cache_endpoint(current_user: dict = Depends(get_current_admin)):
+    with _VARIATIONS_LOCK:
+        _VARIATIONS_CACHE.clear()
+        _VARIATIONS_CACHE_TIME.clear()
     try:
         msg = bot.trigger_cache_refresh()
         return {"ok": True, "message": bot.plain_text_from_html(msg)}
