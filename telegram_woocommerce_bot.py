@@ -130,6 +130,46 @@ def load_wordpress_credentials() -> tuple[str, str, str]:
     return site_url.rstrip("/"), username, password
 
 
+def get_site_config(site_key: str = "derma") -> dict:
+    key = (site_key or "derma").strip().lower()
+    if key in {"pharma", "khaihoanpharma", "khaihoanpharma.com"}:
+        site_url = (os.environ.get("PHARMA_SITE_URL") or "https://khaihoanpharma.com").rstrip("/")
+        username = os.environ.get("PHARMA_USERNAME") or "admin"
+        password = os.environ.get("PHARMA_PASSWORD") or "FLai t6fb 7yJp 0XWi MUT5 GV27"
+        admin_login = (os.environ.get("PHARMA_ADMIN_LOGIN_URL") or f"{site_url}/khaihoan2025/").rstrip("/")
+        return {
+            "key": "pharma",
+            "name": "Khải Hoàn Pharma",
+            "short_name": "Pharma",
+            "badge": "💊 Pharma",
+            "site_url": site_url,
+            "admin_login_url": admin_login,
+            "wc_auth": (username, password),
+            "wp_auth": (username, password),
+        }
+
+    # Default: derma
+    site_url, consumer_key, consumer_secret = load_woocommerce_credentials()
+    try:
+        _, wp_user, wp_pass = load_wordpress_credentials()
+    except Exception:
+        wp_user, wp_pass = "", ""
+    return {
+        "key": "derma",
+        "name": "Khải Hoàn Derma",
+        "short_name": "Derma",
+        "badge": "🌿 Derma",
+        "site_url": site_url,
+        "admin_login_url": f"{site_url}/wp-admin/",
+        "wc_auth": (consumer_key, consumer_secret),
+        "wp_auth": (wp_user, wp_pass),
+    }
+
+
+def get_all_sites() -> list[dict]:
+    return [get_site_config("derma"), get_site_config("pharma")]
+
+
 PENDING_ACTIONS: dict[int, dict] = {}
 CHAT_LOCKS: defaultdict[int, Lock] = defaultdict(Lock)
 NOTIFIED_REVIEWS: set[int] = set()
@@ -209,13 +249,15 @@ def wc_request(
     method: str = "GET",
     body: dict | None = None,
     timeout: int = DEFAULT_API_TIMEOUT_SECONDS,
+    site_key: str = "derma",
 ) -> object:
-    site_url, consumer_key, consumer_secret = load_woocommerce_credentials()
+    cfg = get_site_config(site_key)
+    site_url = cfg["site_url"]
+    auth = cfg["wc_auth"]
     url = f"{site_url}/wp-json/wc/v3/{path.lstrip('/')}"
     headers = {
-        "User-Agent": "Codex Telegram WooCommerce Bot",
+        "User-Agent": "MCP Khai Hoan Telegram WooCommerce Bot",
     }
-    auth = (consumer_key, consumer_secret)
     verify_ssl = not (os.environ.get("SSL_NO_VERIFY", "").strip().lower() in {"1", "true", "yes", "on"})
     response = HTTP_SESSION.request(
         method=method,
@@ -231,29 +273,30 @@ def wc_request(
     return response.json()
 
 
-def wc_get(path: str, params: dict[str, str | int], timeout: int = DEFAULT_API_TIMEOUT_SECONDS) -> object:
-    return wc_request(path, params=params, timeout=timeout)
+def wc_get(path: str, params: dict[str, str | int] | None = None, timeout: int = DEFAULT_API_TIMEOUT_SECONDS, site_key: str = "derma") -> object:
+    return wc_request(path, params=params, timeout=timeout, site_key=site_key)
 
 
-def wc_put(path: str, body: dict) -> object:
-    return wc_request(path, method="PUT", body=body)
+def wc_put(path: str, body: dict, site_key: str = "derma") -> object:
+    return wc_request(path, method="PUT", body=body, site_key=site_key)
 
 
-def wc_post(path: str, body: dict) -> object:
-    return wc_request(path, method="POST", body=body)
+def wc_post(path: str, body: dict, site_key: str = "derma") -> object:
+    return wc_request(path, method="POST", body=body, site_key=site_key)
 
 
-def wc_delete(path: str, params: dict[str, str | int] | None = None) -> object:
-    return wc_request(path, params=params, method="DELETE")
+def wc_delete(path: str, params: dict[str, str | int] | None = None, site_key: str = "derma") -> object:
+    return wc_request(path, params=params, method="DELETE", site_key=site_key)
 
 
-def wp_request(path: str, method: str = "GET", body: dict | None = None, timeout: int = DEFAULT_API_TIMEOUT_SECONDS) -> object:
-    site_url, username, password = load_wordpress_credentials()
+def wp_request(path: str, method: str = "GET", body: dict | None = None, timeout: int = DEFAULT_API_TIMEOUT_SECONDS, site_key: str = "derma") -> object:
+    cfg = get_site_config(site_key)
+    site_url = cfg["site_url"]
+    auth = cfg["wp_auth"]
     url = f"{site_url}/wp-json/wp/v2/{path.lstrip('/')}"
     headers = {
-        "User-Agent": "Codex Telegram WordPress Bot",
+        "User-Agent": "MCP Khai Hoan Telegram WordPress Bot",
     }
-    auth = (username, password)
     verify_ssl = not (os.environ.get("SSL_NO_VERIFY", "").strip().lower() in {"1", "true", "yes", "on"})
     response = HTTP_SESSION.request(
         method=method,
@@ -350,29 +393,9 @@ def month_bounds(month: str) -> tuple[str, str]:
     return start.strftime("%Y-%m-%dT00:00:00"), end.strftime("%Y-%m-%dT00:00:00")
 
 
-def fetch_orders(month: str) -> list[dict]:
+def fetch_orders(month: str, site_key: str = "derma") -> list[dict]:
     after, before = month_bounds(month)
-    orders: list[dict] = []
-    page = 1
-    while True:
-        batch = wc_get(
-            "orders",
-            {
-                "after": after,
-                "before": before,
-                "per_page": 100,
-                "page": page,
-                "orderby": "date",
-                "order": "asc",
-                "status": "any",
-            },
-        )
-        if not isinstance(batch, list):
-            raise RuntimeError("WooCommerce tra ve du lieu don hang khong hop le.")
-        orders.extend(batch)
-        if len(batch) < 100:
-            return orders
-        page += 1
+    return fetch_orders_between(after, before, site_key=site_key)
 
 
 def summarize_orders(orders: list[dict]) -> tuple[list[dict], list[dict], dict[str, int], float, float, dict[str, int]]:
@@ -655,7 +678,8 @@ def wants_today_orders(text: str) -> bool:
     return has_today and has_order
 
 
-def fetch_orders_between(after: str, before: str) -> list[dict]:
+def fetch_orders_between(after: str, before: str, site_key: str = "derma") -> list[dict]:
+    cfg = get_site_config(site_key)
     orders: list[dict] = []
     page = 1
     while True:
@@ -670,13 +694,34 @@ def fetch_orders_between(after: str, before: str) -> list[dict]:
                 "order": "asc",
                 "status": "any",
             },
+            site_key=site_key,
         )
         if not isinstance(batch, list):
-            raise RuntimeError("WooCommerce trả về dữ liệu đơn hàng không hợp lệ.")
+            raise RuntimeError(f"WooCommerce {cfg['name']} trả về dữ liệu đơn hàng không hợp lệ.")
+        for o in batch:
+            if isinstance(o, dict):
+                o["_site_key"] = site_key
+                o["_site_name"] = cfg["name"]
+                o["_site_short"] = cfg["short_name"]
         orders.extend(batch)
         if len(batch) < 100:
             return orders
         page += 1
+
+
+def fetch_all_sites_orders_between(after: str, before: str) -> list[dict]:
+    all_orders: list[dict] = []
+    try:
+        d_orders = fetch_orders_between(after, before, site_key="derma")
+        all_orders.extend(d_orders)
+    except Exception as exc:
+        log(f"[MultiSite] Lỗi tải đơn hàng Derma: {exc}")
+    try:
+        p_orders = fetch_orders_between(after, before, site_key="pharma")
+        all_orders.extend(p_orders)
+    except Exception as exc:
+        log(f"[MultiSite] Lỗi tải đơn hàng Pharma: {exc}")
+    return all_orders
 
 
 def extract_year(text: str) -> int | None:
@@ -771,21 +816,41 @@ def report_period_from_text(text: str) -> tuple[str, str, str]:
 
 def build_woocommerce_html(text: str) -> str:
     after, before, label = report_period_from_text(text)
-    orders = fetch_orders_between(after, before)
+    orders = fetch_orders_between(after, before, site_key="derma")
+    pharma_orders = []
+    try:
+        pharma_orders = fetch_orders_between(after, before, site_key="pharma")
+    except Exception as exc:
+        log(f"Lỗi tải đơn Pharma: {exc}")
+
     order_rows, products, statuses, total_revenue, line_revenue, sources = summarize_orders(orders)
+    p_order_rows, p_products, p_statuses, p_total_revenue, p_line_revenue, p_sources = summarize_orders(pharma_orders)
     fee_diff = total_revenue - line_revenue
 
+    all_orders_count = len(orders) + len(pharma_orders)
+    all_total_revenue = total_revenue + p_total_revenue
+    all_line_revenue = line_revenue + p_line_revenue
+
     lines = [
-        f"<b>Báo cáo WooCommerce {h(label)}</b>",
+        f"<b>Báo cáo Hệ Thống MCP Khải Hoàn {h(label)}</b>",
         "",
-        "<b>Tổng quan</b>",
+        "<b>🌿 Khải Hoàn Derma</b>",
         f"• Tổng đơn: <b>{len(orders)}</b>",
-        f"• Tổng doanh thu: <b>{money(total_revenue)} VND</b>",
+        f"• Doanh thu: <b>{money(total_revenue)} VND</b>",
         f"• Doanh thu sản phẩm: <b>{money(line_revenue)} VND</b>",
-        f"• Chênh lệch vận chuyển/phụ phí/giảm giá: <b>{money(fee_diff)} VND</b>",
+        "",
+        "<b>💊 Khải Hoàn Pharma</b>",
+        f"• Tổng đơn: <b>{len(pharma_orders)}</b>",
+        f"• Doanh thu: <b>{money(p_total_revenue)} VND</b>",
+        f"• Doanh thu sản phẩm: <b>{money(p_line_revenue)} VND</b>",
+        "",
+        "<b>📊 Tổng cộng toàn hệ thống</b>",
+        f"• Tổng đơn: <b>{all_orders_count}</b>",
+        f"• Tổng doanh thu: <b>{money(all_total_revenue)} VND</b>",
+        f"• Doanh thu sản phẩm: <b>{money(all_line_revenue)} VND</b>",
     ]
 
-    if not orders:
+    if all_orders_count == 0:
         lines.append("\nKhông có đơn hàng trong khoảng thời gian này.")
     return "\n".join(lines)
 
@@ -795,18 +860,18 @@ def build_today_orders_html() -> str:
     start = today.strftime("%Y-%m-%dT00:00:00")
     tomorrow = datetime(today.year, today.month, today.day) + timedelta(days=1)
     end = tomorrow.strftime("%Y-%m-%dT00:00:00")
-    orders = fetch_orders_between(start, end)
+    orders = fetch_all_sites_orders_between(start, end)
 
     if not orders:
         return (
-            "<b>Kiểm tra đơn hàng hôm nay</b>\n\n"
+            "<b>Kiểm tra đơn hàng hôm nay — MCP Khải Hoàn</b>\n\n"
             f"Ngày: <code>{h(today.strftime('%Y-%m-%d'))}</code>\n"
-            "Kết quả: <b>Không có đơn hàng mới hôm nay.</b>"
+            "Kết quả: <b>Không có đơn hàng mới hôm nay trên cả 2 website (Derma & Pharma).</b>"
         )
 
     total = sum(float(order.get("total") or 0) for order in orders)
     lines = [
-        "<b>Kiểm tra đơn hàng hôm nay</b>",
+        "<b>Kiểm tra đơn hàng hôm nay — MCP Khải Hoàn</b>",
         "",
         f"Ngày: <code>{h(today.strftime('%Y-%m-%d'))}</code>",
         f"Kết quả: <b>Có {len(orders)} đơn hàng hôm nay.</b>",
@@ -817,8 +882,10 @@ def build_today_orders_html() -> str:
     for order in orders[:20]:
         billing = order.get("billing") or {}
         customer_name = f"{billing.get('first_name', '')} {billing.get('last_name', '')}".strip() or "Chưa có tên"
+        site_short = order.get("_site_short") or "Derma"
+        badge = "💊 Pharma" if site_short == "Pharma" else "🌿 Derma"
         lines.append(
-            f"• <b>#{h(order.get('number'))}</b> - {h(customer_name)} - "
+            f"• [{badge}] <b>#{h(order.get('number'))}</b> - {h(customer_name)} - "
             f"{money(order.get('total') or 0)} VND - <code>{h(order_status_label(order.get('status') or ''))}</code>"
         )
     if len(orders) > 20:
@@ -827,7 +894,24 @@ def build_today_orders_html() -> str:
 
 
 def build_order_detail_html(order_id: str) -> str:
-    order = wc_get(f"orders/{order_id}", {})
+    order = None
+    site_label = "Khải Hoàn Derma"
+    try:
+        res = wc_get(f"orders/{order_id}", {}, site_key="derma")
+        if isinstance(res, dict) and res.get("id"):
+            order = res
+    except Exception:
+        pass
+
+    if not order:
+        try:
+            res = wc_get(f"orders/{order_id}", {}, site_key="pharma")
+            if isinstance(res, dict) and res.get("id"):
+                order = res
+                site_label = "Khải Hoàn Pharma"
+        except Exception:
+            pass
+
     if not isinstance(order, dict) or not order.get("id"):
         return f"<b>Không tìm thấy đơn hàng</b>\nID: <code>{h(order_id)}</code>"
 
@@ -849,7 +933,7 @@ def build_order_detail_html(order_id: str) -> str:
     products_html = "\n".join(product_lines) if product_lines else "Không có sản phẩm trong đơn."
 
     return (
-        "<b>Chi tiết đơn hàng WooCommerce</b>\n\n"
+        f"<b>Chi tiết đơn hàng {site_label}</b>\n\n"
         f"• ID đơn hàng: <code>{h(order.get('id'))}</code>\n"
         f"• Mã đơn: <b>#{h(order.get('number'))}</b>\n"
         f"• Trạng thái: <b>{h(order_status_label(order.get('status') or ''))}</b>\n"
@@ -1115,11 +1199,14 @@ def trigger_notion_sync(chat_id: int = None, page_ids: list[str] | None = None) 
 
 def trigger_cache_refresh() -> str:
     global _ALL_PRODUCTS_CACHE, _ALL_PRODUCTS_CACHE_TIME
+    global _ALL_PHARMA_PRODUCTS_CACHE, _ALL_PHARMA_PRODUCTS_CACHE_TIME
     with _ALL_PRODUCTS_CACHE_LOCK:
         _ALL_PRODUCTS_CACHE = []
         _ALL_PRODUCTS_CACHE_TIME = 0.0
+        _ALL_PHARMA_PRODUCTS_CACHE = []
+        _ALL_PHARMA_PRODUCTS_CACHE_TIME = 0.0
     try:
-        products = get_cached_all_products()
+        products = get_cached_all_products("all")
         return (
             "<b>Đồng bộ dữ liệu sản phẩm thành công</b>\n\n"
             f"Đã cập nhật lại toàn bộ danh mục sản phẩm từ website WooCommerce.\n"
@@ -1150,10 +1237,9 @@ def build_ping_html() -> str:
     def check_woocommerce() -> str:
         t0 = time.time()
         try:
-            products = wc_get("products", {"per_page": 1, "page": 1}, timeout=PING_CHECK_TIMEOUT_SECONDS)
+            products = wc_get("products", {"per_page": 1, "page": 1}, timeout=PING_CHECK_TIMEOUT_SECONDS, site_key="derma")
             ms = int((time.time() - t0) * 1000)
-            count = len(products) if isinstance(products, list) else 0
-            return f"WooCommerce: <b>OK</b> ({ms}ms - kết nối tốt)"
+            return f"WooCommerce: <b>OK</b> ({ms}ms - Khải Hoàn Derma kết nối tốt)"
         except Exception as exc:
             ms = int((time.time() - t0) * 1000)
             return f"WooCommerce: <b>Lỗi</b> ({ms}ms) - <code>{h(exc)}</code>"
@@ -1161,12 +1247,32 @@ def build_ping_html() -> str:
     def check_wordpress() -> str:
         t0 = time.time()
         try:
-            wp_request("users/me", timeout=PING_CHECK_TIMEOUT_SECONDS)
+            wp_request("users/me", timeout=PING_CHECK_TIMEOUT_SECONDS, site_key="derma")
             ms = int((time.time() - t0) * 1000)
-            return f"WordPress: <b>OK</b> ({ms}ms - REST API sẵn sàng)"
+            return f"WordPress: <b>OK</b> ({ms}ms - Khải Hoàn Derma REST API sẵn sàng)"
         except Exception as exc:
             ms = int((time.time() - t0) * 1000)
             return f"WordPress: <b>Lỗi</b> ({ms}ms) - <code>{h(exc)}</code>"
+
+    def check_pharma_woocommerce() -> str:
+        t0 = time.time()
+        try:
+            orders = wc_get("orders", {"per_page": 1, "page": 1}, timeout=PING_CHECK_TIMEOUT_SECONDS, site_key="pharma")
+            ms = int((time.time() - t0) * 1000)
+            return f"Khải Hoàn Pharma (WooCommerce): <b>OK</b> ({ms}ms - kết nối tốt)"
+        except Exception as exc:
+            ms = int((time.time() - t0) * 1000)
+            return f"Khải Hoàn Pharma (WooCommerce): <b>Lỗi</b> ({ms}ms) - <code>{h(exc)}</code>"
+
+    def check_pharma_wordpress() -> str:
+        t0 = time.time()
+        try:
+            wp_request("users/me", timeout=PING_CHECK_TIMEOUT_SECONDS, site_key="pharma")
+            ms = int((time.time() - t0) * 1000)
+            return f"Khải Hoàn Pharma (WordPress): <b>OK</b> ({ms}ms - REST API sẵn sàng)"
+        except Exception as exc:
+            ms = int((time.time() - t0) * 1000)
+            return f"Khải Hoàn Pharma (WordPress): <b>Lỗi</b> ({ms}ms) - <code>{h(exc)}</code>"
 
     def check_gemini() -> str:
         api_key = os.environ.get("GEMINI_API_KEY")
@@ -1241,10 +1347,12 @@ def build_ping_html() -> str:
             return f"Notion Sync: <b>Lỗi</b> ({ms}ms) - <code>{h(exc)}</code>"
 
     checks = ["Telegram: <b>OK</b> (kết nối trực tiếp)"]
-    executor = ThreadPoolExecutor(max_workers=4)
+    executor = ThreadPoolExecutor(max_workers=6)
     futures = {
         executor.submit(check_woocommerce): "WooCommerce",
         executor.submit(check_wordpress): "WordPress",
+        executor.submit(check_pharma_woocommerce): "Pharma WooCommerce",
+        executor.submit(check_pharma_wordpress): "Pharma WordPress",
         executor.submit(check_gemini): "Gemini AI",
         executor.submit(check_notion): "Notion Sync",
     }
@@ -1257,17 +1365,17 @@ def build_ping_html() -> str:
     executor.shutdown(wait=False, cancel_futures=True)
 
     sorted_checks = []
-    for prefix in ["Telegram:", "WooCommerce:", "WordPress:", "Gemini AI:", "Notion Sync:"]:
+    for prefix in ["Telegram:", "WooCommerce:", "WordPress:", "Khải Hoàn Pharma (WooCommerce):", "Khải Hoàn Pharma (WordPress):", "Gemini AI:", "Notion Sync:"]:
         for line in checks:
             if line.startswith(prefix):
                 sorted_checks.append(line)
                 break
     for line in checks:
-        if not any(line.startswith(p) for p in ["Telegram:", "WooCommerce:", "WordPress:", "Gemini AI:", "Notion Sync:"]):
+        if not any(line.startswith(p) for p in ["Telegram:", "WooCommerce:", "WordPress:", "Khải Hoàn Pharma (WooCommerce):", "Khải Hoàn Pharma (WordPress):", "Gemini AI:", "Notion Sync:"]):
             sorted_checks.append(line)
 
     return (
-        "<b>Trạng thái hệ thống & kết nối</b>\n\n"
+        "<b>Trạng thái hệ thống & kết nối — MCP Khải Hoàn</b>\n\n"
         f"• Trạng thái bot: <b>Đang hoạt động</b>\n"
         f"• Thời gian chạy (Uptime): <b>{h(format_uptime())}</b>\n"
         f"• Thời điểm kiểm tra: <code>{h(datetime.now().strftime('%Y-%m-%d %H:%M:%S'))}</code>\n\n"
@@ -1711,23 +1819,45 @@ def product_tokens(value: str) -> list[str]:
 
 _ALL_PRODUCTS_CACHE: list[dict] = []
 _ALL_PRODUCTS_CACHE_TIME: float = 0.0
+_ALL_PHARMA_PRODUCTS_CACHE: list[dict] = []
+_ALL_PHARMA_PRODUCTS_CACHE_TIME: float = 0.0
 _ALL_PRODUCTS_CACHE_LOCK = Lock()
 
 
-def get_cached_all_products() -> list[dict]:
+def get_cached_all_products(site_key: str = "derma") -> list[dict]:
     global _ALL_PRODUCTS_CACHE, _ALL_PRODUCTS_CACHE_TIME
+    global _ALL_PHARMA_PRODUCTS_CACHE, _ALL_PHARMA_PRODUCTS_CACHE_TIME
     now = time.time()
+    site_key = (site_key or "derma").strip().lower()
+
     with _ALL_PRODUCTS_CACHE_LOCK:
-        if not _ALL_PRODUCTS_CACHE or (now - _ALL_PRODUCTS_CACHE_TIME) > 600:
-            log("Tải danh sách tất cả sản phẩm từ WooCommerce để cập nhật cache...")
-            try:
-                _ALL_PRODUCTS_CACHE = fetch_all_products()
-                _ALL_PRODUCTS_CACHE_TIME = now
-                log(f"Đã tải và cache {len(_ALL_PRODUCTS_CACHE)} sản phẩm.")
-            except Exception as e:
-                log(f"Lỗi khi tải tất cả sản phẩm: {e}")
-                if not _ALL_PRODUCTS_CACHE:
-                    _ALL_PRODUCTS_CACHE = []
+        if site_key in {"derma", "all"}:
+            if not _ALL_PRODUCTS_CACHE or (now - _ALL_PRODUCTS_CACHE_TIME) > 600:
+                log("Tải danh sách tất cả sản phẩm Khải Hoàn Derma từ WooCommerce...")
+                try:
+                    _ALL_PRODUCTS_CACHE = fetch_all_products(site_key="derma")
+                    _ALL_PRODUCTS_CACHE_TIME = now
+                    log(f"Đã tải và cache {len(_ALL_PRODUCTS_CACHE)} sản phẩm Khải Hoàn Derma.")
+                except Exception as e:
+                    log(f"Lỗi khi tải tất cả sản phẩm Derma: {e}")
+                    if not _ALL_PRODUCTS_CACHE:
+                        _ALL_PRODUCTS_CACHE = []
+
+        if site_key in {"pharma", "all"}:
+            if not _ALL_PHARMA_PRODUCTS_CACHE or (now - _ALL_PHARMA_PRODUCTS_CACHE_TIME) > 600:
+                try:
+                    _ALL_PHARMA_PRODUCTS_CACHE = fetch_all_products(site_key="pharma")
+                    _ALL_PHARMA_PRODUCTS_CACHE_TIME = now
+                    log(f"Đã tải và cache {len(_ALL_PHARMA_PRODUCTS_CACHE)} sản phẩm Khải Hoàn Pharma.")
+                except Exception as e:
+                    log(f"Lỗi khi tải tất cả sản phẩm Pharma: {e}")
+                    if not _ALL_PHARMA_PRODUCTS_CACHE:
+                        _ALL_PHARMA_PRODUCTS_CACHE = []
+
+        if site_key == "pharma":
+            return _ALL_PHARMA_PRODUCTS_CACHE
+        elif site_key == "all":
+            return _ALL_PRODUCTS_CACHE + _ALL_PHARMA_PRODUCTS_CACHE
         return _ALL_PRODUCTS_CACHE
 
 
@@ -1927,7 +2057,8 @@ def find_product_by_h1_prefix(title: str) -> dict | None:
     return best if best_score >= 0.55 else None
 
 
-def fetch_all_products() -> list[dict]:
+def fetch_all_products(site_key: str = "derma") -> list[dict]:
+    cfg = get_site_config(site_key)
     products: list[dict] = []
     page = 1
     while True:
@@ -1940,9 +2071,15 @@ def fetch_all_products() -> list[dict]:
                 "orderby": "title",
                 "order": "asc",
             },
+            site_key=site_key,
         )
         if not isinstance(batch, list):
-            raise RuntimeError("WooCommerce trả về dữ liệu sản phẩm không hợp lệ.")
+            raise RuntimeError(f"WooCommerce {cfg['name']} trả về dữ liệu sản phẩm không hợp lệ.")
+        for p in batch:
+            if isinstance(p, dict):
+                p["_site_key"] = site_key
+                p["_site_name"] = cfg["name"]
+                p["_site_short"] = cfg["short_name"]
         products.extend(batch)
         if len(batch) < 100:
             return products
@@ -3418,8 +3555,8 @@ def handle_message(chat_id: int, text: str) -> None:
         }
         send_message(
             chat_id,
-            "🌿 <b>Khải Hoàn Derma — Hệ Thống Quản Trị & Bán Hàng</b>\n\n"
-            "Chào mừng Quản trị viên! Toàn bộ công cụ quản lý doanh thu, xem đơn hàng, điều chỉnh giá kho, duyệt đánh giá và đồng bộ Notion đã được tích hợp trực quan trong <b>Telegram Mini App</b>.\n\n"
+            "🤖 <b>MCP Khải Hoàn — Hệ Thống Quản Trị & Bán Hàng Đa Kênh</b>\n\n"
+            "Chào mừng Quản trị viên! Toàn bộ công cụ quản lý doanh thu, xem đơn hàng, điều chỉnh giá kho, duyệt đánh giá và đồng bộ bài viết của cả 2 website <b>Khải Hoàn Derma</b> & <b>Khải Hoàn Pharma</b> đã được tích hợp trực quan trong <b>Telegram Mini App</b>.\n\n"
             "👉 <i>Bấm nút bên dưới để mở Bảng Điều Khiển ngay:</i>",
             reply_markup=reply_markup
         )
@@ -3480,7 +3617,7 @@ def handle_message(chat_id: int, text: str) -> None:
                 }
                 send_message(
                     chat_id,
-                    "📱 <b>Bảng điều khiển Mini App Khải Hoàn Derma</b>\n"
+                    "📱 <b>Bảng điều khiển Mini App MCP Khải Hoàn</b>\n"
                     "Bấm nút bên dưới để mở giao diện quản trị trực quan ngay trong Telegram:",
                     reply_markup=reply_markup
                 )
@@ -3524,7 +3661,7 @@ def handle_message(chat_id: int, text: str) -> None:
                 "• Duyệt nhanh: <code>duyệt đánh giá [ID]</code>\n"
                 "• Xóa nhanh: <code>xóa [ID]</code> hoặc <code>từ chối [ID]</code>\n"
                 "• Ví dụ: <code>duyệt đánh giá 2350</code>\n\n"
-                "<b>7. Trợ lý AI Khải Hoàn Derma (Gemini 3.8 Flash)</b>\n"
+                "<b>7. Trợ lý AI MCP Khải Hoàn (Gemini 3.8 Flash)</b>\n"
                 "• Cú pháp: <code>/ai [câu hỏi]</code> hoặc <code>hỏi ai [câu hỏi]</code>\n"
                 "• Ví dụ: <code>/ai đơn hàng tháng 9/2026</code> hoặc <code>/ai sản phẩm nào có biến thể?</code>"
             )
@@ -3957,7 +4094,7 @@ def notify_admins_mini_app_ready(url: str) -> None:
         return
 
     text = (
-        "🟢 <b>Bot Khải Hoàn Derma & Mini App đã sẵn sàng!</b>\n\n"
+        "🟢 <b>Bot MCP Khải Hoàn & Mini App đã sẵn sàng!</b>\n\n"
         f"🔗 <b>Đường dẫn:</b> <code>{url}</code>\n\n"
         "👉 Bấm nút <b>📱 Mở Bảng Điều Khiển (Mini App)</b> bên dưới để mở giao diện quản trị:"
     )
@@ -4259,52 +4396,69 @@ def get_store_ai_context(prompt: str) -> tuple[str, str | None]:
 
     if order_id_match:
         oid = int(order_id_match.group(1))
+        order_data = None
+        site_name = "Khải Hoàn Derma"
         try:
-            order_data = wc_get(f"orders/{oid}", {})
-            if isinstance(order_data, dict) and order_data.get("id"):
-                status_map = {
-                    "processing": "Đang xử lý",
-                    "completed": "Hoàn thành",
-                    "on-hold": "Tạm giữ",
-                    "cancelled": "Đã hủy",
-                    "refunded": "Đã hoàn tiền",
-                    "pending": "Chờ thanh toán",
-                    "failed": "Thất bại"
-                }
-                status = status_map.get(order_data.get("status"), order_data.get("status"))
-                total = float(order_data.get("total") or 0)
-                date_c = order_data.get("date_created") or ""
-                billing = order_data.get("billing") or {}
-                cust_name = f"{billing.get('first_name', '')} {billing.get('last_name', '')}".strip() or "Khách hàng"
-                phone = billing.get("phone") or "Chưa có"
-                address = f"{billing.get('address_1', '')}, {billing.get('city', '')}".strip(", ") or "Chưa có"
-                items = order_data.get("line_items") or []
-                item_lines = [f"- {it.get('name')}: SL {it.get('quantity')} x {float(it.get('price') or 0):,.0f} đ = {float(it.get('total') or 0):,.0f} đ" for it in items]
-                items_str = "\n".join(item_lines) if item_lines else "- Không có sản phẩm"
+            res = wc_get(f"orders/{oid}", {}, site_key="derma")
+            if isinstance(res, dict) and res.get("id"):
+                order_data = res
+                site_name = "Khải Hoàn Derma"
+        except Exception:
+            pass
 
-                context = (
-                    f"=== THÔNG TIN CHI TIẾT ĐƠN HÀNG #{oid} TỪ WOOCOMMERCE ===\n"
-                    f"- Mã đơn: #{oid}\n"
-                    f"- Ngày tạo: {date_c}\n"
-                    f"- Trạng thái: {status}\n"
-                    f"- Khách hàng: {cust_name} (SĐT: {phone})\n"
-                    f"- Địa chỉ: {address}\n"
-                    f"- Tổng tiền thanh toán: {total:,.0f} VND\n"
-                    f"- Chi tiết sản phẩm:\n{items_str}\n"
-                    "==========================================================\n"
-                )
-                fallback = (
-                    f"### 📦 Chi tiết đơn hàng #{oid}\n\n"
-                    f"- **Trạng thái:** `{status}`\n"
-                    f"- **Ngày đặt:** {date_c}\n"
-                    f"- **Khách hàng:** {cust_name} - SĐT: `{phone}`\n"
-                    f"- **Địa chỉ:** {address}\n"
-                    f"- **Tổng tiền:** **{total:,.0f} đ**\n\n"
-                    f"**Sản phẩm:**\n{items_str}"
-                )
-                return context, fallback
-        except Exception as e:
-            log(f"[AI Store] Lỗi tra cứu đơn #{oid}: {e}")
+        if not order_data:
+            try:
+                res = wc_get(f"orders/{oid}", {}, site_key="pharma")
+                if isinstance(res, dict) and res.get("id"):
+                    order_data = res
+                    site_name = "Khải Hoàn Pharma"
+            except Exception:
+                pass
+
+        if order_data and isinstance(order_data, dict) and order_data.get("id"):
+            status_map = {
+                "processing": "Đang xử lý",
+                "completed": "Hoàn thành",
+                "on-hold": "Tạm giữ",
+                "cancelled": "Đã hủy",
+                "refunded": "Đã hoàn tiền",
+                "pending": "Chờ thanh toán",
+                "failed": "Thất bại"
+            }
+            status = status_map.get(order_data.get("status"), order_data.get("status"))
+            total = float(order_data.get("total") or 0)
+            date_c = order_data.get("date_created") or ""
+            billing = order_data.get("billing") or {}
+            cust_name = f"{billing.get('first_name', '')} {billing.get('last_name', '')}".strip() or "Khách hàng"
+            phone = billing.get("phone") or "Chưa có"
+            address = f"{billing.get('address_1', '')}, {billing.get('city', '')}".strip(", ") or "Chưa có"
+            items = order_data.get("line_items") or []
+            item_lines = [f"- {it.get('name')}: SL {it.get('quantity')} x {float(it.get('price') or 0):,.0f} đ = {float(it.get('total') or 0):,.0f} đ" for it in items]
+            items_str = "\n".join(item_lines) if item_lines else "- Không có sản phẩm"
+
+            context = (
+                f"=== THÔNG TIN CHI TIẾT ĐƠN HÀNG #{oid} TỪ {site_name.upper()} ===\n"
+                f"- Cửa hàng: {site_name}\n"
+                f"- Mã đơn: #{oid}\n"
+                f"- Ngày tạo: {date_c}\n"
+                f"- Trạng thái: {status}\n"
+                f"- Khách hàng: {cust_name} (SĐT: {phone})\n"
+                f"- Địa chỉ: {address}\n"
+                f"- Tổng tiền thanh toán: {total:,.0f} VND\n"
+                f"- Chi tiết sản phẩm:\n{items_str}\n"
+                "==========================================================\n"
+            )
+            fallback = (
+                f"### 📦 Chi tiết đơn hàng #{oid} ({site_name})\n\n"
+                f"- **Trạng thái:** `{status}`\n"
+                f"- **Cửa hàng:** {site_name}\n"
+                f"- **Ngày đặt:** {date_c}\n"
+                f"- **Khách hàng:** {cust_name} - SĐT: `{phone}`\n"
+                f"- **Địa chỉ:** {address}\n"
+                f"- **Tổng tiền:** **{total:,.0f} đ**\n\n"
+                f"**Sản phẩm:**\n{items_str}"
+            )
+            return context, fallback
 
     # 2. Tra cứu sản phẩm / tồn kho / biến thể
     product_intent = any(k in p_plain for k in ["bien the", "phan loai", "het hang", "ton kho", "con hang"]) or (
@@ -4312,12 +4466,12 @@ def get_store_ai_context(prompt: str) -> tuple[str, str | None]:
     )
     if product_intent:
         try:
-            all_prods = get_cached_all_products()
+            all_prods = get_cached_all_products("all")
             if any(k in p_plain for k in ["bien the", "phan loai"]):
                 vars_prods = [p for p in all_prods if p.get("type") == "variable"]
-                sample_vars = [f"- #{p.get('id')} **{p.get('name')}**" for p in vars_prods[:12]]
+                sample_vars = [f"- #{p.get('id')} [{p.get('_site_short', 'Derma')}] **{p.get('name')}**" for p in vars_prods[:12]]
                 context = (
-                    f"=== DỮ LIỆU SẢN PHẨM CÓ BIẾN THỂ (WOOCOMMERCE) ===\n"
+                    f"=== DỮ LIỆU SẢN PHẨM CÓ BIẾN THỂ (MCP KHẢI HOÀN) ===\n"
                     f"- Tổng cộng: {len(vars_prods)} sản phẩm có biến thể/phân loại.\n"
                     f"- Danh sách tiêu biểu:\n" + "\n".join(sample_vars) + "\n"
                     f"==================================================\n"
@@ -4330,9 +4484,9 @@ def get_store_ai_context(prompt: str) -> tuple[str, str | None]:
 
             if any(k in p_plain for k in ["het hang", "het"]):
                 outofstock_prods = [p for p in all_prods if p.get("stock_status") == "outofstock"]
-                sample_out = [f"- #{p.get('id')} **{p.get('name')}**" for p in outofstock_prods[:12]]
+                sample_out = [f"- #{p.get('id')} [{p.get('_site_short', 'Derma')}] **{p.get('name')}**" for p in outofstock_prods[:12]]
                 context = (
-                    f"=== DỮ LIỆU SẢN PHẨM HẾT HÀNG (WOOCOMMERCE) ===\n"
+                    f"=== DỮ LIỆU SẢN PHẨM HẾT HÀNG (MCP KHẢI HOÀN) ===\n"
                     f"- Tổng cộng: {len(outofstock_prods)} sản phẩm hiện đang hết hàng.\n"
                     f"- Danh sách tiêu biểu:\n" + "\n".join(sample_out) + "\n"
                     f"===============================================\n"
@@ -4346,11 +4500,12 @@ def get_store_ai_context(prompt: str) -> tuple[str, str | None]:
             matched = find_products_by_fuzzy_name(prompt)
             if matched:
                 lines = []
-                for p in matched[:5]:
+                for p in matched[:6]:
                     price = p.get("price") or p.get("regular_price") or "0"
-                    lines.append(f"- #{p.get('id')} **{p.get('name')}** | Giá: {float(price):,.0f} đ | Kho: {p.get('stock_status', 'instock')}")
+                    site_s = p.get("_site_short") or "Derma"
+                    lines.append(f"- #{p.get('id')} [{site_s}] **{p.get('name')}** | Giá: {float(price):,.0f} đ | Kho: {p.get('stock_status', 'instock')}")
                 context = (
-                    f"=== DỮ LIỆU TÌM KIẾM SẢN PHẨM TỪ CƠ SỞ DỮ LIỆU ===\n"
+                    f"=== DỮ LIỆU TÌM KIẾM SẢN PHẨM (MCP KHẢI HOÀN) ===\n"
                     + "\n".join(lines) + "\n"
                     f"===================================================\n"
                 )
@@ -4382,7 +4537,19 @@ def get_store_ai_context(prompt: str) -> tuple[str, str | None]:
     if has_order_intent or has_date_indicator:
         try:
             after, before, label = report_period_from_text(prompt)
-            orders = fetch_orders_between(after, before)
+            d_orders = []
+            p_orders = []
+            try:
+                d_orders = fetch_orders_between(after, before, site_key="derma")
+            except Exception:
+                pass
+            try:
+                p_orders = fetch_orders_between(after, before, site_key="pharma")
+            except Exception:
+                pass
+            orders = d_orders + p_orders
+            d_rows, d_prods, d_statuses, d_total_rev, d_line_rev, d_sources = summarize_orders(d_orders)
+            p_rows, p_prods, p_statuses, p_total_rev, p_line_rev, p_sources = summarize_orders(p_orders)
             order_rows, products, statuses, total_revenue, line_revenue, sources = summarize_orders(orders)
 
             status_map = {
@@ -4415,15 +4582,16 @@ def get_store_ai_context(prompt: str) -> tuple[str, str | None]:
                 tot = float(o.get("total") or 0)
                 st = status_map.get(o.get("status"), o.get("status"))
                 dt = (o.get("date_created") or "")[:10]
-                recent_orders_sample.append(f"  * Đơn #{oid} ({dt}) - {cust}: {tot:,.0f} VND [{st}]")
+                site_s = o.get("_site_short") or "Derma"
+                recent_orders_sample.append(f"  * Đơn #{oid} [{site_s}] ({dt}) - {cust}: {tot:,.0f} VND [{st}]")
             recent_str = "\n".join(recent_orders_sample) if recent_orders_sample else "  * Không có đơn hàng"
 
             context = (
-                f"=== DỮ LIỆU ĐƠN HÀNG THỰC TẾ WOOCOMMERCE KHẢI HOÀN DERMA ===\n"
+                f"=== DỮ LIỆU ĐƠN HÀNG HỆ THỐNG MCP KHẢI HOÀN (DERMA & PHARMA) ===\n"
                 f"- Kỳ truy vấn: {label}\n"
-                f"- Tổng số đơn hàng: {len(orders)} đơn\n"
-                f"- Tổng doanh thu: {total_revenue:,.0f} VND\n"
-                f"- Doanh thu thuần sản phẩm: {line_revenue:,.0f} VND\n"
+                f"- Toàn hệ thống: {len(orders)} đơn ({total_revenue:,.0f} VND) - Doanh thu sản phẩm: {line_revenue:,.0f} VND\n"
+                f"  * Khải Hoàn Derma: {len(d_orders)} đơn ({d_total_rev:,.0f} VND)\n"
+                f"  * Khải Hoàn Pharma: {len(p_orders)} đơn ({p_total_rev:,.0f} VND)\n"
                 f"- Trạng thái đơn hàng: {status_summary}\n"
                 f"- Top sản phẩm bán chạy nhất trong kỳ:\n{top_str}\n"
                 f"- Danh sách một số đơn hàng tiêu biểu:\n{recent_str}\n"
@@ -4432,9 +4600,9 @@ def get_store_ai_context(prompt: str) -> tuple[str, str | None]:
 
             fallback = (
                 f"### 📊 Báo cáo đơn hàng & doanh thu {label}\n\n"
-                f"- **Tổng số đơn hàng:** **{len(orders)} đơn**\n"
-                f"- **Tổng doanh thu:** **{total_revenue:,.0f} đ**\n"
-                f"- **Doanh thu sản phẩm:** **{line_revenue:,.0f} đ**\n"
+                f"- **Toàn hệ thống:** **{len(orders)} đơn** (Tổng doanh thu: **{total_revenue:,.0f} đ**)\n"
+                f"- **Khải Hoàn Derma:** {len(d_orders)} đơn (**{d_total_rev:,.0f} đ**)\n"
+                f"- **Khải Hoàn Pharma:** {len(p_orders)} đơn (**{p_total_rev:,.0f} đ**)\n"
                 f"- **Trạng thái đơn hàng:** {status_summary}\n\n"
                 f"**Top sản phẩm bán chạy:**\n{top_str}\n\n"
                 f"**Đơn hàng tiêu biểu:**\n{recent_str}"
@@ -4447,14 +4615,14 @@ def get_store_ai_context(prompt: str) -> tuple[str, str | None]:
     try:
         today = datetime.now()
         t_after, t_before = day_bounds(today)
-        today_orders = fetch_orders_between(t_after, t_before)
+        today_orders = fetch_all_sites_orders_between(t_after, t_before)
         today_rev = sum(float(o.get("total") or 0) for o in today_orders)
 
         context = (
-            f"=== THÔNG TIN TỔNG QUAN CỬA HÀNG KHẢI HOÀN DERMA (HÔM NAY {today.strftime('%d/%m/%Y')}) ===\n"
+            f"=== THÔNG TIN TỔNG QUAN HỆ THỐNG MCP KHẢI HOÀN (HÔM NAY {today.strftime('%d/%m/%Y')}) ===\n"
             f"- Ngày hiện tại: {today.strftime('%A, ngày %d/%m/%Y')}\n"
             f"- Đơn hàng hôm nay: {len(today_orders)} đơn ({today_rev:,.0f} VND)\n"
-            f"- Cửa hàng: Mỹ phẩm & Dược mỹ phẩm Khải Hoàn Derma (khaihoanderma.com)\n"
+            f"- Hệ thống: MCP Khải Hoàn gồm Khải Hoàn Derma (khaihoanderma.com) & Khải Hoàn Pharma (khaihoanpharma.com)\n"
             f"=====================================================================================\n"
         )
         return context, None
@@ -4483,10 +4651,10 @@ def ask_gemini_store(prompt: str) -> str:
     now_str = now.strftime("%A, ngày %d/%m/%Y (năm %Y)")
 
     system_instruction = (
-        f"Bạn là Trợ lý AI Khải Hoàn Derma (Gemini 3.8 Flash), được tích hợp TRỰC TIẾP vào hệ thống WooCommerce của cửa hàng Khải Hoàn Derma (khaihoanderma.com).\n"
+        f"Bạn là Trợ lý AI MCP Khải Hoàn (Gemini 3.8 Flash), được tích hợp TRỰC TIẾP vào hệ thống đa kênh của MCP Khải Hoàn gồm 2 website: Khải Hoàn Derma (khaihoanderma.com) và Khải Hoàn Pharma (khaihoanpharma.com).\n"
         f"HÔM NAY LÀ: {now_str}. Năm hiện tại là {now.year}.\n"
-        "Bạn có toàn quyền truy cập cơ sở dữ liệu thời gian thực về đơn hàng, doanh thu, sản phẩm và khách hàng.\n"
-        f"TUYỆT ĐỐI KHÔNG BAO GIỜ nói rằng năm {now.year} là 'tương lai', hay 'hệ thống chưa kết nối ERP/CRM', hay từ chối tra cứu vì bảo mật nội bộ, bởi vì người đang nhắn tin với bạn là Quản trị viên (Admin) của cửa hàng.\n"
+        "Bạn có toàn quyền truy cập cơ sở dữ liệu thời gian thực về đơn hàng, doanh thu, sản phẩm và khách hàng của cả 2 website.\n"
+        f"TUYỆT ĐỐI KHÔNG BAO GIỜ nói rằng năm {now.year} là 'tương lai', hay 'hệ thống chưa kết nối ERP/CRM', hay từ chối tra cứu vì bảo mật nội bộ, bởi vì người đang nhắn tin với bạn là Quản trị viên (Admin) của hệ thống.\n"
         "YÊU CẦU ĐỊNH DẠNG CÂU TRẢ LỜI CHO GIAO DIỆN WEB HTML:\n"
         "- Trình bày chuyên nghiệp, có bố cục các Mục rõ ràng (Mục 1, Mục 2, Mục 3) bằng tiêu đề '###'.\n"
         "- Với danh sách sản phẩm hoặc số liệu doanh thu: BẮT BUỘC sử dụng BẢNG BIỂU (Markdown Table có cột: STT | Tên sản phẩm | Số lượng bán | Doanh thu) để hiển thị thành bảng HTML ngăn nắp trực quan.\n"

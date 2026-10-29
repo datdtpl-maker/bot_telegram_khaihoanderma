@@ -26,6 +26,27 @@ const app = createApp({
     const authError = ref("");
     const devToken = ref(localStorage.getItem("khd_admin_token") || "");
 
+    // Store Selection State (Multi-site: MCP Khải Hoàn)
+    const selectedStore = ref("all"); // "all" | "derma" | "pharma"
+    const availableSites = ref([
+      { id: "all", name: "Toàn hệ thống", short_name: "MCP", badge: "MCP" },
+      { id: "derma", name: "Khải Hoàn Derma", short_name: "Derma", badge: "Derma" },
+      { id: "pharma", name: "Khải Hoàn Pharma", short_name: "Pharma", badge: "Pharma" }
+    ]);
+
+    const setStoreFilter = (storeKey) => {
+      selectedStore.value = storeKey;
+      haptic("light");
+      if (currentTab.value === "dashboard") {
+        fetchDashboard();
+      } else if (currentTab.value === "orders") {
+        fetchOrders();
+      } else if (currentTab.value === "products") {
+        currentPage.value = 1;
+        fetchProducts();
+      }
+    };
+
     // Dashboard State
     const stats = reactive({
       today_revenue: 0,
@@ -34,9 +55,15 @@ const app = createApp({
       month_orders: 0,
       pending_reviews: 0,
       notion_queue: 0,
+      breakdown: {
+        derma: { today_revenue: 0, today_orders: 0, month_revenue: 0, month_orders: 0 },
+        pharma: { today_revenue: 0, today_orders: 0, month_revenue: 0, month_orders: 0 }
+      },
       system_health: {
         woocommerce: "ok",
         wordpress: "ok",
+        derma: "ok",
+        pharma: "ok",
         gemini: "ok",
         notion: "ok"
       }
@@ -93,7 +120,7 @@ const app = createApp({
     const aiMessages = ref([
       {
         role: "assistant",
-        text: "Xin chào! Tôi là Trợ lý AI Khải Hoàn Derma (Gemini 3.8 Flash). Tôi đã kết nối dữ liệu cửa hàng thời gian thực. Bạn cần tra cứu đơn hàng trong quá khứ, doanh thu, sản phẩm hay tư vấn quản trị?"
+        text: "Xin chào! Tôi là Trợ lý AI MCP Khải Hoàn (Gemini 3.8 Flash). Tôi đã kết nối dữ liệu 2 website Khải Hoàn Derma & Khải Hoàn Pharma thời gian thực. Bạn cần tra cứu đơn hàng trong quá khứ, doanh thu, sản phẩm hay tư vấn quản trị?"
       }
     ]);
     const aiPrompt = ref("");
@@ -138,11 +165,32 @@ const app = createApp({
     };
 
     const showToast = (message, type = "info") => {
-      let msgStr = message;
-      if (typeof message === "object" && message !== null) {
-        msgStr = message.detail || message.message || JSON.stringify(message);
+      let msgStr = "";
+      if (typeof message === "string") {
+        msgStr = message;
+      } else if (message instanceof Error) {
+        msgStr = message.message || "Lỗi thao tác";
+      } else if (message && typeof message === "object") {
+        if (typeof message.detail === "string") {
+          msgStr = message.detail;
+        } else if (Array.isArray(message.detail)) {
+          msgStr = message.detail.map(d => (d && typeof d === "object" ? (d.msg || JSON.stringify(d)) : String(d))).join("; ");
+        } else if (typeof message.message === "string") {
+          msgStr = message.message;
+        } else {
+          try {
+            msgStr = JSON.stringify(message);
+          } catch (e) {
+            msgStr = String(message);
+          }
+        }
+      } else {
+        msgStr = String(message || "Thông báo");
       }
-      toast.message = String(msgStr || "Thông báo");
+      if (msgStr === "[object Object]" || !msgStr.trim()) {
+        msgStr = "Thao tác không thành công. Vui lòng kiểm tra lại.";
+      }
+      toast.message = msgStr;
       toast.type = type;
       toast.show = true;
       if (type === "success") haptic("success");
@@ -286,7 +334,7 @@ const app = createApp({
     // Dashboard
     const fetchDashboard = async () => {
       try {
-        const data = await apiCall("/api/dashboard/stats");
+        const data = await apiCall(`/api/dashboard/stats?site=${selectedStore.value}`);
         Object.assign(stats, data);
       } catch (err) {
         console.error("Lỗi tải dashboard:", err);
@@ -301,6 +349,7 @@ const app = createApp({
         if (ordersFilter.value !== "all") {
           params.append("status", ordersFilter.value);
         }
+        params.append("site", selectedStore.value);
         params.append("per_page", "30");
         const data = await apiCall(`/api/orders?${params.toString()}`);
         orders.value = data.orders || [];
@@ -314,15 +363,16 @@ const app = createApp({
     const updateOrderStatus = async (orderId, newStatus) => {
       haptic("medium");
       try {
-        await apiCall(`/api/orders/${orderId}/status`, {
+        const found = orders.value.find(o => o.id === orderId);
+        const siteKey = found?._site_key || "derma";
+        await apiCall(`/api/orders/${orderId}/status?site_key=${siteKey}`, {
           method: "POST",
-          body: JSON.stringify({ status: newStatus })
+          body: JSON.stringify({ status: newStatus, site_key: siteKey })
         });
         showToast(`Đã chuyển đơn #${orderId} sang ${getOrderStatusLabel(newStatus)}!`, "success");
         if (selectedOrder.value && selectedOrder.value.id === orderId) {
           selectedOrder.value.status = newStatus;
         }
-        const found = orders.value.find(o => o.id === orderId);
         if (found) found.status = newStatus;
         fetchDashboard();
       } catch (err) {
@@ -345,6 +395,7 @@ const app = createApp({
         if (productCategory.value) {
           params.append("category", productCategory.value);
         }
+        params.append("site", selectedStore.value);
         params.append("page", currentPage.value.toString());
         params.append("per_page", perPage.value.toString());
 
@@ -424,12 +475,14 @@ const app = createApp({
       haptic("medium");
       try {
         const pId = editPriceModal.product.id;
+        const siteKey = editPriceModal.product._site_key || "derma";
         const payload = {
           regular_price: regRaw,
           sale_price: saleRaw,
-          variation_id: editPriceModal.variation ? editPriceModal.variation.id : null
+          variation_id: editPriceModal.variation ? editPriceModal.variation.id : null,
+          site_key: siteKey
         };
-        const res = await apiCall(`/api/products/${pId}/price`, {
+        const res = await apiCall(`/api/products/${pId}/price?site_key=${siteKey}`, {
           method: "POST",
           body: JSON.stringify(payload)
         });
@@ -447,13 +500,15 @@ const app = createApp({
       haptic("medium");
       const currentStock = variation ? variation.stock_status : product.stock_status;
       const newStock = currentStock === "instock" ? "outofstock" : "instock";
+      const siteKey = product._site_key || "derma";
       try {
         const pId = product.id;
         const payload = {
           stock_status: newStock,
-          variation_id: variation ? variation.id : null
+          variation_id: variation ? variation.id : null,
+          site_key: siteKey
         };
-        await apiCall(`/api/products/${pId}/stock`, {
+        await apiCall(`/api/products/${pId}/stock?site_key=${siteKey}`, {
           method: "POST",
           body: JSON.stringify(payload)
         });
@@ -942,6 +997,9 @@ const app = createApp({
       authError,
       devToken,
       saveDevToken,
+      selectedStore,
+      availableSites,
+      setStoreFilter,
       stats,
       orders,
       ordersFilter,

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>Khải Hoàn Derma - Telegram Mini App</title>
+  <title>MCP Khải Hoàn - Telegram Mini App</title>
   <!-- Telegram WebApp JS SDK -->
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <!-- Vue.js 3 Production CDN -->
@@ -43,12 +43,12 @@
     <!-- Header Section with Desktop Navigation -->
     <header class="sticky top-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-4 py-3 flex items-center justify-between transition-colors">
       <div class="flex items-center space-x-3">
-        <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white font-black text-sm shadow-sm flex-shrink-0">
-          KD
+        <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white font-black text-xs shadow-sm flex-shrink-0">
+          MCP
         </div>
         <div>
-          <h1 class="text-base font-black text-title leading-tight">Khải Hoàn Derma</h1>
-          <p class="text-[11px] text-sub">Mini App Quản Trị & Bán Hàng</p>
+          <h1 class="text-base font-black text-title leading-tight">MCP Khải Hoàn</h1>
+          <p class="text-[11px] text-sub">Hệ Thống Quản Trị & Bán Hàng Đa Kênh</p>
         </div>
       </div>
 
@@ -111,6 +111,36 @@
         </span>
       </div>
     </header>
+
+    <!-- Multi-Store Selector Bar -->
+    <div class="px-3 sm:px-4 py-2 bg-slate-50/90 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 transition-colors">
+      <div class="flex items-center space-x-1.5 overflow-x-auto py-0.5 no-scrollbar">
+        <span class="text-xs font-bold text-muted mr-1 flex items-center gap-1">🏪 Website:</span>
+        <button @click="setStoreFilter('all')" 
+                :class="selectedStore === 'all' ? 'bg-blue-600 text-white font-bold shadow-sm' : 'card-theme text-sub hover:text-main'"
+                class="px-3 py-1 rounded-xl text-xs transition-all flex items-center space-x-1 border border-transparent">
+          <span>🌐</span>
+          <span>Toàn hệ thống</span>
+        </button>
+        <button @click="setStoreFilter('derma')" 
+                :class="selectedStore === 'derma' ? 'bg-emerald-600 text-white font-bold shadow-sm' : 'card-theme text-sub hover:text-main'"
+                class="px-3 py-1 rounded-xl text-xs transition-all flex items-center space-x-1 border border-transparent">
+          <span>🌿</span>
+          <span>Khải Hoàn Derma</span>
+        </button>
+        <button @click="setStoreFilter('pharma')" 
+                :class="selectedStore === 'pharma' ? 'bg-purple-600 text-white font-bold shadow-sm' : 'card-theme text-sub hover:text-main'"
+                class="px-3 py-1 rounded-xl text-xs transition-all flex items-center space-x-1 border border-transparent">
+          <span>💊</span>
+          <span>Khải Hoàn Pharma</span>
+        </button>
+      </div>
+      <div class="hidden sm:flex items-center space-x-2.5 text-[11px] text-sub font-semibold">
+        <a href="https://khaihoanderma.com" target="_blank" rel="noopener" class="hover:text-emerald-500 hover:underline flex items-center gap-1">🌿 khaihoanderma.com</a>
+        <span>•</span>
+        <a href="https://khaihoanpharma.com" target="_blank" rel="noopener" class="hover:text-purple-500 hover:underline flex items-center gap-1">💊 khaihoanpharma.com</a>
+      </div>
+    </div>
 
     <!-- Dev / Auth Banner if not authenticated in standalone browser -->
     <div v-if="!isAuthenticated && !isLoading" class="m-4 p-4 card-theme rounded-2xl border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 text-amber-900 dark:text-amber-200">
@@ -200,12 +230,57 @@
           </div>
         </div>
 
+        <!-- Multi-Store Breakdown Cards (Visible when 'Toàn hệ thống' is selected) -->
+        <div v-if="selectedStore === 'all' && stats.breakdown" class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <!-- Derma Store Card -->
+          <div @click="setStoreFilter('derma')" class="card-theme p-3.5 rounded-2xl border-l-4 border-l-emerald-500 flex items-center justify-between cursor-pointer hover:shadow-md transition-all">
+            <div>
+              <div class="text-xs font-black text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
+                <span>🌿</span>
+                <span>Khải Hoàn Derma</span>
+                <span class="text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">Derma</span>
+              </div>
+              <div class="text-xs text-sub mt-1">
+                Hôm nay: <b class="text-title">{{ formatMoney(stats.breakdown.derma?.today_revenue) }}</b> ({{ stats.breakdown.derma?.today_orders }} đơn)
+              </div>
+            </div>
+            <div class="text-right">
+              <div class="text-[11px] text-muted">Tháng này</div>
+              <div class="text-sm font-black text-emerald-600 dark:text-emerald-400">
+                {{ formatMoney(stats.breakdown.derma?.month_revenue) }}
+              </div>
+              <div class="text-[10px] text-sub">{{ stats.breakdown.derma?.month_orders }} đơn</div>
+            </div>
+          </div>
+
+          <!-- Pharma Store Card -->
+          <div @click="setStoreFilter('pharma')" class="card-theme p-3.5 rounded-2xl border-l-4 border-l-purple-500 flex items-center justify-between cursor-pointer hover:shadow-md transition-all">
+            <div>
+              <div class="text-xs font-black text-purple-600 dark:text-purple-400 flex items-center gap-1.5">
+                <span>💊</span>
+                <span>Khải Hoàn Pharma</span>
+                <span class="text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-purple-500/15 text-purple-600 dark:text-purple-400">Pharma</span>
+              </div>
+              <div class="text-xs text-sub mt-1">
+                Hôm nay: <b class="text-title">{{ formatMoney(stats.breakdown.pharma?.today_revenue) }}</b> ({{ stats.breakdown.pharma?.today_orders }} đơn)
+              </div>
+            </div>
+            <div class="text-right">
+              <div class="text-[11px] text-muted">Tháng này</div>
+              <div class="text-sm font-black text-purple-600 dark:text-purple-400">
+                {{ formatMoney(stats.breakdown.pharma?.month_revenue) }}
+              </div>
+              <div class="text-[10px] text-sub">{{ stats.breakdown.pharma?.month_orders }} đơn</div>
+            </div>
+          </div>
+        </div>
+
         <!-- Quick Management Shortcuts (Grid on desktop) -->
         <div class="card-theme p-4 md:p-5 rounded-2xl space-y-3">
           <div class="flex items-center justify-between">
             <h3 class="text-xs font-bold uppercase tracking-wider text-muted">Truy Cập Nhanh Quản Trị</h3>
             <span class="text-[10px] font-bold px-2 py-0.5 rounded-full card-sub text-sub">
-              Website: khaihoanderma.com
+              {{ selectedStore === 'all' ? 'Đa kênh: Derma & Pharma' : (selectedStore === 'pharma' ? 'Website: khaihoanpharma.com' : 'Website: khaihoanderma.com') }}
             </span>
           </div>
 
@@ -289,7 +364,15 @@
             <div class="space-y-2.5">
               <!-- Order Header -->
               <div class="flex items-center justify-between">
-                <span class="font-black text-sm text-title">#{{ ord.id }}</span>
+                <div class="flex items-center space-x-1.5">
+                  <span class="font-black text-sm text-title">#{{ ord.id }}</span>
+                  <span v-if="ord._site_short === 'Pharma'" class="px-2 py-0.5 rounded-full text-[10px] font-black bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30">
+                    💊 Pharma
+                  </span>
+                  <span v-else class="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+                    🌿 Derma
+                  </span>
+                </div>
                 <span :class="{
                   'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30': ord.status === 'processing',
                   'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30': ord.status === 'completed',
@@ -417,6 +500,12 @@
               <!-- Top Category & Badges Bar -->
               <div class="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800 gap-2">
                 <div class="flex items-center space-x-1.5 min-w-0">
+                  <span v-if="prod._site_short === 'Pharma'" class="px-2 py-0.5 rounded-md text-[10px] font-black bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30 flex-shrink-0">
+                    💊 Pharma
+                  </span>
+                  <span v-else class="px-2 py-0.5 rounded-md text-[10px] font-black bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 flex-shrink-0">
+                    🌿 Derma
+                  </span>
                   <span v-if="prod.categories && prod.categories.length > 0" 
                         class="text-[10px] font-bold px-2 py-0.5 rounded-md card-sub text-sub truncate" 
                         :title="prod.categories.join(', ')">
@@ -698,12 +787,12 @@
               </div>
               <div>
                 <h3 class="font-bold text-base text-title flex items-center gap-2">
-                  <span>Trợ Lý AI Khải Hoàn Derma</span>
+                  <span>Trợ Lý AI MCP Khải Hoàn</span>
                   <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-sky-400">
                     Gemini 3.8 Flash
                   </span>
                 </h3>
-                <p class="text-xs text-sub">Tra cứu đơn hàng quá khứ, phân tích doanh thu & quản trị cửa hàng thời gian thực</p>
+                <p class="text-xs text-sub">Tra cứu đơn hàng, phân tích doanh thu & quản trị đa kênh (Khải Hoàn Derma & Pharma) thời gian thực</p>
               </div>
             </div>
             <div class="flex items-center space-x-2 self-end sm:self-auto">
@@ -910,9 +999,17 @@
     <div v-if="editPriceModal.show" class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
       <div class="card-theme w-full max-w-sm rounded-t-3xl sm:rounded-2xl p-5 space-y-4 shadow-2xl">
         <div class="flex items-center justify-between">
-          <h3 class="font-bold text-sm text-title">
-            {{ editPriceModal.variation ? 'Sửa Giá Biến Thể' : 'Sửa Giá Sản Phẩm' }}
-          </h3>
+          <div class="flex items-center space-x-1.5">
+            <h3 class="font-bold text-sm text-title">
+              {{ editPriceModal.variation ? 'Sửa Giá Biến Thể' : 'Sửa Giá Sản Phẩm' }}
+            </h3>
+            <span v-if="editPriceModal.product?._site_short === 'Pharma'" class="px-2 py-0.5 rounded-full text-[10px] font-black bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30">
+              💊 Pharma
+            </span>
+            <span v-else class="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+              🌿 Derma
+            </span>
+          </div>
           <button @click="editPriceModal.show = false" class="text-muted hover:text-main font-black text-xl">&times;</button>
         </div>
 
@@ -952,7 +1049,15 @@
     <div v-if="selectedOrder" class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
       <div class="card-theme w-full max-w-lg max-h-[85vh] overflow-y-auto rounded-t-3xl sm:rounded-2xl p-5 space-y-4 shadow-2xl">
         <div class="flex items-center justify-between">
-          <h3 class="font-bold text-sm text-title">Chi Tiết Đơn Hàng #{{ selectedOrder.id }}</h3>
+          <div class="flex items-center space-x-2">
+            <h3 class="font-bold text-sm text-title">Chi Tiết Đơn Hàng #{{ selectedOrder.id }}</h3>
+            <span v-if="selectedOrder._site_short === 'Pharma'" class="px-2 py-0.5 rounded-full text-[10px] font-black bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30">
+              💊 Pharma
+            </span>
+            <span v-else class="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+              🌿 Derma
+            </span>
+          </div>
           <button @click="selectedOrder = null" class="text-muted hover:text-main font-black text-xl">&times;</button>
         </div>
 

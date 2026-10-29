@@ -153,11 +153,12 @@ def get_current_admin(
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Yêu cầu xác thực tài khoản Admin.")
 
 
-def update_product_cache_locally(product_id: int, updates: dict) -> None:
+def update_product_cache_locally(product_id: int, updates: dict, site_key: str = "derma") -> None:
     """Cập nhật dữ liệu sản phẩm trong bộ nhớ đệm cache của bot"""
     try:
         with bot._ALL_PRODUCTS_CACHE_LOCK:
-            for p in bot._ALL_PRODUCTS_CACHE:
+            target_list = bot._ALL_PHARMA_PRODUCTS_CACHE if site_key == "pharma" else bot._ALL_PRODUCTS_CACHE
+            for p in target_list:
                 if p.get("id") == product_id:
                     p.update(updates)
                     break
@@ -175,7 +176,7 @@ def serve_index():
     return FileResponse(index_file)
 
 
-# ================= AUTH API =================
+# ================= AUTH & SITES API =================
 
 @app.post("/api/auth/verify")
 def auth_verify(current_user: dict = Depends(get_current_admin)):
@@ -189,34 +190,99 @@ def auth_verify(current_user: dict = Depends(get_current_admin)):
         "ok": True,
         "user": current_user,
         "role": "admin",
-        "site_url": site_url
+        "site_url": site_url,
+        "brand": "MCP Khải Hoàn"
+    }
+
+
+@app.get("/api/system/sites")
+def get_system_sites(current_user: dict = Depends(get_current_admin)):
+    return {
+        "sites": [
+            {
+                "id": "all",
+                "name": "Toàn hệ thống",
+                "short_name": "MCP",
+                "badge": "MCP",
+                "color": "blue",
+                "urls": ["https://khaihoanderma.com", "https://khaihoanpharma.com"]
+            },
+            {
+                "id": "derma",
+                "name": "Khải Hoàn Derma",
+                "short_name": "Derma",
+                "badge": "Derma",
+                "color": "emerald",
+                "url": "https://khaihoanderma.com"
+            },
+            {
+                "id": "pharma",
+                "name": "Khải Hoàn Pharma",
+                "short_name": "Pharma",
+                "badge": "Pharma",
+                "color": "purple",
+                "url": "https://khaihoanpharma.com"
+            }
+        ]
     }
 
 
 # ================= DASHBOARD STATS API =================
 
 @app.get("/api/dashboard/stats")
-def get_dashboard_stats(current_user: dict = Depends(get_current_admin)):
+def get_dashboard_stats(site: str = Query("all"), current_user: dict = Depends(get_current_admin)):
     today = datetime.now()
     t_after, t_before = bot.day_bounds(today)
     m_after, m_before = bot.month_bounds(bot.current_month())
 
-    # 1. Doanh thu hôm nay
-    today_orders = bot.fetch_orders_between(t_after, t_before)
-    _, _, _, today_rev, _, _ = bot.summarize_orders(today_orders)
+    d_today_orders = []
+    p_today_orders = []
+    d_month_orders = []
+    p_month_orders = []
 
-    # 2. Doanh thu tháng này
-    month_orders = bot.fetch_orders(bot.current_month())
+    # 1. Doanh thu Derma
+    if site in {"all", "derma"}:
+        try:
+            d_today_orders = bot.fetch_orders_between(t_after, t_before, site_key="derma")
+            d_month_orders = bot.fetch_orders(bot.current_month(), site_key="derma")
+        except Exception as exc:
+            bot.log(f"[Dashboard] Lỗi tải đơn Derma: {exc}")
+
+    # 2. Doanh thu Pharma
+    if site in {"all", "pharma"}:
+        try:
+            p_today_orders = bot.fetch_orders_between(t_after, t_before, site_key="pharma")
+            p_month_orders = bot.fetch_orders(bot.current_month(), site_key="pharma")
+        except Exception as exc:
+            bot.log(f"[Dashboard] Lỗi tải đơn Pharma: {exc}")
+
+    if site == "derma":
+        today_orders = d_today_orders
+        month_orders = d_month_orders
+    elif site == "pharma":
+        today_orders = p_today_orders
+        month_orders = p_month_orders
+    else:
+        today_orders = d_today_orders + p_today_orders
+        month_orders = d_month_orders + p_month_orders
+
+    _, _, _, today_rev, _, _ = bot.summarize_orders(today_orders)
     _, _, _, month_rev, _, _ = bot.summarize_orders(month_orders)
+
+    _, _, _, d_today_rev, _, _ = bot.summarize_orders(d_today_orders)
+    _, _, _, d_month_rev, _, _ = bot.summarize_orders(d_month_orders)
+    _, _, _, p_today_rev, _, _ = bot.summarize_orders(p_today_orders)
+    _, _, _, p_month_rev, _, _ = bot.summarize_orders(p_month_orders)
 
     # 3. Đánh giá chờ duyệt (hold)
     pending_reviews_count = 0
-    try:
-        revs = bot.wc_get("products/reviews", {"status": "hold", "per_page": 100})
-        if isinstance(revs, list):
-            pending_reviews_count = len(revs)
-    except Exception:
-        pass
+    if site in {"all", "derma"}:
+        try:
+            revs = bot.wc_get("products/reviews", {"status": "hold", "per_page": 100}, site_key="derma")
+            if isinstance(revs, list):
+                pending_reviews_count = len(revs)
+        except Exception:
+            pass
 
     # 4. Notion chờ đăng
     notion_queue_count = 0
@@ -230,15 +296,34 @@ def get_dashboard_stats(current_user: dict = Depends(get_current_admin)):
             pass
 
     return {
+        "site": site,
         "today_revenue": today_rev,
         "today_orders": len(today_orders),
         "month_revenue": month_rev,
         "month_orders": len(month_orders),
         "pending_reviews": pending_reviews_count,
         "notion_queue": notion_queue_count,
+        "breakdown": {
+            "derma": {
+                "name": "Khải Hoàn Derma",
+                "today_revenue": d_today_rev,
+                "today_orders": len(d_today_orders),
+                "month_revenue": d_month_rev,
+                "month_orders": len(d_month_orders),
+            },
+            "pharma": {
+                "name": "Khải Hoàn Pharma",
+                "today_revenue": p_today_rev,
+                "today_orders": len(p_today_orders),
+                "month_revenue": p_month_rev,
+                "month_orders": len(p_month_orders),
+            }
+        },
         "system_health": {
             "woocommerce": "ok",
             "wordpress": "ok",
+            "derma": "ok",
+            "pharma": "ok",
             "gemini": "ok",
             "notion": "ok"
         }
@@ -307,6 +392,7 @@ def get_product_variations_cached(product_id: int) -> list[dict]:
 @app.get("/api/orders")
 def get_orders(
     status_filter: str = Query("all", alias="status"),
+    site: str = Query("all"),
     per_page: int = Query(25),
     page: int = Query(1),
     current_user: dict = Depends(get_current_admin)
@@ -315,13 +401,53 @@ def get_orders(
     if status_filter and status_filter != "all":
         params["status"] = status_filter
 
-    try:
-        res = bot.wc_get("orders", params)
-        if not isinstance(res, list):
-            return {"orders": []}
+    raw_orders = []
+    if site == "derma":
+        res = bot.wc_get("orders", params, site_key="derma")
+        if isinstance(res, list):
+            for o in res:
+                o["_site_key"] = "derma"
+                o["_site_name"] = "Khải Hoàn Derma"
+                o["_site_short"] = "Derma"
+            raw_orders = res
+    elif site == "pharma":
+        res = bot.wc_get("orders", params, site_key="pharma")
+        if isinstance(res, list):
+            for o in res:
+                o["_site_key"] = "pharma"
+                o["_site_name"] = "Khải Hoàn Pharma"
+                o["_site_short"] = "Pharma"
+            raw_orders = res
+    else:
+        # site == "all"
+        d_res = []
+        p_res = []
+        try:
+            d_res = bot.wc_get("orders", params, site_key="derma")
+            if isinstance(d_res, list):
+                for o in d_res:
+                    o["_site_key"] = "derma"
+                    o["_site_name"] = "Khải Hoàn Derma"
+                    o["_site_short"] = "Derma"
+        except Exception as exc:
+            bot.log(f"[MiniApp] Lỗi tải đơn Derma: {exc}")
+        try:
+            p_res = bot.wc_get("orders", params, site_key="pharma")
+            if isinstance(p_res, list):
+                for o in p_res:
+                    o["_site_key"] = "pharma"
+                    o["_site_name"] = "Khải Hoàn Pharma"
+                    o["_site_short"] = "Pharma"
+        except Exception as exc:
+            bot.log(f"[MiniApp] Lỗi tải đơn Pharma: {exc}")
 
+        combined = (d_res if isinstance(d_res, list) else []) + (p_res if isinstance(p_res, list) else [])
+        combined.sort(key=lambda x: str(x.get("date_created") or ""), reverse=True)
+        raw_orders = combined[:min(per_page, 50)]
+
+    try:
         formatted = []
-        for o in res:
+        for o in raw_orders:
             billing = o.get("billing") or {}
             shipping = o.get("shipping") or {}
             first_name = (billing.get("first_name") or "").strip()
@@ -352,6 +478,9 @@ def get_orders(
 
             formatted.append({
                 "id": o.get("id"),
+                "_site_key": o.get("_site_key") or "derma",
+                "_site_name": o.get("_site_name") or "Khải Hoàn Derma",
+                "_site_short": o.get("_site_short") or "Derma",
                 "status": o.get("status"),
                 "total": float(o.get("total") or 0),
                 "date_created": o.get("date_created"),
@@ -371,25 +500,34 @@ def get_orders(
 
 class UpdateOrderStatusRequest(BaseModel):
     status: str
+    site_key: Optional[str] = "derma"
 
 
 @app.post("/api/orders/{order_id}/status")
 def update_order_status(
     order_id: int,
     body: UpdateOrderStatusRequest,
+    site_key: Optional[str] = Query(None),
     current_user: dict = Depends(get_current_admin)
 ):
     valid_statuses = {"processing", "completed", "on-hold", "cancelled", "refunded", "failed", "pending"}
     if body.status not in valid_statuses:
         raise HTTPException(status_code=400, detail=f"Trạng thái {body.status} không hợp lệ.")
+
+    target_site = site_key or body.site_key or "derma"
     try:
-        res = bot.wc_put(f"orders/{order_id}", {"status": body.status})
+        res = bot.wc_put(f"orders/{order_id}", {"status": body.status}, site_key=target_site)
         if not isinstance(res, dict) or not res.get("id"):
             raise HTTPException(status_code=400, detail="Lỗi khi cập nhật trạng thái đơn hàng trên WooCommerce.")
         return {"ok": True, "message": f"Đã chuyển đơn hàng #{order_id} sang trạng thái: {body.status}!"}
-    except HTTPException:
-        raise
     except Exception as exc:
+        if target_site == "derma" and not site_key:
+            try:
+                res = bot.wc_put(f"orders/{order_id}", {"status": body.status}, site_key="pharma")
+                if isinstance(res, dict) and res.get("id"):
+                    return {"ok": True, "message": f"Đã chuyển đơn hàng #{order_id} (Pharma) sang trạng thái: {body.status}!"}
+            except Exception:
+                pass
         bot.log(f"[MiniApp] Lỗi đổi trạng thái đơn #{order_id}: {exc}")
         raise HTTPException(status_code=500, detail=str(exc))
 
@@ -401,6 +539,7 @@ def get_products(
     search: str = Query("", alias="search"),
     filter_type: str = Query("all", alias="filter"),
     category: str = Query("", alias="category"),
+    site: str = Query("all"),
     per_page: int = Query(20),
     page: int = Query(1),
     current_user: dict = Depends(get_current_admin)
@@ -409,7 +548,7 @@ def get_products(
     import concurrent.futures
 
     try:
-        all_cached = bot.get_cached_all_products()
+        all_cached = bot.get_cached_all_products(site_key=site)
 
         # Thu thập danh sách tất cả danh mục của shop
         all_categories = sorted(list({
@@ -432,6 +571,8 @@ def get_products(
         search_term = str(search or "").strip()
         if search_term:
             matched = bot.find_products_by_fuzzy_name(search_term)
+            if site != "all":
+                matched = [p for p in matched if p.get("_site_key") == site]
         else:
             matched = all_cached
 
@@ -510,6 +651,9 @@ def get_products(
 
             formatted.append({
                 "id": p_id,
+                "_site_key": p.get("_site_key") or "derma",
+                "_site_name": p.get("_site_name") or "Khải Hoàn Derma",
+                "_site_short": p.get("_site_short") or "Derma",
                 "name": p.get("name"),
                 "sku": p.get("sku") or "",
                 "price": float(p.get("price") or 0),
@@ -550,14 +694,17 @@ class UpdatePriceRequest(BaseModel):
     regular_price: Optional[Union[str, int, float]] = None
     sale_price: Optional[Union[str, int, float]] = None
     variation_id: Optional[int] = None
+    site_key: Optional[str] = "derma"
 
 
 @app.post("/api/products/{product_id}/price")
 def update_product_price(
     product_id: int,
     body: UpdatePriceRequest,
+    site_key: Optional[str] = Query(None),
     current_user: dict = Depends(get_current_admin)
 ):
+    target_site = site_key or body.site_key or "derma"
     try:
         reg_str = None
         if body.regular_price is not None:
@@ -601,7 +748,7 @@ def update_product_price(
                 var_payload["regular_price"] = reg_str
             if sale_str is not None:
                 var_payload["sale_price"] = sale_str
-            res = bot.wc_put(f"products/{product_id}/variations/{body.variation_id}", var_payload)
+            res = bot.wc_put(f"products/{product_id}/variations/{body.variation_id}", var_payload, site_key=target_site)
             if not isinstance(res, dict) or not res.get("id"):
                 raise HTTPException(status_code=400, detail="Lỗi cập nhật giá biến thể trên WooCommerce.")
             return {"ok": True, "message": f"Đã cập nhật giá biến thể #{body.variation_id} thành công!"}
@@ -612,10 +759,10 @@ def update_product_price(
                 prod_payload["regular_price"] = reg_str
             if sale_str is not None:
                 prod_payload["sale_price"] = sale_str
-            res = bot.wc_put(f"products/{product_id}", prod_payload)
+            res = bot.wc_put(f"products/{product_id}", prod_payload, site_key=target_site)
             if not isinstance(res, dict) or not res.get("id"):
                 raise HTTPException(status_code=400, detail="Lỗi cập nhật giá sản phẩm trên WooCommerce.")
-            update_product_cache_locally(product_id, prod_payload)
+            update_product_cache_locally(product_id, prod_payload, site_key=target_site)
             return {"ok": True, "message": f"Đã cập nhật giá sản phẩm #{product_id} thành công!"}
     except HTTPException:
         raise
@@ -637,28 +784,31 @@ def update_product_price(
 class UpdateStockRequest(BaseModel):
     stock_status: str # "instock" | "outofstock"
     variation_id: Optional[int] = None
+    site_key: Optional[str] = "derma"
 
 
 @app.post("/api/products/{product_id}/stock")
 def update_product_stock(
     product_id: int,
     body: UpdateStockRequest,
+    site_key: Optional[str] = Query(None),
     current_user: dict = Depends(get_current_admin)
 ):
     if body.stock_status not in {"instock", "outofstock"}:
         raise HTTPException(status_code=400, detail="stock_status không hợp lệ.")
 
+    target_site = site_key or body.site_key or "derma"
     try:
         if body.variation_id:
-            res = bot.wc_put(f"products/{product_id}/variations/{body.variation_id}", {"stock_status": body.stock_status})
+            res = bot.wc_put(f"products/{product_id}/variations/{body.variation_id}", {"stock_status": body.stock_status}, site_key=target_site)
             if not isinstance(res, dict) or not res.get("id"):
                 raise HTTPException(status_code=400, detail="Lỗi cập nhật tồn kho biến thể.")
             return {"ok": True, "message": f"Đã đổi tồn kho biến thể #{body.variation_id} thành {body.stock_status}!"}
         else:
-            res = bot.wc_put(f"products/{product_id}", {"stock_status": body.stock_status})
+            res = bot.wc_put(f"products/{product_id}", {"stock_status": body.stock_status}, site_key=target_site)
             if not isinstance(res, dict) or not res.get("id"):
                 raise HTTPException(status_code=400, detail="Lỗi cập nhật tồn kho sản phẩm.")
-            update_product_cache_locally(product_id, {"stock_status": body.stock_status})
+            update_product_cache_locally(product_id, {"stock_status": body.stock_status}, site_key=target_site)
             return {"ok": True, "message": f"Đã đổi tồn kho sản phẩm #{product_id} thành {body.stock_status}!"}
     except HTTPException:
         raise

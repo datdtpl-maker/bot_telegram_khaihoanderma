@@ -342,6 +342,69 @@ class MiniAppTestSuite(unittest.TestCase):
             self.assertIn("Báo cáo đơn hàng", data.get("answer"))
             self.assertIn("350,000", data.get("answer"))
 
+    def test_get_system_sites_endpoint(self):
+        with patch.dict("os.environ", {"TELEGRAM_BOT_TOKEN": self.bot_token}):
+            headers = {"X-Admin-Token": self.admin_token}
+            res = self.client.get("/api/system/sites", headers=headers)
+            self.assertEqual(res.status_code, 200)
+            data = res.json()
+            self.assertIn("sites", data)
+            site_ids = [s["id"] for s in data["sites"]]
+            self.assertIn("all", site_ids)
+            self.assertIn("derma", site_ids)
+            self.assertIn("pharma", site_ids)
+
+    def test_multi_site_config_helpers(self):
+        derma_cfg = mini_app_server.bot.get_site_config("derma")
+        self.assertEqual(derma_cfg["key"], "derma")
+        self.assertEqual(derma_cfg["short_name"], "Derma")
+
+        pharma_cfg = mini_app_server.bot.get_site_config("pharma")
+        self.assertEqual(pharma_cfg["key"], "pharma")
+        self.assertEqual(pharma_cfg["short_name"], "Pharma")
+        self.assertIn("khaihoanpharma.com", pharma_cfg["site_url"])
+
+        sites = mini_app_server.bot.get_all_sites()
+        self.assertEqual(len(sites), 2)
+
+    def test_dashboard_stats_multi_site_breakdown(self):
+        fake_orders = [
+            {"id": 1, "total": "200000", "status": "completed", "line_items": []}
+        ]
+        with patch.dict("os.environ", {"TELEGRAM_BOT_TOKEN": self.bot_token}), \
+             patch.object(mini_app_server.bot, "fetch_orders_between", return_value=fake_orders), \
+             patch.object(mini_app_server.bot, "fetch_orders", return_value=fake_orders):
+            headers = {"X-Admin-Token": self.admin_token}
+            res = self.client.get("/api/dashboard/stats?site=all", headers=headers)
+            self.assertEqual(res.status_code, 200)
+            data = res.json()
+            self.assertIn("breakdown", data)
+            self.assertIn("derma", data["breakdown"])
+            self.assertIn("pharma", data["breakdown"])
+            self.assertIn("system_health", data)
+            self.assertIn("derma", data["system_health"])
+            self.assertIn("pharma", data["system_health"])
+
+    def test_orders_multi_site_query(self):
+        derma_order = {
+            "id": 101,
+            "status": "processing",
+            "total": "150000",
+            "date_created": "2026-10-29T08:00:00",
+            "billing": {"first_name": "Derma", "last_name": "Customer"},
+            "line_items": []
+        }
+        with patch.dict("os.environ", {"TELEGRAM_BOT_TOKEN": self.bot_token}), \
+             patch.object(mini_app_server.bot, "wc_get", return_value=[derma_order]):
+            headers = {"X-Admin-Token": self.admin_token}
+            res = self.client.get("/api/orders?site=derma", headers=headers)
+            self.assertEqual(res.status_code, 200)
+            data = res.json()
+            self.assertEqual(len(data.get("orders", [])), 1)
+            order = data["orders"][0]
+            self.assertEqual(order["_site_key"], "derma")
+            self.assertEqual(order["_site_short"], "Derma")
+
 
 if __name__ == "__main__":
     unittest.main()

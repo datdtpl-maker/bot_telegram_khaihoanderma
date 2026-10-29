@@ -143,9 +143,9 @@ if ($ValidateOnly) {
 }
 
 Write-Host "=============================================="
-Write-Host "       KHỞI ĐỘNG BOT KHẢI HOÀN DERMA"
+Write-Host "       KHỞI ĐỘNG BOT KHẢI HOÀN DERMA & PHARMA (MCP KHẢI HOÀN)"
 Write-Host "=============================================="
-Write-Host "Khởi động Bot Khải Hoàn Derma"
+Write-Host "Khởi động Hệ Thống Bot & Mini App MCP Khải Hoàn"
 Write-Host "Thư mục: $PSScriptRoot"
 Write-Host "Python: $pythonVersion"
 Write-Host "Nhấn Ctrl+C để dừng bot an toàn."
