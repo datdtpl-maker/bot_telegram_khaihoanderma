@@ -284,13 +284,13 @@ def get_dashboard_stats(site: str = Query("all"), current_user: dict = Depends(g
         except Exception:
             pass
 
-    # 4. Notion chờ đăng
+    # 4. Notion chờ đăng (Đa kênh: Derma & Pharma)
     notion_queue_count = 0
-    token = os.environ.get("NOTION_TOKEN")
-    db_id = os.environ.get("NOTION_DATABASE_ID")
-    if token and db_id:
+    notion_cfg = notion_sync.load_config()
+    token = notion_cfg.get("NOTION_TOKEN")
+    if token:
         try:
-            pages = notion_sync.query_notion_pages_to_post(token, db_id)
+            pages = notion_sync.query_all_notion_pages_to_post(token, notion_cfg, site_key=site)
             notion_queue_count = len(pages)
         except Exception:
             pass
@@ -882,13 +882,16 @@ def delete_review(review_id: int, current_user: dict = Depends(get_current_admin
 # ================= NOTION SYNC API =================
 
 @app.get("/api/notion/pages")
-def get_notion_pages(current_user: dict = Depends(get_current_admin)):
-    token = os.environ.get("NOTION_TOKEN")
-    db_id = os.environ.get("NOTION_DATABASE_ID")
-    if not token or not db_id:
+def get_notion_pages(
+    site: str = Query("all"),
+    current_user: dict = Depends(get_current_admin)
+):
+    notion_cfg = notion_sync.load_config()
+    token = notion_cfg.get("NOTION_TOKEN")
+    if not token:
         return {"pages": []}
     try:
-        pages = notion_sync.query_notion_pages_to_post(token, db_id)
+        pages = notion_sync.query_all_notion_pages_to_post(token, notion_cfg, site_key=site)
         formatted = []
         for p in pages:
             props = p.get("properties") or {}
@@ -901,7 +904,11 @@ def get_notion_pages(current_user: dict = Depends(get_current_admin)):
                     break
             formatted.append({
                 "id": p.get("id"),
-                "title": title
+                "title": title,
+                "_site_key": p.get("_site_key") or "derma",
+                "_site_name": p.get("_site_name") or "Khải Hoàn Derma",
+                "_site_short": p.get("_site_short") or "Derma",
+                "_site_badge": p.get("_site_badge") or "🌿 Derma",
             })
         return {"pages": formatted}
     except Exception as exc:
@@ -909,19 +916,19 @@ def get_notion_pages(current_user: dict = Depends(get_current_admin)):
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-def _notion_sync_worker():
+def _notion_sync_worker(site_key: str = "all"):
     global NOTION_SYNC_STATE
     NOTION_SYNC_STATE["is_running"] = True
-    NOTION_SYNC_STATE["current_status"] = "Đang kết nối Notion và kiểm tra bài viết..."
+    NOTION_SYNC_STATE["current_status"] = f"Đang kết nối Notion và kiểm tra bài viết ({site_key})..."
     NOTION_SYNC_STATE["last_error"] = None
-    bot.log("[NotionSync] Bắt đầu kích hoạt quy trình đồng bộ bài viết Notion...")
+    bot.log(f"[NotionSync] Bắt đầu kích hoạt quy trình đồng bộ bài viết Notion ({site_key})...")
     try:
         def callback(step, total, detail):
             status_text = f"Bước {step}/{total}: {detail}"
             NOTION_SYNC_STATE["current_status"] = status_text
             bot.log(f"[NotionSync] {status_text}")
 
-        notion_sync.run_notion_sync_workflow(progress_callback=callback)
+        notion_sync.run_notion_sync_workflow(progress_callback=callback, site_key=site_key)
         NOTION_SYNC_STATE["current_status"] = "Hoàn tất đồng bộ Notion thành công!"
         NOTION_SYNC_STATE["last_run"] = datetime.now().isoformat()
         bot.log("[NotionSync] ✅ Hoàn tất đồng bộ bài viết Notion thành công!")
@@ -934,14 +941,18 @@ def _notion_sync_worker():
 
 
 @app.post("/api/notion/sync")
-def trigger_notion_sync(current_user: dict = Depends(get_current_admin)):
+def trigger_notion_sync(
+    site: Optional[str] = Query("all"),
+    current_user: dict = Depends(get_current_admin)
+):
     global NOTION_SYNC_STATE
     if NOTION_SYNC_STATE["is_running"]:
         raise HTTPException(status_code=400, detail="Quá trình đồng bộ đang chạy dở.")
 
-    thread = threading.Thread(target=_notion_sync_worker, daemon=True)
+    target_site = site or "all"
+    thread = threading.Thread(target=_notion_sync_worker, args=(target_site,), daemon=True)
     thread.start()
-    return {"ok": True, "message": "Đã bắt đầu tiến trình đồng bộ Notion."}
+    return {"ok": True, "message": f"Đã bắt đầu tiến trình đồng bộ Notion ({target_site})."}
 
 
 @app.get("/api/notion/status")

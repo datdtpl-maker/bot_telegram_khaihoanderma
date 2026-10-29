@@ -468,5 +468,65 @@ class DriveVideoEmbedTests(unittest.TestCase):
             self.assertEqual(vids[1]["id"], "vid8")
 
 
+class MultiSiteNotionSyncTests(unittest.TestCase):
+    def test_site_sync_config_derma_and_pharma(self):
+        cfg = {
+            "WORDPRESS_SITE_URL": "https://khaihoanderma.com",
+            "WORDPRESS_USERNAME": "derma_admin",
+            "WORDPRESS_PASSWORD": "derma_password",
+            "WOOCOMMERCE_CONSUMER_KEY": "ck_derma",
+            "WOOCOMMERCE_CONSUMER_SECRET": "cs_derma",
+            "NOTION_DATABASE_ID": "9788b8a031cc42d391be4e26d6b8c8e8",
+            "PHARMA_SITE_URL": "https://khaihoanpharma.com",
+            "PHARMA_USERNAME": "pharma_admin",
+            "PHARMA_PASSWORD": "pharma_password",
+            "PHARMA_NOTION_DATABASE_ID": "40870655a9aa8150a9c0e01105450e7e",
+        }
+        derma_sync = notion_sync.get_site_sync_config(cfg, "derma")
+        self.assertEqual(derma_sync["site_key"], "derma")
+        self.assertEqual(derma_sync["WORDPRESS_SITE_URL"], "https://khaihoanderma.com")
+        self.assertEqual(derma_sync["WORDPRESS_USERNAME"], "derma_admin")
+
+        pharma_sync = notion_sync.get_site_sync_config(cfg, "pharma")
+        self.assertEqual(pharma_sync["site_key"], "pharma")
+        self.assertEqual(pharma_sync["WORDPRESS_SITE_URL"], "https://khaihoanpharma.com")
+        self.assertEqual(pharma_sync["WORDPRESS_USERNAME"], "pharma_admin")
+        self.assertEqual(pharma_sync["WOOCOMMERCE_CONSUMER_KEY"], "pharma_admin")
+
+    def test_determine_page_site_key(self):
+        cfg = {
+            "NOTION_DATABASE_ID": "9788b8a031cc42d391be4e26d6b8c8e8",
+            "PHARMA_NOTION_DATABASE_ID": "40870655a9aa8150a9c0e01105450e7e",
+        }
+        pharma_page = {
+            "id": "p-1",
+            "parent": {"type": "database_id", "database_id": "40870655-a9aa-8150-a9c0-e01105450e7e"}
+        }
+        self.assertEqual(notion_sync.determine_page_site_key(pharma_page, cfg), "pharma")
+
+        derma_page = {
+            "id": "p-2",
+            "parent": {"type": "database_id", "database_id": "9788b8a0-31cc-42d3-91be-4e26d6b8c8e8"}
+        }
+        self.assertEqual(notion_sync.determine_page_site_key(derma_page, cfg), "derma")
+
+    @patch("notion_sync.urllib.request.urlopen")
+    def test_update_notion_status_omits_facebook_for_pharma(self, mock_urlopen):
+        mock_urlopen.return_value = _FakeResponse({"id": "pharma-page-1"})
+        notion_sync.update_notion_status(
+            token="token123",
+            page_id="pharma-page-1",
+            product_url="https://khaihoanpharma.com/product/test-imiquad",
+            page_properties={"Trạng thái": {}, "Link web": {}, "IT đã đăng": {}}
+        )
+        req = mock_urlopen.call_args[0][0]
+        payload = json.loads(req.data.decode("utf-8"))
+        props = payload.get("properties", {})
+        self.assertIn("Trạng thái", props)
+        self.assertIn("Link web", props)
+        self.assertIn("IT đã đăng", props)
+        self.assertNotIn("Facebook", props)
+
+
 if __name__ == "__main__":
     unittest.main()

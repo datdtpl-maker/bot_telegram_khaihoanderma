@@ -1345,27 +1345,125 @@ def validate_existing_product_for_recovery(product):
     return expected_media_ids
 
 
-def update_notion_status(token, page_id, product_url):
+def get_site_sync_config(config: dict, site_key: str = "derma") -> dict:
+    site_key_clean = str(site_key or "derma").strip().lower()
+    ssl_no_verify = config.get("SSL_NO_VERIFY", "").lower() in {"1", "true", "yes", "on"}
+    if site_key_clean == "pharma":
+        pharma_url = config.get("PHARMA_SITE_URL", "https://khaihoanpharma.com").rstrip("/")
+        pharma_user = config.get("PHARMA_USERNAME", "admin").strip()
+        pharma_pass = config.get("PHARMA_PASSWORD", "").strip()
+        pharma_wc_key = config.get("PHARMA_WC_CONSUMER_KEY", "").strip() or pharma_user
+        pharma_wc_secret = config.get("PHARMA_WC_CONSUMER_SECRET", "").strip() or pharma_pass
+        pharma_db_id = config.get("PHARMA_NOTION_DATABASE_ID", "40870655a9aa8150a9c0e01105450e7e").strip()
+        return {
+            "site_key": "pharma",
+            "site_name": "Khải Hoàn Pharma",
+            "site_short": "Pharma",
+            "site_badge": "💊 Pharma",
+            "WORDPRESS_SITE_URL": pharma_url,
+            "WORDPRESS_USERNAME": pharma_user,
+            "WORDPRESS_PASSWORD": pharma_pass,
+            "WOOCOMMERCE_CONSUMER_KEY": pharma_wc_key,
+            "WOOCOMMERCE_CONSUMER_SECRET": pharma_wc_secret,
+            "NOTION_DATABASE_ID": pharma_db_id,
+            "NOTION_TOKEN": config.get("NOTION_TOKEN", ""),
+            "SSL_NO_VERIFY": "true" if ssl_no_verify else "false",
+        }
+    else:
+        derma_url = config.get("WORDPRESS_SITE_URL", "https://khaihoanderma.com").rstrip("/")
+        derma_db_id = config.get("NOTION_DATABASE_ID", "9788b8a031cc42d391be4e26d6b8c8e8").strip()
+        return {
+            "site_key": "derma",
+            "site_name": "Khải Hoàn Derma",
+            "site_short": "Derma",
+            "site_badge": "🌿 Derma",
+            "WORDPRESS_SITE_URL": derma_url,
+            "WORDPRESS_USERNAME": config.get("WORDPRESS_USERNAME", "").strip(),
+            "WORDPRESS_PASSWORD": config.get("WORDPRESS_PASSWORD", "").strip(),
+            "WOOCOMMERCE_CONSUMER_KEY": config.get("WOOCOMMERCE_CONSUMER_KEY", "").strip(),
+            "WOOCOMMERCE_CONSUMER_SECRET": config.get("WOOCOMMERCE_CONSUMER_SECRET", "").strip(),
+            "NOTION_DATABASE_ID": derma_db_id,
+            "NOTION_TOKEN": config.get("NOTION_TOKEN", ""),
+            "SSL_NO_VERIFY": "true" if ssl_no_verify else "false",
+        }
+
+
+def determine_page_site_key(page: dict, config: dict) -> str:
+    parent = page.get("parent") or {}
+    parent_db = str(parent.get("database_id", "")).replace("-", "").lower()
+    pharma_db = str(config.get("PHARMA_NOTION_DATABASE_ID", "40870655a9aa8150a9c0e01105450e7e")).replace("-", "").lower()
+    if parent_db and parent_db == pharma_db:
+        return "pharma"
+    if page.get("_site_key"):
+        return page.get("_site_key")
+    return "derma"
+
+
+def query_all_notion_pages_to_post(token: str, config: dict, site_key: str = "all") -> list[dict]:
+    pages = []
+    target = str(site_key or "all").lower().strip()
+
+    if target in {"all", "derma"}:
+        derma_db = config.get("NOTION_DATABASE_ID", "").strip()
+        if token and derma_db:
+            try:
+                d_pages = query_notion_pages_to_post(token, derma_db)
+                for p in d_pages:
+                    p["_site_key"] = "derma"
+                    p["_site_name"] = "Khải Hoàn Derma"
+                    p["_site_short"] = "Derma"
+                    p["_site_badge"] = "🌿 Derma"
+                pages.extend(d_pages)
+            except Exception as e:
+                log_message(f"Lỗi truy vấn Notion Derma DB ({derma_db}): {e}")
+
+    if target in {"all", "pharma"}:
+        pharma_db = config.get("PHARMA_NOTION_DATABASE_ID", "").strip()
+        if token and pharma_db:
+            try:
+                p_pages = query_notion_pages_to_post(token, pharma_db)
+                for p in p_pages:
+                    p["_site_key"] = "pharma"
+                    p["_site_name"] = "Khải Hoàn Pharma"
+                    p["_site_short"] = "Pharma"
+                    p["_site_badge"] = "💊 Pharma"
+                pages.extend(p_pages)
+            except Exception as e:
+                log_message(f"Lỗi truy vấn Notion Pharma DB ({pharma_db}): {e}")
+
+    seen_ids = set()
+    deduped = []
+    for p in pages:
+        p_id = str(p.get("id"))
+        if p_id not in seen_ids:
+            seen_ids.add(p_id)
+            deduped.append(p)
+    return deduped
+
+
+def update_notion_status(token, page_id, product_url, page_properties=None):
     url = f"https://api.notion.com/v1/pages/{page_id}"
-    update_data = {
-        "properties": {
-            "Trạng thái": {
-                "select": {
-                    "name": "Đã đăng web"
-                }
-            },
-            "Facebook": {
-                "select": {
-                    "name": "Chưa đăng"
-                }
-            },
-            "IT đã đăng": {
-                "checkbox": True
-            },
-            "Link web": {
-                "url": product_url
+    props = {
+        "Trạng thái": {
+            "select": {
+                "name": "Đã đăng web"
+            }
+        },
+        "IT đã đăng": {
+            "checkbox": True
+        },
+        "Link web": {
+            "url": product_url
+        }
+    }
+    if page_properties is None or "Facebook" in page_properties:
+        props["Facebook"] = {
+            "select": {
+                "name": "Chưa đăng"
             }
         }
+    update_data = {
+        "properties": props
     }
     headers = {
         "Authorization": f"Bearer {token}",
@@ -1374,65 +1472,75 @@ def update_notion_status(token, page_id, product_url):
     }
     req = urllib.request.Request(url, headers=headers, method="PATCH", data=json.dumps(update_data).encode("utf-8"))
     with urllib.request.urlopen(req, timeout=15) as resp:
-        log_message(f"Đã cập nhật trạng thái Notion thành 'Đã đăng web' & Facebook 'Chưa đăng' cho ID: {page_id}")
+        log_message(f"Đã cập nhật trạng thái Notion thành 'Đã đăng web' cho ID: {page_id}")
 
-def _run_notion_sync_workflow(progress_callback=None, page_ids=None):
+
+def _run_notion_sync_workflow(progress_callback=None, page_ids=None, site_key: str = "all"):
     config = load_config()
     token = config.get("NOTION_TOKEN")
-    db_id = config.get("NOTION_DATABASE_ID")
-    
-    if not token or not db_id:
+    derma_db = config.get("NOTION_DATABASE_ID")
+    pharma_db = config.get("PHARMA_NOTION_DATABASE_ID", "40870655a9aa8150a9c0e01105450e7e")
+
+    if not token or (not derma_db and not pharma_db):
         return {"status": "error", "message": "Thiếu cấu hình NOTION_TOKEN hoặc NOTION_DATABASE_ID trong telegram_bot.env."}
-        
+
     try:
-        pages = query_notion_pages_to_post(token, db_id)
+        pages = query_all_notion_pages_to_post(token, config, site_key=site_key)
     except Exception as e:
         return {"status": "error", "message": f"Không kết nối được Notion API: {e}"}
 
     if page_ids:
         allowed_page_ids = {str(page_id) for page_id in page_ids if page_id}
         pages = [page for page in pages if str(page.get("id")) in allowed_page_ids]
-        
+
     if not pages:
         return {"status": "success", "message": "Không tìm thấy sản phẩm nào có trạng thái 'Báo IT đăng'.", "count": 0}
-        
+
     if progress_callback:
         progress_callback(f"🔍 Tìm thấy {len(pages)} sản phẩm chờ đăng trên Notion. Bắt đầu xử lý...")
-        
+
     processed_products = []
     failed_products = []
     temp_root = OUT_DIR / "temp_notion_images"
     temp_root.mkdir(parents=True, exist_ok=True)
-    
+
     for page in pages:
         page_id = page.get("id")
         properties = page.get("properties", {})
-        
+
+        page_site_key = determine_page_site_key(page, config)
+        site_config = get_site_sync_config(config, page_site_key)
+        site_short = site_config.get("site_short", "Derma")
+        site_badge = site_config.get("site_badge", "🌿 Derma")
+
         # 1. Product title
         title_list = properties.get("Tên sản phẩm", {}).get("title", [])
         product_title = "".join(item.get("plain_text", "") for item in title_list).strip()
-        log_message(f"Bắt đầu xử lý: {product_title}")
-        
+        log_message(f"Bắt đầu xử lý [{site_short}]: {product_title}")
+
         if progress_callback:
-            progress_callback(f"📦 <b>Sản phẩm: {product_title}</b>\n1️⃣ Đang phân tích thông tin chi tiết trên Notion...")
-            
-        # 2. Get focus keywords (lấy từ 2 đến 3 từ khóa đầu tiên cách nhau bởi dấu phẩy)
-        keyword_list = properties.get("Từ khóa SEO Rank Math", {}).get("rich_text", [])
+            progress_callback(f"📦 <b>[{site_badge}] {product_title}</b>\n1️⃣ Đang phân tích thông tin chi tiết trên Notion...")
+
+        # 2. Get focus keywords (kiểm tra cả 'Từ khóa SEO Rank Math' và 'Từ khóa chính')
+        keyword_list = (
+            properties.get("Từ khóa SEO Rank Math", {}).get("rich_text", []) or
+            properties.get("Từ khóa chính", {}).get("rich_text", [])
+        )
         seo_keywords_raw = "".join(item.get("plain_text", "") for item in keyword_list).strip()
         if seo_keywords_raw:
-            kw_parts = [k.strip() for k in seo_keywords_raw.split(",") if k.strip()]
+            kw_parts = [k.strip() for k in re.split(r"[,;]", seo_keywords_raw) if k.strip()]
             seo_keywords = ", ".join(kw_parts[:3])
         else:
             seo_keywords = ""
-        
+
         try:
-            existing_product = find_woocommerce_product_by_page_id(config, page_id)
+            existing_product = find_woocommerce_product_by_page_id(site_config, page_id)
             if existing_product:
                 validate_existing_product_for_recovery(existing_product)
                 existing_meta = _product_meta_map(existing_product)
                 if existing_product.get("status") != "publish":
                     existing_product = update_woocommerce_product(
-                        config,
+                        site_config,
                         existing_product.get("id"),
                         {
                             "status": "publish",
@@ -1440,20 +1548,22 @@ def _run_notion_sync_workflow(progress_callback=None, page_ids=None):
                         },
                     )
                     if existing_product.get("status") != "publish":
-                        raise RuntimeError("Không publish được bản nháp đã phục hồi.")
+                        raise RuntimeError(f"Không publish được bản nháp đã phục hồi trên {site_short}.")
                     validate_existing_product_for_recovery(existing_product)
                 elif str(existing_meta.get("_khd_sync_verified")) != "1":
                     raise WorkflowValidationError(
                         f"Sản phẩm Notion page {page_id} đã publish nhưng chưa có dấu xác minh an toàn."
                     )
                 product_url = existing_product.get("permalink", "")
-                update_notion_status(token, page_id, product_url)
+                update_notion_status(token, page_id, product_url, page_properties=properties)
                 processed_products.append({
                     "title": product_title,
                     "url": product_url,
                     "recovered": True,
+                    "site_key": page_site_key,
+                    "site_short": site_short,
                 })
-                log_message(f"Đã phục hồi sản phẩm của Notion page {page_id}: {product_url}")
+                log_message(f"Đã phục hồi sản phẩm [{site_short}] của Notion page {page_id}: {product_url}")
                 continue
         except Exception as exc:
             log_message(f"Không kiểm tra/phục hồi được sản phẩm '{product_title}': {exc}")
@@ -1462,32 +1572,35 @@ def _run_notion_sync_workflow(progress_callback=None, page_ids=None):
 
         # 3. Google Drive folder URL
         drive_url = properties.get("Media sản phẩm", {}).get("url")
-        
-        # 4. Related Page Content (Bài content Tây)
-        relation = properties.get("Bài content Tây", {}).get("relation", [])
-        if not relation:
-            log_message(f"Bỏ qua '{product_title}': Cột 'Bài content Tây' trống.")
-            failed_products.append({
-                "title": product_title,
-                "error": "Cột 'Bài content Tây' trống.",
-            })
-            if progress_callback:
-                progress_callback(f"⚠️ Bỏ qua '{product_title}': Cột 'Bài content Tây' trống.")
-            continue
-            
-        related_page_id = relation[0].get("id")
+
+        # 4. Content blocks:
+        # Ưu tiên lấy trực tiếp từ trang sản phẩm (page_id)
+        blocks = []
         try:
-            blocks = get_page_blocks(token, related_page_id)
+            blocks = get_page_blocks(token, page_id)
         except Exception as e:
-            log_message(f"Lỗi đọc nội dung liên kết của '{product_title}': {e}")
+            log_message(f"Không lấy được blocks trực tiếp từ trang '{product_title}' ({page_id}): {e}")
+
+        # Dự phòng: Nếu trang sản phẩm không có blocks, kiểm tra cột 'Bài content Tây'
+        if not blocks:
+            relation = properties.get("Bài content Tây", {}).get("relation", [])
+            if relation:
+                related_page_id = relation[0].get("id")
+                try:
+                    blocks = get_page_blocks(token, related_page_id)
+                except Exception as e:
+                    log_message(f"Lỗi đọc nội dung liên kết của '{product_title}': {e}")
+
+        if not blocks:
+            log_message(f"Bỏ qua '{product_title}': Không tìm thấy nội dung bài viết trong trang sản phẩm hoặc 'Bài content Tây'.")
             failed_products.append({
                 "title": product_title,
-                "error": f"Không đọc được 'Bài content Tây': {e}",
+                "error": "Không tìm thấy nội dung bài viết trong trang sản phẩm.",
             })
             if progress_callback:
-                progress_callback(f"❌ Lỗi đọc nội dung liên kết của '{product_title}': {e}")
+                progress_callback(f"⚠️ Bỏ qua '{product_title}': Không tìm thấy nội dung bài viết.")
             continue
-            
+
         product_description, category_name, price_val, sale_price_val = parse_notion_blocks(blocks)
         temp_dir = Path(tempfile.mkdtemp(prefix=f"notion-{page_id}-", dir=temp_root))
         uploaded_media_ids = []
@@ -1500,7 +1613,7 @@ def _run_notion_sync_workflow(progress_callback=None, page_ids=None):
             if not drive_url:
                 raise WorkflowValidationError("Cột 'Media sản phẩm' chưa có link Google Drive.")
             if progress_callback:
-                progress_callback("📥 2️⃣ Đang tải hình ảnh từ Google Drive...")
+                progress_callback(f"📥 2️⃣ Đang tải hình ảnh từ Google Drive cho {site_short}...")
             downloaded_images = download_drive_folder(drive_url, temp_dir)
             validate_image_sequence(downloaded_images, temp_dir)
 
@@ -1520,12 +1633,12 @@ def _run_notion_sync_workflow(progress_callback=None, page_ids=None):
                 image_count=len(processed_images),
             )
 
-            category_id = find_or_create_category(config, category_name)
+            category_id = find_or_create_category(site_config, category_name)
             if not category_id:
-                raise WorkflowValidationError(f"Không xác định được danh mục: {category_name}")
+                raise WorkflowValidationError(f"Không xác định được danh mục: {category_name} trên {site_short}")
 
             uploaded_media_ids = upload_product_images(
-                config,
+                site_config,
                 processed_images,
                 product_title,
                 progress_callback=progress_callback,
@@ -1562,38 +1675,35 @@ def _run_notion_sync_workflow(progress_callback=None, page_ids=None):
                     },
                     {"key": "_khd_sync_verified", "value": "0"},
                     {"key": "_khd_sync_attempt_id", "value": sync_attempt_id},
+                    {"key": "_khd_site_key", "value": page_site_key},
                 ],
             }
             if sale_price_val > 0:
                 product_payload["sale_price"] = str(sale_price_val)
 
             if progress_callback:
-                progress_callback(f"⚙️ 4️⃣ Đang tạo bản nháp và kiểm tra sản phẩm (Giá: {price_val:,}đ)...")
-            create_response = create_woocommerce_product(config, product_payload)
+                progress_callback(f"⚙️ 4️⃣ Đang tạo bản nháp trên {site_short} (Giá: {price_val:,}đ)...")
+            create_response = create_woocommerce_product(site_config, product_payload)
             if create_response and create_response.get("id"):
-                # Phản hồi trực tiếp từ POST chứng minh bản nháp thuộc lượt hiện tại.
                 created_product = create_response
                 owns_created_product = True
             else:
-                # POST có thể đã thành công trên server nhưng client bị timeout trước
-                # khi nhận response. Chỉ nhận lại bản nháp có đúng mã lượt đồng bộ;
-                # tuyệt đối không chiếm hoặc xóa sản phẩm do máy khác vừa tạo.
-                recovered_draft = find_woocommerce_product_by_page_id_with_retry(config, page_id)
+                recovered_draft = find_woocommerce_product_by_page_id_with_retry(site_config, page_id)
                 if recovered_draft:
                     validate_sync_attempt_ownership(recovered_draft, page_id, sync_attempt_id)
                     created_product = recovered_draft
                     owns_created_product = True
             if not created_product or not created_product.get("id"):
-                raise RuntimeError("WooCommerce không tạo được bản nháp sản phẩm.")
+                raise RuntimeError(f"WooCommerce {site_short} không tạo được bản nháp sản phẩm.")
             validate_sync_attempt_ownership(created_product, page_id, sync_attempt_id)
             verify_product_image_ids(created_product, uploaded_media_ids)
 
             if has_embedded_video or "<script" in final_description or "<iframe" in final_description:
-                wp_update_product_content(config, created_product.get("id"), final_description)
+                wp_update_product_content(site_config, created_product.get("id"), final_description)
 
             try:
                 publish_response = update_woocommerce_product(
-                    config,
+                    site_config,
                     created_product.get("id"),
                     {
                         "status": "publish",
@@ -1601,8 +1711,7 @@ def _run_notion_sync_workflow(progress_callback=None, page_ids=None):
                     },
                 )
             except Exception:
-                # Tương tự, PUT publish có thể hoàn tất trên server dù client timeout.
-                recovered_product = find_woocommerce_product_by_page_id_with_retry(config, page_id)
+                recovered_product = find_woocommerce_product_by_page_id_with_retry(site_config, page_id)
                 if (
                     recovered_product
                     and recovered_product.get("id") == created_product.get("id")
@@ -1612,8 +1721,6 @@ def _run_notion_sync_workflow(progress_callback=None, page_ids=None):
                     publish_response = recovered_product
                 else:
                     raise
-            # Chỉ đánh dấu là đã publish sau khi WooCommerce xác nhận thật sự.
-            # Nếu API trả 200 nhưng vẫn là draft, nhánh rollback bên dưới vẫn hoạt động.
             published_product = require_published_product(publish_response)
             verify_product_image_ids(published_product, uploaded_media_ids)
             if str(_product_meta_map(published_product).get("_khd_sync_verified")) != "1":
@@ -1621,23 +1728,29 @@ def _run_notion_sync_workflow(progress_callback=None, page_ids=None):
 
             product_url = published_product.get("permalink", "")
             if not product_url:
-                raise RuntimeError("WooCommerce không trả permalink sản phẩm.")
+                raise RuntimeError(f"WooCommerce {site_short} không trả permalink sản phẩm.")
             if progress_callback:
-                progress_callback("📝 5️⃣ Cập nhật trạng thái Đã đăng lên Notion...")
-            update_notion_status(token, page_id, product_url)
-            processed_products.append({"title": product_title, "url": product_url})
+                progress_callback(f"📝 5️⃣ Cập nhật trạng thái Đã đăng lên Notion ({site_short})...")
+            update_notion_status(token, page_id, product_url, page_properties=properties)
+            processed_products.append({
+                "title": product_title,
+                "url": product_url,
+                "site_key": page_site_key,
+                "site_short": site_short,
+            })
+            log_message(f"✅ Đã đăng thành công lên {site_short}: {product_title} -> {product_url}")
         except Exception as exc:
-            log_message(f"Lỗi xử lý '{product_title}': {exc}")
+            log_message(f"Lỗi xử lý '{product_title}' trên {site_short}: {exc}")
             if published_product:
                 failed_products.append({
                     "title": product_title,
                     "url": published_product.get("permalink", ""),
-                    "error": f"Sản phẩm đã publish nhưng Notion chưa hoàn tất: {exc}",
+                    "error": f"Sản phẩm đã publish trên {site_short} nhưng Notion chưa hoàn tất: {exc}",
                 })
             else:
                 if owns_created_product and created_product and created_product.get("id"):
-                    delete_woocommerce_product(config, created_product.get("id"))
-                rollback_uploaded_media(config, uploaded_media_ids)
+                    delete_woocommerce_product(site_config, created_product.get("id"))
+                rollback_uploaded_media(site_config, uploaded_media_ids)
                 failed_products.append({"title": product_title, "error": str(exc)})
             if progress_callback:
                 progress_callback(f"❌ Không đăng '{product_title}': {exc}")
@@ -1679,7 +1792,7 @@ def _run_notion_sync_workflow(progress_callback=None, page_ids=None):
     return {"status": "success", "message": "Không có sản phẩm hợp lệ cần đăng.", "count": 0}
 
 
-def run_notion_sync_workflow(progress_callback=None, page_ids=None):
+def run_notion_sync_workflow(progress_callback=None, page_ids=None, site_key: str = "all"):
     if not NOTION_SYNC_LOCK.acquire(blocking=False):
         return {
             "status": "busy",
@@ -1703,7 +1816,7 @@ def run_notion_sync_workflow(progress_callback=None, page_ids=None):
             "count": 0,
         }
     try:
-        return _run_notion_sync_workflow(progress_callback=progress_callback, page_ids=page_ids)
+        return _run_notion_sync_workflow(progress_callback=progress_callback, page_ids=page_ids, site_key=site_key)
     finally:
         _DRIVE_FOLDER_CACHE.clear()
         NOTION_SYNC_PROCESS_LOCK.release()

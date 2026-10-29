@@ -44,6 +44,8 @@ const app = createApp({
       } else if (currentTab.value === "products") {
         currentPage.value = 1;
         fetchProducts();
+      } else if (currentTab.value === "tools") {
+        fetchNotionQueue();
       }
     };
 
@@ -606,7 +608,7 @@ const app = createApp({
     const fetchNotionQueue = async () => {
       isNotionLoading.value = true;
       try {
-        const data = await apiCall("/api/notion/pages");
+        const data = await apiCall(`/api/notion/pages?site=${selectedStore.value}`);
         notionPages.value = data.pages || [];
         stats.notion_queue = notionPages.value.length;
       } catch (err) {
@@ -619,9 +621,9 @@ const app = createApp({
     const triggerNotionSync = async () => {
       haptic("heavy");
       isSyncRunning.value = true;
-      syncStatusText.value = "Đang kết nối Notion và kiểm tra bài viết...";
+      syncStatusText.value = `Đang kết nối Notion và kiểm tra bài viết (${selectedStore.value})...`;
       try {
-        await apiCall("/api/notion/sync", { method: "POST" });
+        await apiCall(`/api/notion/sync?site=${selectedStore.value}`, { method: "POST" });
         showToast("Đã kích hoạt đồng bộ Notion!", "success");
         await fetchLogs();
         pollSyncStatus();

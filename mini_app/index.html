@@ -883,6 +883,29 @@
               <p class="text-xs text-sub leading-relaxed">
                 Hệ thống tự động đồng bộ bài viết và sản phẩm, tự động nén ảnh WebP chuẩn SEO và nhúng video gallery chuyên nghiệp.
               </p>
+
+              <!-- Pending Notion Queue List -->
+              <div v-if="notionPages.length > 0" class="space-y-1.5 max-h-36 overflow-y-auto pr-1 pt-1">
+                <div class="text-[11px] font-bold text-muted flex items-center justify-between">
+                  <span>Hàng chờ đăng ({{ notionPages.length }} bài):</span>
+                  <button @click="fetchNotionQueue" class="text-[10px] text-blue-600 dark:text-sky-400 font-semibold hover:underline">
+                    Làm mới ↻
+                  </button>
+                </div>
+                <div v-for="page in notionPages" :key="page.id" class="p-2 card-sub rounded-xl text-xs flex items-center justify-between gap-2 border border-slate-100 dark:border-slate-800">
+                  <span class="font-medium text-title line-clamp-1 flex-1">{{ page.title }}</span>
+                  <span :class="page._site_short === 'Pharma' ? 'bg-purple-500/15 text-purple-600 dark:text-purple-400 border-purple-500/30' : 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'" 
+                        class="px-2 py-0.5 rounded-full text-[10px] font-black border flex-shrink-0">
+                    {{ page._site_badge || page._site_short || 'Derma' }}
+                  </span>
+                </div>
+              </div>
+              <div v-else class="text-[11px] text-muted italic p-2 card-sub rounded-xl flex items-center justify-between">
+                <span>Không có bài viết nào chờ đăng.</span>
+                <button @click="fetchNotionQueue" class="text-[10px] text-blue-600 dark:text-sky-400 font-semibold hover:underline">
+                  Quét lại ↻
+                </button>
+              </div>
             </div>
 
             <div class="space-y-2 pt-2">

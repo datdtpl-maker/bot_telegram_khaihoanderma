@@ -1133,13 +1133,12 @@ def prepare_manual_notion_sync_confirmation(chat_id: int) -> str:
 
     config = notion_sync.load_config()
     token = config.get("NOTION_TOKEN")
-    database_id = config.get("NOTION_DATABASE_ID")
-    if not token or not database_id:
-        return "<b>Lỗi:</b> Thiếu NOTION_TOKEN hoặc NOTION_DATABASE_ID trong telegram_bot.env."
-    pages = notion_sync.query_notion_pages_to_post(token, database_id)
+    if not token:
+        return "<b>Lỗi:</b> Thiếu NOTION_TOKEN trong telegram_bot.env."
+    pages = notion_sync.query_all_notion_pages_to_post(token, config, site_key="all")
     if not pages:
         PENDING_ACTIONS.pop(chat_id, None)
-        return "Không có sản phẩm nào đang ở trạng thái <b>Báo IT đăng</b>."
+        return "Không có sản phẩm nào đang ở trạng thái <b>Báo IT đăng</b> trên toàn hệ thống (Derma & Pharma)."
 
     page_ids = []
     titles = []
@@ -1147,9 +1146,10 @@ def prepare_manual_notion_sync_confirmation(chat_id: int) -> str:
         page_id = page.get("id")
         title_items = page.get("properties", {}).get("Tên sản phẩm", {}).get("title", [])
         title = "".join(item.get("plain_text", "") for item in title_items).strip() or "Sản phẩm không tên"
+        site_badge = page.get("_site_badge", "🌿 Derma")
         if page_id:
             page_ids.append(str(page_id))
-            titles.append(title)
+            titles.append(f"[{site_badge}] {title}")
     return prepare_notion_sync_confirmation(chat_id, page_ids=page_ids, titles=titles)
 
 
@@ -4864,14 +4864,13 @@ def check_notion_loop() -> None:
         
         config = notion_sync.load_config()
         token = config.get("NOTION_TOKEN")
-        db_id = config.get("NOTION_DATABASE_ID")
         
-        if not token or not db_id:
+        if not token:
             continue
             
         try:
-            # Query các sản phẩm có trạng thái "Báo IT đăng"
-            pages = notion_sync.query_notion_pages_to_post(token, db_id)
+            # Query các sản phẩm có trạng thái "Báo IT đăng" từ cả Derma và Pharma
+            pages = notion_sync.query_all_notion_pages_to_post(token, config, site_key="all")
             if not pages:
                 continue
                 
@@ -4883,7 +4882,8 @@ def check_notion_loop() -> None:
                     properties = page.get("properties", {})
                     title_list = properties.get("Tên sản phẩm", {}).get("title", [])
                     product_title = title_list[0].get("plain_text", "") if title_list else "Sản phẩm không tên"
-                    new_pages_detected.append((page_id, product_title))
+                    site_badge = page.get("_site_badge", "🌿 Derma")
+                    new_pages_detected.append((page_id, f"[{site_badge}] {product_title}"))
                     
             if not new_pages_detected:
                 continue
