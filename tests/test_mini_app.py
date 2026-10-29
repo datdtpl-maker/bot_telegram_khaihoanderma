@@ -406,6 +406,18 @@ class MiniAppTestSuite(unittest.TestCase):
             self.assertEqual(order["_site_short"], "Derma")
 
 
+    def test_notion_sync_worker_callback_single_arg(self):
+        def fake_sync(progress_callback=None, site_key="all"):
+            if progress_callback:
+                progress_callback("🔍 Tìm thấy 1 sản phẩm chờ đăng...")
+                progress_callback("⚡ Đang tối ưu hóa hình ảnh chuẩn WebP...")
+            return {"status": "success", "message": "Đồng bộ thành công 1 sản phẩm", "count": 1}
+
+        with patch.object(mini_app_server.notion_sync, "run_notion_sync_workflow", side_effect=fake_sync):
+            mini_app_server._notion_sync_worker(site_key="all")
+            self.assertFalse(mini_app_server.NOTION_SYNC_STATE["is_running"])
+            self.assertIn("Đồng bộ thành công 1 sản phẩm", mini_app_server.NOTION_SYNC_STATE["current_status"])
+
 if __name__ == "__main__":
     unittest.main()
 

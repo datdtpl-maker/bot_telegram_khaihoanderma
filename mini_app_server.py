@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Optional, Any, Union
 import threading
 import requests
+import re
 
 from fastapi import FastAPI, Depends, HTTPException, Header, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -923,15 +924,39 @@ def _notion_sync_worker(site_key: str = "all"):
     NOTION_SYNC_STATE["last_error"] = None
     bot.log(f"[NotionSync] Bắt đầu kích hoạt quy trình đồng bộ bài viết Notion ({site_key})...")
     try:
-        def callback(step, total, detail):
-            status_text = f"Bước {step}/{total}: {detail}"
-            NOTION_SYNC_STATE["current_status"] = status_text
-            bot.log(f"[NotionSync] {status_text}")
+        def callback(*args, **kwargs):
+            if len(args) == 1:
+                status_text = str(args[0])
+            elif len(args) >= 3:
+                status_text = f"Bước {args[0]}/{args[1]}: {args[2]}"
+            elif args:
+                status_text = " - ".join(str(a) for a in args)
+            else:
+                status_text = "Đang xử lý..."
+            clean_status = re.sub(r"</?[a-zA-Z0-9_-]+[^>]*>", "", status_text).strip()
+            NOTION_SYNC_STATE["current_status"] = clean_status
+            bot.log(f"[NotionSync] {clean_status}")
 
-        notion_sync.run_notion_sync_workflow(progress_callback=callback, site_key=site_key)
-        NOTION_SYNC_STATE["current_status"] = "Hoàn tất đồng bộ Notion thành công!"
-        NOTION_SYNC_STATE["last_run"] = datetime.now().isoformat()
-        bot.log("[NotionSync] ✅ Hoàn tất đồng bộ bài viết Notion thành công!")
+        res = notion_sync.run_notion_sync_workflow(progress_callback=callback, site_key=site_key)
+        if isinstance(res, dict):
+            sync_status = res.get("status")
+            clean_msg = re.sub(r"</?[a-zA-Z0-9_-]+[^>]*>", "", res.get("message", "")).strip()
+            if sync_status == "error":
+                NOTION_SYNC_STATE["current_status"] = f"Lỗi: {clean_msg}"
+                NOTION_SYNC_STATE["last_error"] = clean_msg
+                bot.log(f"[NotionSync] ❌ Lỗi đồng bộ Notion: {clean_msg}")
+            elif sync_status == "warning":
+                NOTION_SYNC_STATE["current_status"] = f"Cảnh báo: {clean_msg}"
+                NOTION_SYNC_STATE["last_error"] = clean_msg
+                bot.log(f"[NotionSync] ⚠️ {clean_msg}")
+            else:
+                NOTION_SYNC_STATE["current_status"] = clean_msg or "Hoàn tất đồng bộ Notion thành công!"
+                NOTION_SYNC_STATE["last_run"] = datetime.now().isoformat()
+                bot.log(f"[NotionSync] ✅ {clean_msg}")
+        else:
+            NOTION_SYNC_STATE["current_status"] = "Hoàn tất đồng bộ Notion thành công!"
+            NOTION_SYNC_STATE["last_run"] = datetime.now().isoformat()
+            bot.log("[NotionSync] ✅ Hoàn tất đồng bộ bài viết Notion thành công!")
     except Exception as exc:
         NOTION_SYNC_STATE["current_status"] = f"Lỗi: {exc}"
         NOTION_SYNC_STATE["last_error"] = str(exc)
