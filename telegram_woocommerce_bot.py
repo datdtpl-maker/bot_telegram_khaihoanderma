@@ -143,6 +143,8 @@ def log(message: str) -> None:
         print(line, flush=True)
     except Exception:
         pass
+    if "unittest" in sys.modules or os.environ.get("TESTING") == "1":
+        return
     try:
         with LOG_LOCK:
             if LOG_FILE.exists() and LOG_FILE.stat().st_size > 5 * 1024 * 1024:

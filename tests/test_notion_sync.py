@@ -7,6 +7,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 import notion_sync
+import telegram_woocommerce_bot as bot
+bot.LOG_FILE = Path(tempfile.gettempdir()) / "test_bot.log" 
 
 
 class ImagePipelineTests(unittest.TestCase):
@@ -15,9 +17,12 @@ class ImagePipelineTests(unittest.TestCase):
 
         def download_folder(**kwargs):
             self.assertNotIn("remaining_ok", kwargs)
-            image = Path(kwargs["output"]) / "1.png"
-            image.write_bytes(b"image")
-            return [str(image)]
+            out_dir = kwargs.get("output")
+            if out_dir:
+                image = Path(out_dir) / "1.png"
+                image.write_bytes(b"image")
+                return [str(image)]
+            return []
 
         fake_gdown.download_folder = download_folder
         with tempfile.TemporaryDirectory() as temp_dir:

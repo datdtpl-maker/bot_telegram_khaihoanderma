@@ -27,6 +27,7 @@ except Exception:
     pass
 
 OUT_DIR = Path(__file__).resolve().parent
+LOG_FILE = OUT_DIR / "bot.log"
 NOTION_SYNC_LOCK = threading.Lock()
 
 
@@ -280,9 +281,10 @@ def log_message(msg):
     timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
     line = f"[{timestamp}] [NotionSync] {msg}"
     print(line, flush=True)
+    if "unittest" in sys.modules or os.environ.get("TESTING") == "1":
+        return
     try:
-        log_file = OUT_DIR / "bot.log"
-        with log_file.open("a", encoding="utf-8") as handle:
+        with LOG_FILE.open("a", encoding="utf-8") as handle:
             handle.write(line + "\n")
     except Exception:
         pass
@@ -766,7 +768,7 @@ def download_drive_folder(folder_url, temp_dir):
                 results = list(pool.map(_dl_file, image_candidates))
             downloaded_images = [p for p in results if p is not None]
     except Exception as e:
-        log_message(f"Chiến lược tải trực tiếp danh sách file gặp lỗi: {e}")
+        log_message(f"Không lấy được danh sách file trực tiếp ({e}), tự động chuyển sang phương thức tải thư mục...")
 
     # Chiến lược 2: Nếu chưa tải được, thử tải toàn bộ thư mục qua gdown chuẩn
     if not downloaded_images:

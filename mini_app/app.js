@@ -93,7 +93,7 @@ const app = createApp({
     const aiMessages = ref([
       {
         role: "assistant",
-        text: "Xin chào! Tôi là Trợ lý AI Khải Hoàn Derma (Gemini 2.8 Flash). Tôi đã kết nối dữ liệu cửa hàng thời gian thực. Bạn cần tra cứu đơn hàng trong quá khứ, doanh thu, sản phẩm hay tư vấn quản trị?"
+        text: "Xin chào! Tôi là Trợ lý AI Khải Hoàn Derma (Gemini 3.8 Flash). Tôi đã kết nối dữ liệu cửa hàng thời gian thực. Bạn cần tra cứu đơn hàng trong quá khứ, doanh thu, sản phẩm hay tư vấn quản trị?"
       }
     ]);
     const aiPrompt = ref("");
