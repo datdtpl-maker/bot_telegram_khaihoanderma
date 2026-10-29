@@ -738,7 +738,7 @@ def download_drive_folder(folder_url, temp_dir):
     clean_url = _clean_drive_folder_url(folder_url)
     log_message(f"Đang tải thư mục Google Drive: {clean_url}")
 
-    image_extensions = {".png", ".jpg", ".jpeg", ".webp"}
+    image_extensions = {".png", ".jpg", ".jpeg", ".webp", ".webb"}
     downloaded_images = []
 
     # Chiến lược 1: Lấy danh sách file và tải song song qua CDN Google Drive (nhanh & ổn định nhất)
