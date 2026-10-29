@@ -1463,30 +1463,43 @@ def _run_notion_sync_workflow(progress_callback=None, page_ids=None):
         # 3. Google Drive folder URL
         drive_url = properties.get("Media sản phẩm", {}).get("url")
         
-        # 4. Related Page Content (Bài content Tây)
+        # 4. Related Page Content (Bài content Tây hoặc đọc trực tiếp từ thân trang sản phẩm)
         relation = properties.get("Bài content Tây", {}).get("relation", [])
-        if not relation:
-            log_message(f"Bỏ qua '{product_title}': Cột 'Bài content Tây' trống.")
-            failed_products.append({
-                "title": product_title,
-                "error": "Cột 'Bài content Tây' trống.",
-            })
-            if progress_callback:
-                progress_callback(f"⚠️ Bỏ qua '{product_title}': Cột 'Bài content Tây' trống.")
-            continue
-            
-        related_page_id = relation[0].get("id")
-        try:
-            blocks = get_page_blocks(token, related_page_id)
-        except Exception as e:
-            log_message(f"Lỗi đọc nội dung liên kết của '{product_title}': {e}")
-            failed_products.append({
-                "title": product_title,
-                "error": f"Không đọc được 'Bài content Tây': {e}",
-            })
-            if progress_callback:
-                progress_callback(f"❌ Lỗi đọc nội dung liên kết của '{product_title}': {e}")
-            continue
+        if relation:
+            related_page_id = relation[0].get("id")
+            try:
+                blocks = get_page_blocks(token, related_page_id)
+            except Exception as e:
+                log_message(f"Lỗi đọc nội dung liên kết của '{product_title}': {e}")
+                failed_products.append({
+                    "title": product_title,
+                    "error": f"Không đọc được 'Bài content Tây': {e}",
+                })
+                if progress_callback:
+                    progress_callback(f"❌ Lỗi đọc nội dung liên kết của '{product_title}': {e}")
+                continue
+        else:
+            # Fallback đọc trực tiếp từ thân trang sản phẩm (chuẩn mới cho Web Pharma & Derma)
+            try:
+                blocks = get_page_blocks(token, page_id)
+                if not blocks:
+                    log_message(f"Bỏ qua '{product_title}': Cả cột 'Bài content Tây' và thân trang đều không có nội dung.")
+                    failed_products.append({
+                        "title": product_title,
+                        "error": "Chưa có nội dung bài viết (trống cả liên kết lẫn thân trang).",
+                    })
+                    if progress_callback:
+                        progress_callback(f"⚠️ Bỏ qua '{product_title}': Chưa có nội dung bài viết.")
+                    continue
+            except Exception as e:
+                log_message(f"Lỗi đọc nội dung thân trang của '{product_title}': {e}")
+                failed_products.append({
+                    "title": product_title,
+                    "error": f"Không đọc được nội dung thân trang: {e}",
+                })
+                if progress_callback:
+                    progress_callback(f"❌ Lỗi đọc nội dung thân trang của '{product_title}': {e}")
+                continue
             
         product_description, category_name, price_val, sale_price_val = parse_notion_blocks(blocks)
         temp_dir = Path(tempfile.mkdtemp(prefix=f"notion-{page_id}-", dir=temp_root))
