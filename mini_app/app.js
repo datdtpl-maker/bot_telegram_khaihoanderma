@@ -89,14 +89,34 @@ const app = createApp({
     const logContainer = ref(null);
 
     // AI Chat State
+    const aiChatContainer = ref(null);
     const aiMessages = ref([
       {
         role: "assistant",
-        text: "Xin chào! Tôi là Trợ lý AI Khải Hoàn Derma (Gemini 3.8 Flash). Tôi đã kết nối dữ liệu cửa hàng thời gian thực. Bạn cần tra cứu đơn hàng trong quá khứ, doanh thu, sản phẩm hay tư vấn quản trị?"
+        text: "Xin chào! Tôi là Trợ lý AI Khải Hoàn Derma (Gemini 2.8 Flash). Tôi đã kết nối dữ liệu cửa hàng thời gian thực. Bạn cần tra cứu đơn hàng trong quá khứ, doanh thu, sản phẩm hay tư vấn quản trị?"
       }
     ]);
     const aiPrompt = ref("");
     const isAiThinking = ref(false);
+
+    const scrollAiChatToBottom = () => {
+      setTimeout(() => {
+        if (aiChatContainer.value) {
+          aiChatContainer.value.scrollTop = aiChatContainer.value.scrollHeight;
+        }
+      }, 50);
+    };
+
+    const clearAiChat = () => {
+      aiMessages.value = [
+        {
+          role: "assistant",
+          text: "Đã làm mới cuộc hội thoại. Bạn cần tra cứu đơn hàng trong quá khứ, doanh thu, sản phẩm hay tư vấn quản trị?"
+        }
+      ];
+      showToast("Đã làm mới hộp thoại AI", "info");
+      scrollAiChatToBottom();
+    };
 
     // System Utilities & Reports State
     const isSystemActionRunning = ref(false);
@@ -118,14 +138,18 @@ const app = createApp({
     };
 
     const showToast = (message, type = "info") => {
-      toast.message = message;
+      let msgStr = message;
+      if (typeof message === "object" && message !== null) {
+        msgStr = message.detail || message.message || JSON.stringify(message);
+      }
+      toast.message = String(msgStr || "Thông báo");
       toast.type = type;
       toast.show = true;
       if (type === "success") haptic("success");
       if (type === "error") haptic("error");
       setTimeout(() => {
         toast.show = false;
-      }, 3000);
+      }, 3500);
     };
 
     const formatMoney = (val) => {
@@ -209,7 +233,24 @@ const app = createApp({
         }
         if (!res.ok) {
           const errData = await res.json().catch(() => ({}));
-          throw new Error(errData.detail || `Lỗi HTTP ${res.status}`);
+          let errMsg = `Lỗi HTTP ${res.status}`;
+          if (typeof errData.detail === "string") {
+            errMsg = errData.detail;
+          } else if (Array.isArray(errData.detail) && errData.detail.length > 0) {
+            errMsg = errData.detail.map(d => {
+              if (typeof d === "string") return d;
+              if (d && typeof d === "object") {
+                const loc = Array.isArray(d.loc) ? d.loc.filter(x => x !== "body").join(".") : "";
+                return (loc ? `${loc}: ` : "") + (d.msg || JSON.stringify(d));
+              }
+              return String(d);
+            }).join("; ");
+          } else if (errData.detail && typeof errData.detail === "object") {
+            errMsg = errData.detail.message || JSON.stringify(errData.detail);
+          } else if (errData.message) {
+            errMsg = errData.message;
+          }
+          throw new Error(errMsg);
         }
         return await res.json();
       } catch (err) {
@@ -356,13 +397,36 @@ const app = createApp({
 
     const saveProductPrice = async () => {
       if (!editPriceModal.product) return;
+
+      const regRaw = editPriceModal.regular_price !== null && editPriceModal.regular_price !== undefined 
+        ? String(editPriceModal.regular_price).trim() 
+        : "";
+      const saleRaw = editPriceModal.sale_price !== null && editPriceModal.sale_price !== undefined 
+        ? String(editPriceModal.sale_price).trim() 
+        : "";
+
+      const regNum = parseFloat(regRaw);
+      const saleNum = parseFloat(saleRaw);
+
+      if (!regRaw || isNaN(regNum) || regNum < 0) {
+        showToast("Vui lòng nhập giá thường hợp lệ (>= 0đ)", "error");
+        return;
+      }
+
+      if (saleRaw && !isNaN(saleNum) && saleNum > 0) {
+        if (saleNum >= regNum) {
+          showToast("Giá khuyến mãi phải thấp hơn giá bán thông thường!", "error");
+          return;
+        }
+      }
+
       editPriceModal.isSaving = true;
       haptic("medium");
       try {
         const pId = editPriceModal.product.id;
         const payload = {
-          regular_price: editPriceModal.regular_price,
-          sale_price: editPriceModal.sale_price,
+          regular_price: regRaw,
+          sale_price: saleRaw,
           variation_id: editPriceModal.variation ? editPriceModal.variation.id : null
         };
         const res = await apiCall(`/api/products/${pId}/price`, {
@@ -715,6 +779,7 @@ const app = createApp({
       isAiThinking.value = true;
 
       try {
+        scrollAiChatToBottom();
         const res = await apiCall("/api/ai/ask", {
           method: "POST",
           body: JSON.stringify({ prompt: question })
@@ -727,6 +792,7 @@ const app = createApp({
         });
       } finally {
         isAiThinking.value = false;
+        scrollAiChatToBottom();
       }
     };
 
@@ -908,9 +974,11 @@ const app = createApp({
       logContainer,
       fetchLogs,
       clearLogView,
+      aiChatContainer,
       aiMessages,
       aiPrompt,
       isAiThinking,
+      clearAiChat,
       isSystemActionRunning,
       systemReportModal,
       formatMoney,

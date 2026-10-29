@@ -7,8 +7,9 @@ import hashlib
 import urllib.parse
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Any
+from typing import Optional, Any, Union
 import threading
+import requests
 
 from fastapi import FastAPI, Depends, HTTPException, Header, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -546,8 +547,8 @@ def get_products(
 
 
 class UpdatePriceRequest(BaseModel):
-    regular_price: Optional[str] = None
-    sale_price: Optional[str] = None
+    regular_price: Optional[Union[str, int, float]] = None
+    sale_price: Optional[Union[str, int, float]] = None
     variation_id: Optional[int] = None
 
 
@@ -558,31 +559,76 @@ def update_product_price(
     current_user: dict = Depends(get_current_admin)
 ):
     try:
+        reg_str = None
+        if body.regular_price is not None:
+            reg_str = str(body.regular_price).strip()
+            if reg_str:
+                try:
+                    r_val = float(reg_str)
+                    if r_val < 0:
+                        raise HTTPException(status_code=400, detail="Giá thường không thể âm.")
+                except ValueError:
+                    raise HTTPException(status_code=400, detail="Giá thường phải là số hợp lệ.")
+
+        sale_str = None
+        if body.sale_price is not None:
+            sale_str = str(body.sale_price).strip()
+            if sale_str:
+                try:
+                    s_val = float(sale_str)
+                    if s_val < 0:
+                        raise HTTPException(status_code=400, detail="Giá khuyến mãi không thể âm.")
+                except ValueError:
+                    raise HTTPException(status_code=400, detail="Giá khuyến mãi phải là số hợp lệ.")
+
+        # Business logic validation: sale_price must be strictly lower than regular_price
+        if reg_str and sale_str:
+            try:
+                r_num = float(reg_str)
+                s_num = float(sale_str)
+                if s_num > 0 and s_num >= r_num:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Giá khuyến mãi phải thấp hơn giá bán thông thường."
+                    )
+            except ValueError:
+                pass
+
         if body.variation_id:
             # Cập nhật giá biến thể
             var_payload = {}
-            if body.regular_price is not None:
-                var_payload["regular_price"] = str(body.regular_price).strip()
-            if body.sale_price is not None:
-                var_payload["sale_price"] = str(body.sale_price).strip()
+            if reg_str is not None:
+                var_payload["regular_price"] = reg_str
+            if sale_str is not None:
+                var_payload["sale_price"] = sale_str
             res = bot.wc_put(f"products/{product_id}/variations/{body.variation_id}", var_payload)
             if not isinstance(res, dict) or not res.get("id"):
-                raise HTTPException(status_code=400, detail="Lỗi cập nhật giá biến thể.")
+                raise HTTPException(status_code=400, detail="Lỗi cập nhật giá biến thể trên WooCommerce.")
             return {"ok": True, "message": f"Đã cập nhật giá biến thể #{body.variation_id} thành công!"}
         else:
             # Cập nhật giá sản phẩm chính
             prod_payload = {}
-            if body.regular_price is not None:
-                prod_payload["regular_price"] = str(body.regular_price).strip()
-            if body.sale_price is not None:
-                prod_payload["sale_price"] = str(body.sale_price).strip()
+            if reg_str is not None:
+                prod_payload["regular_price"] = reg_str
+            if sale_str is not None:
+                prod_payload["sale_price"] = sale_str
             res = bot.wc_put(f"products/{product_id}", prod_payload)
             if not isinstance(res, dict) or not res.get("id"):
-                raise HTTPException(status_code=400, detail="Lỗi cập nhật giá sản phẩm.")
+                raise HTTPException(status_code=400, detail="Lỗi cập nhật giá sản phẩm trên WooCommerce.")
             update_product_cache_locally(product_id, prod_payload)
             return {"ok": True, "message": f"Đã cập nhật giá sản phẩm #{product_id} thành công!"}
     except HTTPException:
         raise
+    except requests.exceptions.HTTPError as exc:
+        err_msg = "Lỗi cập nhật giá từ WooCommerce."
+        try:
+            err_json = exc.response.json()
+            if isinstance(err_json, dict) and err_json.get("message"):
+                err_msg = f"WooCommerce: {err_json['message']}"
+        except Exception:
+            err_msg = str(exc)
+        bot.log(f"[MiniApp] Lỗi WooCommerce cập nhật giá #{product_id}: {err_msg}")
+        raise HTTPException(status_code=400, detail=err_msg)
     except Exception as exc:
         bot.log(f"[MiniApp] Lỗi cập nhật giá #{product_id}: {exc}")
         raise HTTPException(status_code=500, detail=str(exc))
@@ -950,8 +996,10 @@ def get_system_logs(
             parsed.append({
                 "raw": line,
                 "timestamp": timestamp,
+                "time": timestamp,
                 "level": level,
-                "message": msg
+                "message": msg,
+                "text": msg
             })
 
         return {"ok": True, "logs": parsed, "total": len(all_lines)}

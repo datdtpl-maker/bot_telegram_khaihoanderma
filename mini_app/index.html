@@ -689,16 +689,102 @@
 
       <!-- ================= TAB 5: NOTION & AI TOOLS ================= -->
       <section v-if="currentTab === 'tools'" class="space-y-4">
-        <!-- Desktop Grid: Left Controls, Right Live Logs -->
+        <!-- Top Section: AI Store & Assistant (Full Width, Spacious & Prominent) -->
+        <div class="card-theme p-4 md:p-6 rounded-2xl space-y-4 shadow-sm border border-slate-100 dark:border-slate-800">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-3">
+            <div class="flex items-center space-x-3">
+              <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white text-xl shadow-md">
+                🤖
+              </div>
+              <div>
+                <h3 class="font-bold text-base text-title flex items-center gap-2">
+                  <span>Trợ Lý AI Khải Hoàn Derma</span>
+                  <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-sky-400">
+                    Gemini 2.8 Flash
+                  </span>
+                </h3>
+                <p class="text-xs text-sub">Tra cứu đơn hàng quá khứ, phân tích doanh thu & quản trị cửa hàng thời gian thực</p>
+              </div>
+            </div>
+            <div class="flex items-center space-x-2 self-end sm:self-auto">
+              <span class="text-[10px] font-bold px-2 py-1 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span> Realtime Store
+              </span>
+              <button @click="clearAiChat" class="px-2.5 py-1 text-xs font-semibold card-sub text-muted hover:text-main rounded-lg active:scale-95 transition-all" title="Làm mới cuộc trò chuyện">
+                🔄 Làm mới chat
+              </button>
+            </div>
+          </div>
+
+          <!-- Quick prompt suggestion pills -->
+          <div class="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5 text-xs">
+            <span class="text-muted text-[11px] font-bold flex-shrink-0 mr-1">Gợi ý:</span>
+            <button @click="sendAiPrompt('đơn hàng tháng 9/2026')" class="px-3 py-1.5 rounded-xl card-sub hover:border-blue-500 border border-slate-200 dark:border-slate-700 text-sub hover:text-blue-600 dark:hover:text-sky-400 font-medium active:scale-95 transition-all flex-shrink-0">
+              📦 Đơn hàng tháng 9/2026
+            </button>
+            <button @click="sendAiPrompt('doanh thu tháng này')" class="px-3 py-1.5 rounded-xl card-sub hover:border-blue-500 border border-slate-200 dark:border-slate-700 text-sub hover:text-blue-600 dark:hover:text-sky-400 font-medium active:scale-95 transition-all flex-shrink-0">
+              📊 Doanh thu tháng này
+            </button>
+            <button @click="sendAiPrompt('đơn hàng hôm nay')" class="px-3 py-1.5 rounded-xl card-sub hover:border-blue-500 border border-slate-200 dark:border-slate-700 text-sub hover:text-blue-600 dark:hover:text-sky-400 font-medium active:scale-95 transition-all flex-shrink-0">
+              ⚡ Đơn hôm nay
+            </button>
+            <button @click="sendAiPrompt('sản phẩm có biến thể')" class="px-3 py-1.5 rounded-xl card-sub hover:border-blue-500 border border-slate-200 dark:border-slate-700 text-sub hover:text-blue-600 dark:hover:text-sky-400 font-medium active:scale-95 transition-all flex-shrink-0">
+              🔀 Sản phẩm biến thể
+            </button>
+            <button @click="sendAiPrompt('top sản phẩm bán chạy')" class="px-3 py-1.5 rounded-xl card-sub hover:border-blue-500 border border-slate-200 dark:border-slate-700 text-sub hover:text-blue-600 dark:hover:text-sky-400 font-medium active:scale-95 transition-all flex-shrink-0">
+              🔥 Top bán chạy
+            </button>
+          </div>
+
+          <!-- Messages Container: Large, Spacious, min-h-[440px] md:min-h-[500px] max-h-[620px] -->
+          <div ref="aiChatContainer" class="space-y-3 min-h-[440px] md:min-h-[500px] max-h-[620px] overflow-y-auto p-4 md:p-5 card-sub rounded-2xl text-xs border border-slate-200 dark:border-slate-800">
+            <div v-for="(msg, idx) in aiMessages" :key="idx" 
+                 :class="msg.role === 'user' ? 'text-right' : 'text-left'">
+              <!-- User Message Bubble -->
+              <div v-if="msg.role === 'user'"
+                   class="bg-blue-600 text-white inline-block px-4 py-3 rounded-2xl rounded-tr-none max-w-[85%] text-xs font-semibold leading-relaxed break-words text-left shadow-sm">
+                {{ msg.text }}
+              </div>
+              <!-- Assistant Message Card with Rich HTML Layout -->
+              <div v-else 
+                   class="card-theme text-main inline-block border border-slate-200 dark:border-slate-800 p-4 md:p-5 rounded-2xl rounded-tl-none w-full max-w-full text-xs font-normal leading-relaxed break-words text-left shadow-sm ai-rendered-content"
+                   v-html="renderAiHtml(msg.text)">
+              </div>
+            </div>
+            <div v-if="isAiThinking" class="text-left">
+              <div class="card-theme text-sub inline-flex items-center space-x-2 px-4 py-2.5 rounded-2xl rounded-tl-none text-xs border border-slate-200 dark:border-slate-800 animate-pulse">
+                <span class="animate-spin">⏳</span>
+                <span>Trợ lý AI đang tra cứu dữ liệu & xử lý phân tích...</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Chat Input Bar -->
+          <div class="flex space-x-2 pt-1">
+            <input v-model="aiPrompt" @keyup.enter="askGemini" type="text" placeholder="Hỏi về đơn hàng (vd: đơn hàng tháng 9/2026), doanh thu, sản phẩm..." 
+                   class="flex-1 px-4 py-2.5 card-sub text-title rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 border border-slate-200 dark:border-slate-700">
+            <button @click="askGemini" :disabled="isAiThinking || !aiPrompt.trim()" 
+                    class="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center space-x-1.5 active:scale-95 transition-all disabled:opacity-50 shadow-md">
+              <span>Gửi</span>
+              <span>✈️</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Middle Grid: Notion Sync Card (Left) & Compact Live Log Terminal (Right) -->
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <!-- Left Column: Notion Sync & AI Assistant -->
-          <div class="space-y-4">
-            <!-- Notion Sync Card -->
-            <div class="card-theme p-4 md:p-5 rounded-2xl space-y-3">
+          <!-- Notion Sync Card -->
+          <div class="card-theme p-4 md:p-5 rounded-2xl flex flex-col justify-between space-y-3 shadow-sm border border-slate-100 dark:border-slate-800">
+            <div class="space-y-2">
               <div class="flex items-center justify-between">
-                <div class="flex items-center space-x-2">
-                  <span class="text-xl">📝</span>
-                  <h3 class="font-bold text-sm text-title">Đồng Bộ Bài Viết Notion</h3>
+                <div class="flex items-center space-x-2.5">
+                  <div class="w-8 h-8 rounded-lg bg-purple-500/15 text-purple-600 dark:text-purple-400 flex items-center justify-center font-bold text-base">
+                    📝
+                  </div>
+                  <div>
+                    <h3 class="font-bold text-sm text-title">Đồng Bộ Bài Viết Notion</h3>
+                    <p class="text-[11px] text-muted">Đăng tự động sản phẩm 'Báo IT đăng' lên WooCommerce</p>
+                  </div>
                 </div>
                 <span class="text-[10px] font-bold px-2 py-0.5 rounded-full card-sub text-sub">
                   Tự động quét
@@ -706,119 +792,66 @@
               </div>
 
               <p class="text-xs text-sub leading-relaxed">
-                Hệ thống tự động đồng bộ sản phẩm trạng thái <b>'Báo IT đăng'</b> từ Notion lên website WooCommerce, tự động nén ảnh WebP chuẩn SEO và nhúng video gallery.
+                Hệ thống tự động đồng bộ bài viết và sản phẩm, tự động nén ảnh WebP chuẩn SEO và nhúng video gallery chuyên nghiệp.
               </p>
+            </div>
 
-              <!-- Sync Action Button -->
+            <div class="space-y-2 pt-2">
+              <div v-if="syncStatusText" class="text-xs p-2.5 rounded-xl bg-purple-500/10 text-purple-700 dark:text-purple-300 font-medium flex items-center space-x-2">
+                <span class="animate-spin">🔄</span>
+                <span class="line-clamp-2">{{ syncStatusText }}</span>
+              </div>
+
               <button @click="triggerNotionSync" :disabled="isSyncRunning" 
-                      class="w-full py-2.5 px-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-xl text-xs font-bold flex items-center justify-center space-x-2 shadow-md active:scale-95 transition-all disabled:opacity-50">
+                      class="w-full py-2.5 px-4 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white rounded-xl text-xs font-bold flex items-center justify-center space-x-2 shadow-md active:scale-95 transition-all disabled:opacity-50">
                 <span v-if="isSyncRunning" class="animate-spin">🔄</span>
                 <span v-else>🚀</span>
                 <span>{{ isSyncRunning ? 'Đang quét và đăng sản phẩm...' : 'Bắt đầu quét & đăng bài Notion ngay' }}</span>
               </button>
-
-              <div v-if="syncStatusText" class="text-xs p-2.5 rounded-xl bg-blue-500/10 text-blue-600 dark:text-sky-400 font-medium">
-                {{ syncStatusText }}
-              </div>
-            </div>
-
-            <!-- AI Store & Assistant -->
-            <div class="card-theme p-4 md:p-5 rounded-2xl space-y-3">
-              <div class="flex items-center justify-between">
-                <div class="flex items-center space-x-2">
-                  <span class="text-xl">🤖</span>
-                  <h3 class="font-bold text-sm text-title">Trợ Lý AI Khải Hoàn Derma</h3>
-                </div>
-                <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-600 dark:text-indigo-400">
-                  Gemini 3.8 Flash • Realtime Store
-                </span>
-              </div>
-
-              <!-- Quick prompt suggestion pills -->
-              <div class="flex flex-wrap gap-1.5 text-[11px]">
-                <button @click="sendAiPrompt('đơn hàng tháng 9/2026')" class="px-2.5 py-1 rounded-lg card-sub hover:border-blue-500 border border-slate-200 dark:border-slate-700 text-sub hover:text-main active:scale-95 transition-all">
-                  📦 Đơn hàng tháng 9/2026
-                </button>
-                <button @click="sendAiPrompt('doanh thu tháng này')" class="px-2.5 py-1 rounded-lg card-sub hover:border-blue-500 border border-slate-200 dark:border-slate-700 text-sub hover:text-main active:scale-95 transition-all">
-                  📊 Doanh thu tháng này
-                </button>
-                <button @click="sendAiPrompt('đơn hàng hôm nay')" class="px-2.5 py-1 rounded-lg card-sub hover:border-blue-500 border border-slate-200 dark:border-slate-700 text-sub hover:text-main active:scale-95 transition-all">
-                  ⚡ Đơn hôm nay
-                </button>
-                <button @click="sendAiPrompt('sản phẩm có biến thể')" class="px-2.5 py-1 rounded-lg card-sub hover:border-blue-500 border border-slate-200 dark:border-slate-700 text-sub hover:text-main active:scale-95 transition-all">
-                  🔀 Sản phẩm biến thể
-                </button>
-              </div>
-
-              <div class="space-y-2 max-h-80 md:max-h-96 overflow-y-auto p-2.5 card-sub rounded-xl text-xs no-scrollbar">
-                <div v-for="(msg, idx) in aiMessages" :key="idx" 
-                     :class="msg.role === 'user' ? 'text-right' : 'text-left'">
-                  <!-- User Message Bubble -->
-                  <div v-if="msg.role === 'user'"
-                       class="bg-blue-600 text-white inline-block p-3 rounded-2xl max-w-[85%] text-xs font-semibold leading-relaxed break-words text-left shadow-sm">
-                    {{ msg.text }}
-                  </div>
-                  <!-- Assistant Message Card with Rich HTML Layout -->
-                  <div v-else 
-                       class="card-theme text-main inline-block border border-slate-200 dark:border-slate-800 p-3.5 md:p-4 rounded-2xl max-w-[96%] text-xs font-normal leading-relaxed break-words text-left shadow-sm ai-rendered-content"
-                       v-html="renderAiHtml(msg.text)">
-                  </div>
-                </div>
-                <div v-if="isAiThinking" class="text-left">
-                  <div class="card-theme text-sub inline-block p-2 rounded-xl text-xs animate-pulse">
-                    Đang tra cứu dữ liệu & phân tích...
-                  </div>
-                </div>
-              </div>
-
-              <div class="flex space-x-2">
-                <input v-model="aiPrompt" @keyup.enter="askGemini" type="text" placeholder="Hỏi về đơn hàng (vd: đơn hàng tháng 9/2026), doanh thu, sản phẩm..." 
-                       class="flex-1 px-3 py-2 card-sub text-title rounded-xl text-xs focus:outline-none focus:border-blue-500 border border-transparent">
-                <button @click="askGemini" :disabled="isAiThinking" class="px-3.5 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 active:scale-95 transition-all">
-                  Gửi
-                </button>
-              </div>
             </div>
           </div>
 
-          <!-- Right Column: Real-time Live Log Terminal -->
-          <div class="card-theme p-4 md:p-5 rounded-2xl flex flex-col justify-between space-y-3">
+          <!-- Compact Live Log Terminal Card -->
+          <div class="card-theme p-4 md:p-5 rounded-2xl flex flex-col justify-between space-y-2.5 shadow-sm border border-slate-100 dark:border-slate-800">
             <div class="flex items-center justify-between">
               <div class="flex items-center space-x-2">
-                <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping"></span>
+                <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
                 <h3 class="font-bold text-sm text-title">Live Log Terminal Hệ Thống</h3>
               </div>
 
               <!-- Log Filter Pills -->
               <div class="flex space-x-1 text-[10px] font-bold">
-                <button @click="logFilter = ''; fetchLogs()" :class="!logFilter ? 'bg-blue-600 text-white' : 'card-sub text-sub'" class="px-2 py-0.5 rounded-md">Tất cả</button>
-                <button @click="logFilter = 'NotionSync'; fetchLogs()" :class="logFilter === 'NotionSync' ? 'bg-purple-600 text-white' : 'card-sub text-sub'" class="px-2 py-0.5 rounded-md">Notion</button>
-                <button @click="logFilter = 'error'; fetchLogs()" :class="logFilter === 'error' ? 'bg-rose-600 text-white' : 'card-sub text-sub'" class="px-2 py-0.5 rounded-md">Lỗi</button>
+                <button @click="logFilter = ''; fetchLogs()" :class="!logFilter ? 'bg-blue-600 text-white' : 'card-sub text-sub'" class="px-2 py-0.5 rounded-md transition-colors">Tất cả</button>
+                <button @click="logFilter = 'NotionSync'; fetchLogs()" :class="logFilter === 'NotionSync' ? 'bg-purple-600 text-white' : 'card-sub text-sub'" class="px-2 py-0.5 rounded-md transition-colors">Notion</button>
+                <button @click="logFilter = 'error'; fetchLogs()" :class="logFilter === 'error' ? 'bg-rose-600 text-white' : 'card-sub text-sub'" class="px-2 py-0.5 rounded-md transition-colors">Lỗi</button>
                 <button @click="clearLogView" class="px-2 py-0.5 rounded-md card-sub text-muted hover:text-main" title="Xóa màn hình log">Xóa</button>
               </div>
             </div>
 
-            <!-- Terminal Output Window -->
-            <div ref="logContainer" class="flex-1 min-h-[360px] max-h-[500px] overflow-y-auto p-3 rounded-xl bg-slate-950 text-slate-200 font-mono text-[11px] space-y-1 border border-slate-800 shadow-inner">
-              <div v-if="systemLogs.length === 0" class="text-slate-500 italic py-8 text-center">
-                Chưa có log mới. Nhấn "Bắt đầu quét & đăng bài Notion" để xem tiến trình thời gian thực.
+            <!-- Terminal Output Window: Compact & Neat -->
+            <div ref="logContainer" class="h-44 md:h-48 overflow-y-auto p-3 rounded-xl bg-slate-950 text-slate-200 font-mono text-[11px] space-y-1 border border-slate-800 shadow-inner">
+              <div v-if="systemLogs.length === 0" class="text-slate-500 italic py-6 text-center">
+                {{ isLogsLoading ? 'Đang tải nhật ký...' : 'Chưa có log mới. Nhấn "Bắt đầu quét & đăng bài Notion" để xem tiến trình.' }}
               </div>
-              <div v-for="(log, idx) in systemLogs" :key="idx" class="leading-relaxed flex items-start space-x-1.5">
-                <span class="text-slate-500 flex-shrink-0">[{{ log.time }}]</span>
-                <span :class="{
-                  'text-emerald-400 font-bold': log.level === 'success',
-                  'text-rose-400 font-bold': log.level === 'error',
+              <div v-for="(log, idx) in systemLogs" :key="idx" class="leading-relaxed flex items-start space-x-2">
+                <span v-if="log.timestamp || log.time" class="text-slate-500 flex-shrink-0 font-mono text-[10px] select-none">
+                  [{{ log.time || log.timestamp }}]
+                </span>
+                <span class="break-words font-mono flex-1 text-[11px]" :class="{
+                  'text-emerald-400 font-semibold': log.level === 'success',
+                  'text-rose-400 font-semibold': log.level === 'error',
                   'text-amber-300': log.level === 'warn',
                   'text-purple-300': log.level === 'sync',
                   'text-slate-300': log.level === 'info'
-                }">{{ log.text }}</span>
+                }">{{ log.text || log.message || log.raw }}</span>
               </div>
             </div>
 
-            <div class="flex items-center justify-between text-[11px] text-muted pt-1">
-              <span>Tự động cập nhật mỗi 3s khi tiến trình đang chạy</span>
-              <button @click="fetchLogs" class="text-blue-600 dark:text-sky-400 font-bold hover:underline">
-                Làm mới ngay ↻
+            <div class="flex items-center justify-between text-[11px] text-muted pt-0.5">
+              <span>Tự động cập nhật mỗi 3s khi đang chạy</span>
+              <button @click="fetchLogs" class="text-blue-600 dark:text-sky-400 font-bold hover:underline flex items-center gap-1">
+                <span :class="{'animate-spin': isLogsLoading}">↻</span>
+                <span>Làm mới ngay</span>
               </button>
             </div>
           </div>

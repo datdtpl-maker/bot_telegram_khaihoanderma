@@ -63,7 +63,8 @@ class MiniAppTestSuite(unittest.TestCase):
         with patch.dict("os.environ", {"TELEGRAM_BOT_TOKEN": self.bot_token}), \
              patch.object(mini_app_server.bot, "fetch_orders_between", return_value=[]), \
              patch.object(mini_app_server.bot, "fetch_orders", return_value=[]), \
-             patch.object(mini_app_server.bot, "wc_get", return_value=[]):
+             patch.object(mini_app_server.bot, "wc_get", return_value=[]), \
+             patch.object(mini_app_server.notion_sync, "query_notion_pages_to_post", return_value=[]):
             headers = {"X-Admin-Token": self.admin_token}
             response = self.client.get("/api/dashboard/stats", headers=headers)
             self.assertEqual(response.status_code, 200)
@@ -83,6 +84,27 @@ class MiniAppTestSuite(unittest.TestCase):
             data = response.json()
             self.assertTrue(data.get("ok"))
             self.assertIn("thành công", data.get("message"))
+
+    def test_update_product_price_with_numeric_inputs(self):
+        with patch.dict("os.environ", {"TELEGRAM_BOT_TOKEN": self.bot_token}), \
+             patch.object(mini_app_server.bot, "wc_put", return_value={"id": 1968}), \
+             patch.object(mini_app_server, "update_product_cache_locally"):
+            headers = {"X-Admin-Token": self.admin_token}
+            # Numbers from Vue v-model numeric input should be accepted without 422 error
+            payload = {"regular_price": 270000, "sale_price": 250000}
+            response = self.client.post("/api/products/1968/price", json=payload, headers=headers)
+            self.assertEqual(response.status_code, 200)
+            data = response.json()
+            self.assertTrue(data.get("ok"))
+            self.assertIn("thành công", data.get("message"))
+
+    def test_update_product_price_validation_sale_greater_than_regular(self):
+        with patch.dict("os.environ", {"TELEGRAM_BOT_TOKEN": self.bot_token}):
+            headers = {"X-Admin-Token": self.admin_token}
+            payload = {"regular_price": 200000, "sale_price": 250000}
+            response = self.client.post("/api/products/100/price", json=payload, headers=headers)
+            self.assertEqual(response.status_code, 400)
+            self.assertIn("thấp hơn giá bán", response.json().get("detail", ""))
 
     def test_approve_review_endpoint(self):
         with patch.dict("os.environ", {"TELEGRAM_BOT_TOKEN": self.bot_token}), \
@@ -171,6 +193,7 @@ class MiniAppTestSuite(unittest.TestCase):
 
     def test_google_seo_report_endpoint(self):
         with patch.dict("os.environ", {"TELEGRAM_BOT_TOKEN": self.bot_token}), \
+             patch("bot_modules.google_reports.build_google_report_web_html", return_value="<div class='test-report'>Report</div>"), \
              patch("bot_modules.google_reports.build_google_report_html", return_value="<b>Báo cáo SEO OK</b>"):
             headers = {"X-Admin-Token": self.admin_token}
             response = self.client.get("/api/reports/google-seo?type=traffic", headers=headers)
@@ -237,6 +260,12 @@ class MiniAppTestSuite(unittest.TestCase):
             data = res.json()
             self.assertTrue(data.get("ok"))
             self.assertIsInstance(data.get("logs"), list)
+            if data["logs"]:
+                first = data["logs"][0]
+                self.assertIn("timestamp", first)
+                self.assertIn("time", first)
+                self.assertIn("message", first)
+                self.assertIn("text", first)
 
     def test_get_reviews_with_status_filter(self):
         fake_reviews = [
