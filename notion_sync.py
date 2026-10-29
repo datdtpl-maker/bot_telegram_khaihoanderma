@@ -1572,7 +1572,6 @@ def _run_notion_sync_workflow(progress_callback=None, page_ids=None, site_key: s
 
         # 3. Google Drive folder URL
         drive_url = properties.get("Media sản phẩm", {}).get("url")
-
         # 4. Content blocks:
         # Ưu tiên lấy trực tiếp từ trang sản phẩm (page_id)
         blocks = []
@@ -1600,7 +1599,6 @@ def _run_notion_sync_workflow(progress_callback=None, page_ids=None, site_key: s
             if progress_callback:
                 progress_callback(f"⚠️ Bỏ qua '{product_title}': Không tìm thấy nội dung bài viết.")
             continue
-
         product_description, category_name, price_val, sale_price_val = parse_notion_blocks(blocks)
         temp_dir = Path(tempfile.mkdtemp(prefix=f"notion-{page_id}-", dir=temp_root))
         uploaded_media_ids = []
