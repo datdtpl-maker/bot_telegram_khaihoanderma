@@ -5004,9 +5004,8 @@ def main() -> None:
             # Đăng ký Telegram Menu Button Mini App nếu có cấu hình MINI_APP_URL
             mini_app_url = os.environ.get("MINI_APP_URL", "").strip()
             if mini_app_url:
+                # Đăng ký Menu Button ngầm, không gửi tin nhắn spam vào chat admin
                 set_telegram_menu_button(mini_app_url)
-                # Gửi thông báo đến Admin kèm nút bấm mở Mini App trực tiếp
-                notify_admins_mini_app_ready(mini_app_url)
             break
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")
