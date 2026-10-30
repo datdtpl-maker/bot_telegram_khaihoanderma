@@ -174,7 +174,11 @@ def serve_index():
     index_file = STATIC_DIR / "index.html"
     if not index_file.exists():
         raise HTTPException(status_code=404, detail="Frontend chưa được cài đặt")
-    return FileResponse(index_file)
+    response = FileResponse(index_file)
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
 
 
 # ================= AUTH & SITES API =================
