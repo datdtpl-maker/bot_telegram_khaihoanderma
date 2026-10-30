@@ -4048,8 +4048,10 @@ def start_cloudflare_tunnel(port: int = 8088) -> str | None:
             if line:
                 match = re.search(r"https://[a-zA-Z0-9-]+\.trycloudflare\.com", line)
                 if match:
-                    tunnel_url = match.group(0).strip()
-                    break
+                    found = match.group(0).strip()
+                    if "api.trycloudflare.com" not in found:
+                        tunnel_url = found
+                        break
 
         if tunnel_url:
             log(f"Cloudflare Tunnel tự động thành công: {tunnel_url}")
