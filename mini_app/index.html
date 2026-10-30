@@ -41,14 +41,14 @@
     </transition>
 
     <!-- Header Section with Desktop Navigation -->
-    <header class="sticky top-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-4 py-3 flex items-center justify-between transition-colors">
-      <div class="flex items-center space-x-3">
-        <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white font-black text-xs shadow-sm flex-shrink-0">
+    <header class="sticky top-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-3 sm:px-4 py-2.5 sm:py-3 flex items-center justify-between transition-colors">
+      <div class="flex items-center space-x-2.5 sm:space-x-3 min-w-0">
+        <div class="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white font-black text-xs shadow-sm shrink-0">
           MCP
         </div>
-        <div>
-          <h1 class="text-base font-black text-title leading-tight">MCP Khải Hoàn</h1>
-          <p class="text-[11px] text-sub">Hệ Thống Quản Trị & Bán Hàng Đa Kênh</p>
+        <div class="min-w-0">
+          <h1 class="text-sm sm:text-base font-black text-title leading-tight truncate">MCP Khải Hoàn</h1>
+          <p class="text-[10px] sm:text-[11px] text-sub truncate">Quản Trị & Bán Hàng Đa Kênh</p>
         </div>
       </div>
 
@@ -91,65 +91,64 @@
         </button>
       </nav>
 
-      <div class="flex items-center space-x-2">
+      <div class="flex items-center space-x-1.5 sm:space-x-2 shrink-0">
         <!-- Theme Toggle Button -->
         <button @click="toggleTheme" 
-                class="w-8 h-8 rounded-xl card-theme flex items-center justify-center text-sm hover:scale-105 active:scale-95 transition-all"
+                class="w-8 h-8 rounded-xl card-theme flex items-center justify-center text-sm hover:scale-105 active:scale-95 transition-all shrink-0"
                 :title="isDark ? 'Chuyển sang giao diện Sáng' : 'Chuyển sang giao diện Tối'">
           <span>{{ isDark ? '☀️' : '🌙' }}</span>
         </button>
 
-        <!-- Refresh Button -->
-        <button @click="refreshAllData(true)" 
-                :disabled="isRefreshingAll"
-                class="px-2.5 py-1 rounded-xl card-theme flex items-center justify-center space-x-1 text-xs hover:scale-105 active:scale-95 transition-all text-sub border border-slate-200 dark:border-slate-700"
-                :title="isRefreshingAll ? 'Đang làm mới 2 website...' : 'Làm mới dữ liệu 2 website'">
-          <span :class="{'animate-spin inline-block': isRefreshingAll}">🔄</span>
-          <span class="hidden md:inline font-bold text-[11px]">{{ isRefreshingAll ? 'Đang tải...' : 'Làm mới' }}</span>
-        </button>
-
-        <span v-if="user" class="text-xs bg-blue-500/10 text-blue-600 dark:text-sky-400 font-bold px-2.5 py-1 rounded-full border border-blue-500/20">
+        <!-- Admin Badge -->
+        <span v-if="user" class="text-xs bg-blue-500/10 text-blue-600 dark:text-sky-400 font-bold px-2.5 py-1 rounded-full border border-blue-500/20 shrink-0">
           Admin
         </span>
       </div>
     </header>
 
     <!-- Multi-Store Selector Bar -->
-    <div class="px-3 sm:px-4 py-2 bg-slate-50/90 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 transition-colors">
-      <div class="flex items-center space-x-1.5 overflow-x-auto py-0.5 no-scrollbar">
-        <span class="text-xs font-bold text-muted mr-1 flex items-center gap-1">🏪 Website:</span>
+    <div class="px-2.5 sm:px-4 py-2 bg-slate-50/90 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-1.5 sm:gap-2 transition-colors">
+      <!-- Store Filter Tabs (Single clean row, never wraps text, scrollable on narrow screens) -->
+      <div class="flex items-center space-x-1 sm:space-x-1.5 overflow-x-auto no-scrollbar py-0.5 flex-1 min-w-0">
+        <span class="hidden md:inline-flex text-xs font-bold text-muted mr-1 items-center gap-1 whitespace-nowrap shrink-0">🏪 Website:</span>
+        
         <button @click="setStoreFilter('all')" 
                 :class="selectedStore === 'all' ? 'bg-blue-600 text-white font-bold shadow-sm' : 'card-theme text-sub hover:text-main'"
-                class="px-3 py-1 rounded-xl text-xs transition-all flex items-center space-x-1 border border-transparent">
+                class="px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center space-x-1 border border-transparent whitespace-nowrap shrink-0 active:scale-95">
           <span>🌐</span>
-          <span>Toàn hệ thống</span>
-        </button>
-        <button @click="setStoreFilter('derma')" 
-                :class="selectedStore === 'derma' ? 'bg-emerald-600 text-white font-bold shadow-sm' : 'card-theme text-sub hover:text-main'"
-                class="px-3 py-1 rounded-xl text-xs transition-all flex items-center space-x-1 border border-transparent">
-          <span>🌿</span>
-          <span>Khải Hoàn Derma</span>
-        </button>
-        <button @click="setStoreFilter('pharma')" 
-                :class="selectedStore === 'pharma' ? 'bg-purple-600 text-white font-bold shadow-sm' : 'card-theme text-sub hover:text-main'"
-                class="px-3 py-1 rounded-xl text-xs transition-all flex items-center space-x-1 border border-transparent">
-          <span>💊</span>
-          <span>Khải Hoàn Pharma</span>
+          <span>Tất cả<span class="hidden sm:inline"> hệ thống</span></span>
         </button>
 
-        <!-- Nút Làm Mới Dữ Liệu 2 Web Nổi Bật -->
-        <button @click="refreshAllData(true)"
-                :disabled="isRefreshingAll"
-                class="px-3 py-1 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-sm active:scale-95 disabled:opacity-50 cursor-pointer ml-1 sm:ml-2"
-                title="Lấy dữ liệu mới nhất từ cả 2 website Khải Hoàn Derma và Khải Hoàn Pharma">
-          <span :class="{'animate-spin inline-block': isRefreshingAll}">🔄</span>
-          <span>{{ isRefreshingAll ? 'Đang làm mới 2 web...' : 'Làm mới dữ liệu 2 web' }}</span>
+        <button @click="setStoreFilter('derma')" 
+                :class="selectedStore === 'derma' ? 'bg-emerald-600 text-white font-bold shadow-sm' : 'card-theme text-sub hover:text-main'"
+                class="px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center space-x-1 border border-transparent whitespace-nowrap shrink-0 active:scale-95">
+          <span>🌿</span>
+          <span><span class="hidden sm:inline">Khải Hoàn </span>Derma</span>
+        </button>
+
+        <button @click="setStoreFilter('pharma')" 
+                :class="selectedStore === 'pharma' ? 'bg-purple-600 text-white font-bold shadow-sm' : 'card-theme text-sub hover:text-main'"
+                class="px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center space-x-1 border border-transparent whitespace-nowrap shrink-0 active:scale-95">
+          <span>💊</span>
+          <span><span class="hidden sm:inline">Khải Hoàn </span>Pharma</span>
         </button>
       </div>
-      <div class="hidden sm:flex items-center space-x-2.5 text-[11px] text-sub font-semibold">
-        <a href="https://khaihoanderma.com" target="_blank" rel="noopener" class="hover:text-emerald-500 hover:underline flex items-center gap-1">🌿 khaihoanderma.com</a>
-        <span>•</span>
-        <a href="https://khaihoanpharma.com" target="_blank" rel="noopener" class="hover:text-purple-500 hover:underline flex items-center gap-1">💊 khaihoanpharma.com</a>
+
+      <!-- Right Action: Prominent Refresh Button & External Store Links -->
+      <div class="flex items-center space-x-2 shrink-0">
+        <button @click="refreshAllData(true)"
+                :disabled="isRefreshingAll"
+                class="px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center space-x-1 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-sm active:scale-95 disabled:opacity-50 cursor-pointer whitespace-nowrap shrink-0"
+                title="Lấy dữ liệu mới nhất từ cả 2 website Khải Hoàn Derma và Khải Hoàn Pharma">
+          <span :class="{'animate-spin inline-block': isRefreshingAll}">🔄</span>
+          <span class="whitespace-nowrap">{{ isRefreshingAll ? 'Đang tải...' : 'Làm mới' }}<span class="hidden sm:inline"> dữ liệu</span></span>
+        </button>
+
+        <div class="hidden lg:flex items-center space-x-2.5 text-[11px] text-sub font-semibold ml-1 shrink-0">
+          <a href="https://khaihoanderma.com" target="_blank" rel="noopener" class="hover:text-emerald-500 hover:underline flex items-center gap-1">🌿 khaihoanderma.com</a>
+          <span>•</span>
+          <a href="https://khaihoanpharma.com" target="_blank" rel="noopener" class="hover:text-purple-500 hover:underline flex items-center gap-1">💊 khaihoanpharma.com</a>
+        </div>
       </div>
     </div>
 
@@ -179,85 +178,85 @@
       <!-- ================= TAB 1: DASHBOARD ================= -->
       <section v-if="currentTab === 'dashboard'" class="space-y-4">
         <!-- Revenue Cards Grid (4 columns on desktop) -->
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-3 md:gap-4">
           <!-- Today Revenue -->
-          <div class="card-theme p-4 rounded-2xl relative overflow-hidden bg-gradient-to-br from-blue-500/10 to-indigo-500/5">
-            <div class="text-xs font-bold text-sub">Doanh thu hôm nay</div>
-            <div class="text-lg md:text-xl font-black text-blue-600 dark:text-sky-400 mt-1">
+          <div class="card-theme p-3 sm:p-4 rounded-2xl relative overflow-hidden bg-gradient-to-br from-blue-500/10 to-indigo-500/5">
+            <div class="text-[11px] sm:text-xs font-bold text-sub truncate">Doanh thu hôm nay</div>
+            <div class="text-base sm:text-lg md:text-xl font-black text-blue-600 dark:text-sky-400 mt-1 truncate">
               {{ formatMoney(stats.today_revenue) }}
             </div>
-            <div class="text-xs text-sub mt-2 flex items-center">
-              <span class="w-2 h-2 rounded-full bg-emerald-500 mr-1.5"></span>
-              {{ stats.today_orders }} đơn hàng
+            <div class="text-[11px] sm:text-xs text-sub mt-1.5 sm:mt-2 flex items-center truncate">
+              <span class="w-2 h-2 rounded-full bg-emerald-500 mr-1.5 shrink-0"></span>
+              <span class="truncate">{{ stats.today_orders }} đơn hàng</span>
             </div>
           </div>
 
           <!-- Month Revenue -->
-          <div class="card-theme p-4 rounded-2xl relative overflow-hidden bg-gradient-to-br from-indigo-500/10 to-purple-500/5">
-            <div class="text-xs font-bold text-sub">Doanh thu tháng này</div>
-            <div class="text-lg md:text-xl font-black text-indigo-600 dark:text-indigo-400 mt-1">
+          <div class="card-theme p-3 sm:p-4 rounded-2xl relative overflow-hidden bg-gradient-to-br from-indigo-500/10 to-purple-500/5">
+            <div class="text-[11px] sm:text-xs font-bold text-sub truncate">Doanh thu tháng này</div>
+            <div class="text-base sm:text-lg md:text-xl font-black text-indigo-600 dark:text-indigo-400 mt-1 truncate">
               {{ formatMoney(stats.month_revenue) }}
             </div>
-            <div class="text-xs text-sub mt-2 flex items-center">
-              <span class="w-2 h-2 rounded-full bg-blue-500 mr-1.5"></span>
-              {{ stats.month_orders }} đơn hàng
+            <div class="text-[11px] sm:text-xs text-sub mt-1.5 sm:mt-2 flex items-center truncate">
+              <span class="w-2 h-2 rounded-full bg-blue-500 mr-1.5 shrink-0"></span>
+              <span class="truncate">{{ stats.month_orders }} đơn hàng</span>
             </div>
           </div>
 
           <!-- Reviews Pending -->
-          <div @click="switchTab('reviews')" class="card-theme p-4 rounded-2xl cursor-pointer hover:border-amber-400 transition-all flex flex-col justify-between">
+          <div @click="switchTab('reviews')" class="card-theme p-3 sm:p-4 rounded-2xl cursor-pointer hover:border-amber-400 transition-all flex flex-col justify-between">
             <div class="flex items-center justify-between">
-              <span class="text-xs font-bold text-sub">Đánh giá chờ</span>
+              <span class="text-[11px] sm:text-xs font-bold text-sub truncate">Đánh giá chờ</span>
               <span :class="stats.pending_reviews > 0 ? 'bg-rose-500 text-white animate-pulse' : 'card-sub text-sub'" 
-                    class="text-xs font-bold px-2 py-0.5 rounded-full">
+                    class="text-[10px] sm:text-xs font-bold px-1.5 sm:px-2 py-0.5 rounded-full shrink-0">
                 {{ stats.pending_reviews }}
               </span>
             </div>
-            <div class="text-lg md:text-xl font-black text-title mt-1 flex items-center space-x-1.5">
+            <div class="text-base sm:text-lg md:text-xl font-black text-title mt-1 flex items-center space-x-1.5 truncate">
               <span>⭐</span>
-              <span>{{ stats.pending_reviews }} chờ duyệt</span>
+              <span class="truncate">{{ stats.pending_reviews }} chờ duyệt</span>
             </div>
-            <div class="text-[11px] text-blue-600 dark:text-sky-400 font-semibold mt-2 hover:underline">
-              Xem & phê duyệt ngay →
+            <div class="text-[10px] sm:text-[11px] text-blue-600 dark:text-sky-400 font-semibold mt-1.5 sm:mt-2 truncate hover:underline">
+              Xem & duyệt ngay →
             </div>
           </div>
 
           <!-- Notion Queue -->
-          <div @click="switchTab('tools')" class="card-theme p-4 rounded-2xl cursor-pointer hover:border-emerald-400 transition-all flex flex-col justify-between">
+          <div @click="switchTab('tools')" class="card-theme p-3 sm:p-4 rounded-2xl cursor-pointer hover:border-emerald-400 transition-all flex flex-col justify-between">
             <div class="flex items-center justify-between">
-              <span class="text-xs font-bold text-sub">Notion chờ đăng</span>
+              <span class="text-[11px] sm:text-xs font-bold text-sub truncate">Notion chờ đăng</span>
               <span :class="stats.notion_queue > 0 ? 'bg-blue-600 text-white' : 'card-sub text-sub'" 
-                    class="text-xs font-bold px-2 py-0.5 rounded-full">
+                    class="text-[10px] sm:text-xs font-bold px-1.5 sm:px-2 py-0.5 rounded-full shrink-0">
                 {{ stats.notion_queue }}
               </span>
             </div>
-            <div class="text-lg md:text-xl font-black text-title mt-1 flex items-center space-x-1.5">
+            <div class="text-base sm:text-lg md:text-xl font-black text-title mt-1 flex items-center space-x-1.5 truncate">
               <span>📝</span>
-              <span>{{ stats.notion_queue }} bài chờ</span>
+              <span class="truncate">{{ stats.notion_queue }} bài chờ</span>
             </div>
-            <div class="text-[11px] text-blue-600 dark:text-sky-400 font-semibold mt-2 hover:underline">
-              Đồng bộ & xem log →
+            <div class="text-[10px] sm:text-[11px] text-blue-600 dark:text-sky-400 font-semibold mt-1.5 sm:mt-2 truncate hover:underline">
+              Đồng bộ & log →
             </div>
           </div>
         </div>
 
         <!-- Multi-Store Breakdown Cards (Visible when 'Toàn hệ thống' is selected) -->
-        <div v-if="selectedStore === 'all' && stats.breakdown" class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div v-if="selectedStore === 'all' && stats.breakdown" class="grid grid-cols-1 md:grid-cols-2 gap-2.5 sm:gap-3">
           <!-- Derma Store Card -->
-          <div @click="setStoreFilter('derma')" class="card-theme p-3.5 rounded-2xl border-l-4 border-l-emerald-500 flex items-center justify-between cursor-pointer hover:shadow-md transition-all">
-            <div>
+          <div @click="setStoreFilter('derma')" class="card-theme p-3 rounded-2xl border-l-4 border-l-emerald-500 flex items-center justify-between cursor-pointer hover:shadow-md transition-all">
+            <div class="min-w-0 pr-2">
               <div class="text-xs font-black text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
                 <span>🌿</span>
-                <span>Khải Hoàn Derma</span>
-                <span class="text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">Derma</span>
+                <span class="truncate">Khải Hoàn Derma</span>
+                <span class="text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 shrink-0">Derma</span>
               </div>
-              <div class="text-xs text-sub mt-1">
+              <div class="text-xs text-sub mt-1 truncate">
                 Hôm nay: <b class="text-title">{{ formatMoney(stats.breakdown.derma?.today_revenue) }}</b> ({{ stats.breakdown.derma?.today_orders }} đơn)
               </div>
             </div>
-            <div class="text-right">
-              <div class="text-[11px] text-muted">Tháng này</div>
-              <div class="text-sm font-black text-emerald-600 dark:text-emerald-400">
+            <div class="text-right shrink-0">
+              <div class="text-[10px] sm:text-[11px] text-muted">Tháng này</div>
+              <div class="text-xs sm:text-sm font-black text-emerald-600 dark:text-emerald-400">
                 {{ formatMoney(stats.breakdown.derma?.month_revenue) }}
               </div>
               <div class="text-[10px] text-sub">{{ stats.breakdown.derma?.month_orders }} đơn</div>
@@ -265,20 +264,20 @@
           </div>
 
           <!-- Pharma Store Card -->
-          <div @click="setStoreFilter('pharma')" class="card-theme p-3.5 rounded-2xl border-l-4 border-l-purple-500 flex items-center justify-between cursor-pointer hover:shadow-md transition-all">
-            <div>
+          <div @click="setStoreFilter('pharma')" class="card-theme p-3 rounded-2xl border-l-4 border-l-purple-500 flex items-center justify-between cursor-pointer hover:shadow-md transition-all">
+            <div class="min-w-0 pr-2">
               <div class="text-xs font-black text-purple-600 dark:text-purple-400 flex items-center gap-1.5">
                 <span>💊</span>
-                <span>Khải Hoàn Pharma</span>
-                <span class="text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-purple-500/15 text-purple-600 dark:text-purple-400">Pharma</span>
+                <span class="truncate">Khải Hoàn Pharma</span>
+                <span class="text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-purple-500/15 text-purple-600 dark:text-purple-400 shrink-0">Pharma</span>
               </div>
-              <div class="text-xs text-sub mt-1">
+              <div class="text-xs text-sub mt-1 truncate">
                 Hôm nay: <b class="text-title">{{ formatMoney(stats.breakdown.pharma?.today_revenue) }}</b> ({{ stats.breakdown.pharma?.today_orders }} đơn)
               </div>
             </div>
-            <div class="text-right">
-              <div class="text-[11px] text-muted">Tháng này</div>
-              <div class="text-sm font-black text-purple-600 dark:text-purple-400">
+            <div class="text-right shrink-0">
+              <div class="text-[10px] sm:text-[11px] text-muted">Tháng này</div>
+              <div class="text-xs sm:text-sm font-black text-purple-600 dark:text-purple-400">
                 {{ formatMoney(stats.breakdown.pharma?.month_revenue) }}
               </div>
               <div class="text-[10px] text-sub">{{ stats.breakdown.pharma?.month_orders }} đơn</div>
@@ -287,30 +286,30 @@
         </div>
 
         <!-- Quick Management Shortcuts (Grid on desktop) -->
-        <div class="card-theme p-4 md:p-5 rounded-2xl space-y-3">
+        <div class="card-theme p-3.5 sm:p-5 rounded-2xl space-y-2.5 sm:space-y-3">
           <div class="flex items-center justify-between">
             <h3 class="text-xs font-bold uppercase tracking-wider text-muted">Truy Cập Nhanh Quản Trị</h3>
-            <span class="text-[10px] font-bold px-2 py-0.5 rounded-full card-sub text-sub">
+            <span class="text-[10px] font-bold px-2 py-0.5 rounded-full card-sub text-sub truncate max-w-[190px] sm:max-w-none">
               {{ selectedStore === 'all' ? 'Đa kênh: Derma & Pharma' : (selectedStore === 'pharma' ? 'Website: khaihoanpharma.com' : 'Website: khaihoanderma.com') }}
             </span>
           </div>
 
-          <div class="grid grid-cols-2 md:grid-cols-4 gap-2.5 text-xs">
-            <button @click="switchTab('products')" class="p-3 card-sub rounded-xl font-bold flex items-center justify-center space-x-2 active:scale-95 transition-all text-main hover:border-blue-500 border border-transparent">
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-2.5 text-xs">
+            <button @click="switchTab('products')" class="p-2.5 sm:p-3 card-sub rounded-xl font-bold flex items-center justify-center space-x-1.5 active:scale-95 transition-all text-main hover:border-blue-500 border border-transparent text-center min-h-[44px]">
               <span>🛍️</span>
-              <span>Kho sản phẩm ({{ productCounts.all }})</span>
+              <span class="truncate">Kho SP ({{ productCounts.all }})</span>
             </button>
-            <button @click="switchTab('orders')" class="p-3 card-sub rounded-xl font-bold flex items-center justify-center space-x-2 active:scale-95 transition-all text-main hover:border-blue-500 border border-transparent">
+            <button @click="switchTab('orders')" class="p-2.5 sm:p-3 card-sub rounded-xl font-bold flex items-center justify-center space-x-1.5 active:scale-95 transition-all text-main hover:border-blue-500 border border-transparent text-center min-h-[44px]">
               <span>📦</span>
-              <span>Đơn hàng cần xử lý</span>
+              <span class="truncate">Đơn hàng mới</span>
             </button>
-            <button @click="switchTab('reviews')" class="p-3 card-sub rounded-xl font-bold flex items-center justify-center space-x-2 active:scale-95 transition-all text-main hover:border-blue-500 border border-transparent">
+            <button @click="switchTab('reviews')" class="p-2.5 sm:p-3 card-sub rounded-xl font-bold flex items-center justify-center space-x-1.5 active:scale-95 transition-all text-main hover:border-blue-500 border border-transparent text-center min-h-[44px]">
               <span>⭐</span>
-              <span>Duyệt đánh giá web</span>
+              <span class="truncate">Duyệt đánh giá</span>
             </button>
-            <button @click="switchTab('tools')" class="p-3 card-sub rounded-xl font-bold flex items-center justify-center space-x-2 active:scale-95 transition-all text-main hover:border-blue-500 border border-transparent">
+            <button @click="switchTab('tools')" class="p-2.5 sm:p-3 card-sub rounded-xl font-bold flex items-center justify-center space-x-1.5 active:scale-95 transition-all text-main hover:border-blue-500 border border-transparent text-center min-h-[44px]">
               <span>🚀</span>
-              <span>Đồng bộ bài viết Notion</span>
+              <span class="truncate">Đồng bộ Notion</span>
             </button>
           </div>
         </div>
@@ -1168,41 +1167,41 @@
     </div>
 
     <!-- ================= BOTTOM NAVIGATION BAR ================= -->
-    <nav class="fixed bottom-0 left-0 right-0 z-40 bottom-nav max-w-6xl xl:max-w-7xl mx-auto flex items-center justify-around py-2 px-4 border-t border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md">
+    <nav class="fixed bottom-0 left-0 right-0 z-40 bottom-nav max-w-6xl xl:max-w-7xl mx-auto flex items-center justify-around py-2 px-2 sm:px-4 border-t border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md md:hidden">
       <button @click="switchTab('dashboard')" 
               :class="currentTab === 'dashboard' ? 'text-blue-600 dark:text-sky-400 font-bold scale-105' : 'text-muted'"
-              class="flex flex-col items-center text-[10px] space-y-0.5 transition-all">
+              class="flex-1 flex flex-col items-center text-[10px] space-y-0.5 transition-all py-1">
         <span class="text-lg">📊</span>
-        <span>Tổng quan</span>
+        <span class="whitespace-nowrap">Tổng quan</span>
       </button>
 
       <button @click="switchTab('orders')" 
               :class="currentTab === 'orders' ? 'text-blue-600 dark:text-sky-400 font-bold scale-105' : 'text-muted'"
-              class="flex flex-col items-center text-[10px] space-y-0.5 transition-all">
+              class="flex-1 flex flex-col items-center text-[10px] space-y-0.5 transition-all py-1">
         <span class="text-lg">📦</span>
-        <span>Đơn hàng</span>
+        <span class="whitespace-nowrap">Đơn hàng</span>
       </button>
 
       <button @click="switchTab('products')" 
               :class="currentTab === 'products' ? 'text-blue-600 dark:text-sky-400 font-bold scale-105' : 'text-muted'"
-              class="flex flex-col items-center text-[10px] space-y-0.5 transition-all">
+              class="flex-1 flex flex-col items-center text-[10px] space-y-0.5 transition-all py-1">
         <span class="text-lg">🛍️</span>
-        <span>Sản phẩm</span>
+        <span class="whitespace-nowrap">Sản phẩm</span>
       </button>
 
       <button @click="switchTab('reviews')" 
               :class="currentTab === 'reviews' ? 'text-blue-600 dark:text-sky-400 font-bold scale-105' : 'text-muted'"
-              class="flex flex-col items-center text-[10px] space-y-0.5 relative transition-all">
+              class="flex-1 flex flex-col items-center text-[10px] space-y-0.5 relative transition-all py-1">
         <span class="text-lg">⭐</span>
-        <span>Đánh giá</span>
-        <span v-if="stats.pending_reviews > 0" class="absolute -top-1 right-1 w-2 h-2 rounded-full bg-rose-500"></span>
+        <span class="whitespace-nowrap">Đánh giá</span>
+        <span v-if="stats.pending_reviews > 0" class="absolute top-0 right-1/4 w-2 h-2 rounded-full bg-rose-500"></span>
       </button>
 
       <button @click="switchTab('tools')" 
               :class="currentTab === 'tools' ? 'text-blue-600 dark:text-sky-400 font-bold scale-105' : 'text-muted'"
-              class="flex flex-col items-center text-[10px] space-y-0.5 transition-all">
+              class="flex-1 flex flex-col items-center text-[10px] space-y-0.5 transition-all py-1">
         <span class="text-lg">⚡</span>
-        <span>Công cụ & AI</span>
+        <span class="whitespace-nowrap">Công cụ & AI</span>
       </button>
     </nav>
 

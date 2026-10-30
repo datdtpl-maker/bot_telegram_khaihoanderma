@@ -177,6 +177,11 @@ body.dark .price-sale {
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }
+.btn-nowrap {
+  white-space: nowrap !important;
+  flex-shrink: 0 !important;
+}
+
 .no-scrollbar {
   -ms-overflow-style: none;
   scrollbar-width: none;
