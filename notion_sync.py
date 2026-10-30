@@ -26,6 +26,18 @@ try:
 except Exception:
     pass
 
+import socket
+def _force_ipv4_dns():
+    try:
+        _orig_getaddrinfo = socket.getaddrinfo
+        def _getaddrinfo_ipv4(host, port, family=0, type=0, proto=0, flags=0):
+            return _orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
+        socket.getaddrinfo = _getaddrinfo_ipv4
+    except Exception:
+        pass
+_force_ipv4_dns()
+
+
 OUT_DIR = Path(__file__).resolve().parent
 LOG_FILE = OUT_DIR / "bot.log"
 NOTION_SYNC_LOCK = threading.Lock()
@@ -428,6 +440,19 @@ def parse_notion_blocks(blocks):
         
     return "\n".join(html_parts), category_name, price_val, sale_price_val
 
+
+def _urlopen_with_retry(req, timeout=20, retries=3):
+    last_err = None
+    for attempt in range(retries):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return resp.read()
+        except Exception as e:
+            last_err = e
+            if attempt < retries - 1:
+                time.sleep(1.5)
+    raise last_err
+
 def query_notion_pages_to_post(token, db_id):
     url = f"https://api.notion.com/v1/databases/{db_id}/query"
     base_body = {
@@ -456,8 +481,8 @@ def query_notion_pages_to_post(token, db_id):
             method="POST",
             data=json.dumps(request_body).encode("utf-8"),
         )
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
+        raw_resp = _urlopen_with_retry(req, timeout=20, retries=3)
+        data = json.loads(raw_resp.decode("utf-8"))
         results.extend(data.get("results", []))
         if not data.get("has_more") or not data.get("next_cursor"):
             return results
@@ -477,8 +502,8 @@ def get_page_blocks(token, page_id):
         if cursor:
             url += "&start_cursor=" + urllib.parse.quote(cursor)
         req = urllib.request.Request(url, headers=headers, method="GET")
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
+        raw_resp = _urlopen_with_retry(req, timeout=20, retries=3)
+        data = json.loads(raw_resp.decode("utf-8"))
         results.extend(data.get("results", []))
         if not data.get("has_more") or not data.get("next_cursor"):
             return results
@@ -1471,8 +1496,8 @@ def update_notion_status(token, page_id, product_url, page_properties=None):
         "Content-Type": "application/json"
     }
     req = urllib.request.Request(url, headers=headers, method="PATCH", data=json.dumps(update_data).encode("utf-8"))
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        log_message(f"Đã cập nhật trạng thái Notion thành 'Đã đăng web' cho ID: {page_id}")
+    _urlopen_with_retry(req, timeout=20, retries=3)
+    log_message(f"Đã cập nhật trạng thái Notion thành 'Đã đăng web' cho ID: {page_id}")
 
 
 def _run_notion_sync_workflow(progress_callback=None, page_ids=None, site_key: str = "all"):
