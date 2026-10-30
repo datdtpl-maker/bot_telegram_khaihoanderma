@@ -4122,51 +4122,22 @@ def notify_admins_mini_app_ready(url: str) -> None:
             log(f"Không thể gửi thông báo Mini App tới {chat_id}: {exc}")
 
 
-def is_tunnel_alive(url: str) -> bool:
-    if not url or "trycloudflare.com" not in url:
-        return True
-    try:
-        req = urllib.request.Request(f"{url.rstrip('/')}/api/ping", headers={"User-Agent": "Watchdog/1.0"})
-        with urllib.request.urlopen(req, timeout=8) as resp:
-            return resp.status in (200, 401, 403, 404)
-    except urllib.error.HTTPError as e:
-        return e.code in (200, 401, 403, 404, 405)
-    except Exception:
-        return False
-
-
 def cloudflare_tunnel_watchdog(port: int = 8088) -> None:
-    fail_count = 0
+    """
+    Giám sát tiến trình Cloudflare Tunnel.
+    Chỉ khởi động lại khi tiến trình cloudflared thực sự bị tắt (crashed hoặc exited).
+    Cập nhật Menu Button ngầm, KHÔNG spam tin nhắn vào nhóm chat admin.
+    """
     while True:
         time.sleep(30)
         global CLOUDFLARE_TUNNEL_PROC
-        proc_dead = CLOUDFLARE_TUNNEL_PROC is not None and CLOUDFLARE_TUNNEL_PROC.poll() is not None
-        current_url = os.environ.get("MINI_APP_URL", "")
-        
-        need_restart = False
-        if proc_dead or CLOUDFLARE_TUNNEL_PROC is None:
-            need_restart = True
-        elif current_url and "trycloudflare.com" in current_url:
-            if not is_tunnel_alive(current_url):
-                fail_count += 1
-                if fail_count >= 2:
-                    log(f"Cloudflare Tunnel không phản hồi sau 2 lần kiểm tra ({current_url}). Đang khởi động lại tunnel...")
-                    need_restart = True
-                    fail_count = 0
-            else:
-                fail_count = 0
-
-        if need_restart:
-            if CLOUDFLARE_TUNNEL_PROC is not None:
-                try:
-                    CLOUDFLARE_TUNNEL_PROC.kill()
-                except Exception:
-                    pass
+        if CLOUDFLARE_TUNNEL_PROC is not None and CLOUDFLARE_TUNNEL_PROC.poll() is not None:
+            log("Phát hiện tiến trình Cloudflare Tunnel đã dừng. Đang tự động kết nối lại...")
             new_url = start_cloudflare_tunnel(port)
             if new_url:
                 os.environ["MINI_APP_URL"] = new_url
                 set_telegram_menu_button(new_url)
-                notify_admins_mini_app_ready(new_url)
+                log(f"Đã cập nhật Menu Button với Cloudflare Tunnel mới: {new_url}")
 
 
 def force_ipv4() -> None:

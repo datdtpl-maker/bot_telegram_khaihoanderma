@@ -1125,6 +1125,11 @@ def clear_reviews_cache_endpoint(current_user: dict = Depends(get_current_admin)
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+@app.get("/api/ping")
+def health_ping():
+    return {"status": "ok", "app": "MCP Khải Hoàn Mini App"}
+
+
 @app.get("/api/system/ping")
 def ping_system_endpoint(current_user: dict = Depends(get_current_admin)):
     try:
