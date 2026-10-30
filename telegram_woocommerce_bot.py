@@ -4689,19 +4689,25 @@ def ask_gemini_store(prompt: str) -> str:
     }
 
     verify_ssl = not (os.environ.get("SSL_NO_VERIFY", "").strip().lower() in {"1", "true", "yes", "on"})
-    res = HTTP_SESSION.post(
-        url,
-        json=req_body,
-        headers={"Content-Type": "application/json"},
-        timeout=25,
-        verify=verify_ssl
-    )
-    if res.status_code == 404 and model != "gemini-3.7-flash":
-        fb_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.7-flash:generateContent?key={api_key}"
-        res = HTTP_SESSION.post(fb_url, json=req_body, headers={"Content-Type": "application/json"}, timeout=25, verify=verify_ssl)
-    if res.status_code == 404 and model != "gemini-2.5-flash":
-        fb_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
-        res = HTTP_SESSION.post(fb_url, json=req_body, headers={"Content-Type": "application/json"}, timeout=25, verify=verify_ssl)
+    try:
+        res = HTTP_SESSION.post(
+            url,
+            json=req_body,
+            headers={"Content-Type": "application/json"},
+            timeout=40,
+            verify=verify_ssl
+        )
+        if res.status_code == 404 and model != "gemini-3.7-flash":
+            fb_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.7-flash:generateContent?key={api_key}"
+            res = HTTP_SESSION.post(fb_url, json=req_body, headers={"Content-Type": "application/json"}, timeout=40, verify=verify_ssl)
+        if res.status_code == 404 and model != "gemini-2.5-flash":
+            fb_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+            res = HTTP_SESSION.post(fb_url, json=req_body, headers={"Content-Type": "application/json"}, timeout=40, verify=verify_ssl)
+    except Exception as net_err:
+        log(f"[Gemini AI] Lỗi kết nối khi gọi Gemini API: {net_err}")
+        if fallback:
+            return fallback
+        raise RuntimeError(f"Lỗi mạng khi kết nối Gemini API: {net_err}")
 
     if res.status_code != 200:
         if fallback:
