@@ -418,6 +418,93 @@ class MiniAppTestSuite(unittest.TestCase):
             self.assertFalse(mini_app_server.NOTION_SYNC_STATE["is_running"])
             self.assertIn("Đồng bộ thành công 1 sản phẩm", mini_app_server.NOTION_SYNC_STATE["current_status"])
 
+    def test_get_product_images_endpoint(self):
+        fake_prod = {
+            "id": 100,
+            "name": "Serum Test",
+            "images": [{"id": 1, "src": "https://example.com/1.jpg"}, {"id": 2, "src": "https://example.com/2.jpg"}]
+        }
+        with patch.dict("os.environ", {"TELEGRAM_BOT_TOKEN": self.bot_token}), \
+             patch.object(mini_app_server.bot, "wc_get", return_value=fake_prod):
+            headers = {"X-Admin-Token": self.admin_token}
+            res = self.client.get("/api/products/100/images", headers=headers)
+            self.assertEqual(res.status_code, 200)
+            data = res.json()
+            self.assertEqual(len(data.get("images", [])), 2)
+            self.assertEqual(data["images"][0]["id"], 1)
+
+    def test_upload_product_images_endpoint(self):
+        fake_prod = {
+            "id": 100,
+            "images": [{"id": 1, "src": "https://example.com/1.jpg"}]
+        }
+        updated_prod = {
+            "id": 100,
+            "images": [{"id": 1, "src": "https://example.com/1.jpg"}, {"id": 99, "src": "https://example.com/99.jpg"}]
+        }
+        # 1x1 transparent png in base64
+        tiny_png_b64 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
+
+        with patch.dict("os.environ", {"TELEGRAM_BOT_TOKEN": self.bot_token}), \
+             patch.object(mini_app_server.notion_sync, "wp_upload_media", return_value=99), \
+             patch.object(mini_app_server.bot, "wc_get", return_value=fake_prod), \
+             patch.object(mini_app_server.bot, "wc_put", return_value=updated_prod), \
+             patch.object(mini_app_server, "update_product_cache_locally"):
+            headers = {"X-Admin-Token": self.admin_token}
+            payload = {
+                "images": [{"filename": "test.png", "data": tiny_png_b64}],
+                "site_key": "derma",
+                "as_featured": False
+            }
+            res = self.client.post("/api/products/100/images/upload", json=payload, headers=headers)
+            self.assertEqual(res.status_code, 200)
+            data = res.json()
+            self.assertTrue(data.get("ok"))
+            self.assertEqual(data.get("uploaded_ids"), [99])
+            self.assertEqual(len(data.get("images")), 2)
+
+    def test_update_product_images_reorder_endpoint(self):
+        updated_prod = {
+            "id": 100,
+            "images": [{"id": 2, "src": "https://example.com/2.jpg"}, {"id": 1, "src": "https://example.com/1.jpg"}]
+        }
+        with patch.dict("os.environ", {"TELEGRAM_BOT_TOKEN": self.bot_token}), \
+             patch.object(mini_app_server.bot, "wc_put", return_value=updated_prod), \
+             patch.object(mini_app_server, "update_product_cache_locally"):
+            headers = {"X-Admin-Token": self.admin_token}
+            payload = {
+                "image_ids": [2, 1],
+                "site_key": "derma"
+            }
+            res = self.client.put("/api/products/100/images", json=payload, headers=headers)
+            self.assertEqual(res.status_code, 200)
+            data = res.json()
+            self.assertTrue(data.get("ok"))
+            self.assertEqual(data["images"][0]["id"], 2)
+
+    def test_delete_product_image_endpoint(self):
+        fake_prod = {
+            "id": 100,
+            "images": [{"id": 1, "src": "https://example.com/1.jpg"}, {"id": 2, "src": "https://example.com/2.jpg"}]
+        }
+        updated_prod = {
+            "id": 100,
+            "images": [{"id": 2, "src": "https://example.com/2.jpg"}]
+        }
+        with patch.dict("os.environ", {"TELEGRAM_BOT_TOKEN": self.bot_token}), \
+             patch.object(mini_app_server.bot, "wc_get", return_value=fake_prod), \
+             patch.object(mini_app_server.bot, "wc_put", return_value=updated_prod), \
+             patch.object(mini_app_server.notion_sync, "wp_delete_media", return_value=True), \
+             patch.object(mini_app_server, "update_product_cache_locally"):
+            headers = {"X-Admin-Token": self.admin_token}
+            res = self.client.delete("/api/products/100/images/1?site_key=derma&delete_media=true", headers=headers)
+            self.assertEqual(res.status_code, 200)
+            data = res.json()
+            self.assertTrue(data.get("ok"))
+            self.assertTrue(data.get("deleted_media"))
+            self.assertEqual(len(data.get("images")), 1)
+            self.assertEqual(data["images"][0]["id"], 2)
+
 if __name__ == "__main__":
     unittest.main()
 

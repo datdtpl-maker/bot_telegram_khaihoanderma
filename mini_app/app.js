@@ -100,6 +100,16 @@ const app = createApp({
       isSaving: false
     });
 
+    const editImagesModal = reactive({
+      show: false,
+      product: null,
+      images: [],
+      isUploading: false,
+      isSavingOrder: false,
+      uploadAsFeatured: false,
+      orderChanged: false,
+    });
+
     // Reviews State
     const reviews = ref([]);
     const reviewsFilter = ref("hold"); // hold | approved | all
@@ -495,6 +505,161 @@ const app = createApp({
         showToast(err.message || "Lỗi cập nhật giá", "error");
       } finally {
         editPriceModal.isSaving = false;
+      }
+    };
+
+    const openEditImagesModal = (product) => {
+      haptic("light");
+      editImagesModal.product = product;
+      editImagesModal.images = (product.images || []).map(img => ({ ...img }));
+      editImagesModal.uploadAsFeatured = false;
+      editImagesModal.orderChanged = false;
+      editImagesModal.show = true;
+    };
+
+    const handleImageFileSelected = async (event) => {
+      const files = event.target.files;
+      if (!files || files.length === 0) return;
+
+      editImagesModal.isUploading = true;
+      haptic("medium");
+
+      try {
+        const fileList = Array.from(files);
+        const encodedImages = [];
+
+        for (const file of fileList) {
+          if (!file.type.startsWith("image/")) {
+            showToast(`File "${file.name}" không phải định dạng ảnh hợp lệ.`, "warning");
+            continue;
+          }
+          if (file.size > 10 * 1024 * 1024) {
+            showToast(`Ảnh "${file.name}" quá lớn (> 10MB). Vui lòng chọn ảnh nhỏ hơn.`, "warning");
+            continue;
+          }
+
+          const base64Data = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = (e) => reject(e);
+            reader.readAsDataURL(file);
+          });
+
+          encodedImages.push({
+            filename: file.name,
+            data: base64Data
+          });
+        }
+
+        if (encodedImages.length === 0) {
+          editImagesModal.isUploading = false;
+          event.target.value = "";
+          return;
+        }
+
+        const pId = editImagesModal.product.id;
+        const siteKey = editImagesModal.product._site_key || "derma";
+        const payload = {
+          images: encodedImages,
+          site_key: siteKey,
+          as_featured: editImagesModal.uploadAsFeatured
+        };
+
+        const res = await apiCall(`/api/products/${pId}/images/upload`, {
+          method: "POST",
+          body: JSON.stringify(payload)
+        });
+
+        showToast(res.message || "Tải ảnh lên thành công!", "success");
+        if (res.images) {
+          editImagesModal.images = res.images;
+          editImagesModal.product.images = res.images;
+        }
+        editImagesModal.orderChanged = false;
+        fetchProducts();
+      } catch (err) {
+        showToast(err.message || "Lỗi tải ảnh lên", "error");
+      } finally {
+        editImagesModal.isUploading = false;
+        event.target.value = "";
+      }
+    };
+
+    const moveImagePosition = (index, direction) => {
+      haptic("light");
+      const targetIndex = index + direction;
+      if (targetIndex < 0 || targetIndex >= editImagesModal.images.length) return;
+
+      const item = editImagesModal.images.splice(index, 1)[0];
+      editImagesModal.images.splice(targetIndex, 0, item);
+      editImagesModal.orderChanged = true;
+    };
+
+    const setFeaturedImage = (index) => {
+      haptic("medium");
+      if (index === 0) return;
+      const item = editImagesModal.images.splice(index, 1)[0];
+      editImagesModal.images.unshift(item);
+      editImagesModal.orderChanged = true;
+      saveImagesOrder();
+    };
+
+    const saveImagesOrder = async () => {
+      if (!editImagesModal.product) return;
+      editImagesModal.isSavingOrder = true;
+      haptic("medium");
+      try {
+        const pId = editImagesModal.product.id;
+        const siteKey = editImagesModal.product._site_key || "derma";
+        const imageIds = editImagesModal.images.map(img => img.id).filter(Boolean);
+
+        const res = await apiCall(`/api/products/${pId}/images`, {
+          method: "PUT",
+          body: JSON.stringify({
+            image_ids: imageIds,
+            site_key: siteKey
+          })
+        });
+
+        showToast(res.message || "Đã lưu thứ tự ảnh thành công!", "success");
+        if (res.images) {
+          editImagesModal.images = res.images;
+          editImagesModal.product.images = res.images;
+        }
+        editImagesModal.orderChanged = false;
+        fetchProducts();
+      } catch (err) {
+        showToast(err.message || "Lỗi lưu thứ tự ảnh", "error");
+      } finally {
+        editImagesModal.isSavingOrder = false;
+      }
+    };
+
+    const deleteProductImage = async (img, index) => {
+      haptic("medium");
+      const confirmDelete = window.confirm(`Bạn có chắc muốn xóa ảnh #${img.id || (index + 1)} khỏi sản phẩm?`);
+      if (!confirmDelete) return;
+
+      const deleteMediaFromLibrary = window.confirm(`Bạn có muốn xóa vĩnh viễn file ảnh này khỏi Media Library trên WordPress không?\n(Bấm OK để xóa hẳn khỏi website, Cancel để chỉ gỡ khỏi sản phẩm)`);
+
+      try {
+        const pId = editImagesModal.product.id;
+        const siteKey = editImagesModal.product._site_key || "derma";
+        const res = await apiCall(`/api/products/${pId}/images/${img.id}?site_key=${siteKey}&delete_media=${deleteMediaFromLibrary}`, {
+          method: "DELETE"
+        });
+
+        showToast(res.message || "Đã xóa ảnh thành công!", "success");
+        if (res.images) {
+          editImagesModal.images = res.images;
+          editImagesModal.product.images = res.images;
+        } else {
+          editImagesModal.images.splice(index, 1);
+        }
+        editImagesModal.orderChanged = false;
+        fetchProducts();
+      } catch (err) {
+        showToast(err.message || "Lỗi xóa ảnh", "error");
       }
     };
 
@@ -1085,6 +1250,13 @@ const app = createApp({
       toggleVariationsExpand,
       openEditPriceModal,
       saveProductPrice,
+      editImagesModal,
+      openEditImagesModal,
+      handleImageFileSelected,
+      moveImagePosition,
+      setFeaturedImage,
+      saveImagesOrder,
+      deleteProductImage,
       toggleStock,
       deleteProduct,
       fetchReviews,

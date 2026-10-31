@@ -11,6 +11,9 @@ from typing import Optional, Any, Union
 import threading
 import requests
 import re
+import base64
+import tempfile
+import uuid
 
 from fastapi import FastAPI, Depends, HTTPException, Header, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -819,6 +822,217 @@ def update_product_stock(
         raise
     except Exception as exc:
         bot.log(f"[MiniApp] Lỗi đổi tồn kho #{product_id}: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ================= PRODUCT IMAGES MANAGEMENT API =================
+
+class UploadImageItem(BaseModel):
+    filename: str
+    data: str  # Base64 data URL hoac raw base64 string
+    alt: Optional[str] = ""
+
+class ProductImagesUploadRequest(BaseModel):
+    images: list[UploadImageItem]
+    site_key: Optional[str] = "derma"
+    as_featured: Optional[bool] = False
+
+class UpdateProductImagesRequest(BaseModel):
+    image_ids: list[int]
+    site_key: Optional[str] = "derma"
+
+def get_wp_media_config(site_key: str = "derma") -> dict:
+    cfg = bot.get_site_config(site_key)
+    wp_user, wp_pass = cfg.get("wp_auth") or ("", "")
+    return {
+        "WORDPRESS_SITE_URL": cfg.get("site_url") or "",
+        "WORDPRESS_USERNAME": wp_user,
+        "WORDPRESS_PASSWORD": wp_pass,
+        "SSL_NO_VERIFY": os.environ.get("SSL_NO_VERIFY", ""),
+    }
+
+def decode_base64_image(data_str: str, default_filename: str = "upload.jpg") -> tuple[bytes, str]:
+    filename = default_filename or "upload.jpg"
+    raw_data = str(data_str or "").strip()
+    if "," in raw_data and raw_data.startswith("data:"):
+        header, encoded = raw_data.split(",", 1)
+        raw_data = encoded
+        if "image/png" in header:
+            if not filename.lower().endswith(".png"):
+                filename = Path(filename).stem + ".png"
+        elif "image/webp" in header:
+            if not filename.lower().endswith(".webp"):
+                filename = Path(filename).stem + ".webp"
+        elif "image/jpeg" in header or "image/jpg" in header:
+            if not filename.lower().endswith((".jpg", ".jpeg")):
+                filename = Path(filename).stem + ".jpg"
+    file_bytes = base64.b64decode(raw_data)
+    if file_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
+        if not filename.lower().endswith(".png"):
+            filename = Path(filename).stem + ".png"
+    elif file_bytes.startswith(b"\xff\xd8\xff"):
+        if not filename.lower().endswith((".jpg", ".jpeg")):
+            filename = Path(filename).stem + ".jpg"
+    elif len(file_bytes) >= 12 and file_bytes[:4] == b"RIFF" and file_bytes[8:12] == b"WEBP":
+        if not filename.lower().endswith(".webp"):
+            filename = Path(filename).stem + ".webp"
+    return file_bytes, filename
+
+@app.get("/api/products/{product_id}/images")
+def get_product_images(
+    product_id: int,
+    site_key: Optional[str] = Query("derma"),
+    current_user: dict = Depends(get_current_admin)
+):
+    target_site = site_key or "derma"
+    try:
+        prod = bot.wc_get(f"products/{product_id}", site_key=target_site)
+        if not isinstance(prod, dict) or not prod.get("id"):
+            raise HTTPException(status_code=404, detail=f"Không tìm thấy sản phẩm #{product_id}.")
+        return {"images": prod.get("images") or []}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        bot.log(f"[MiniApp] Lỗi lấy danh sách ảnh #{product_id}: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))
+
+@app.post("/api/products/{product_id}/images/upload")
+def upload_product_images(
+    product_id: int,
+    body: ProductImagesUploadRequest,
+    current_user: dict = Depends(get_current_admin)
+):
+    target_site = body.site_key or "derma"
+    if not body.images:
+        raise HTTPException(status_code=400, detail="Không có hình ảnh nào được gửi lên.")
+
+    wp_cfg = get_wp_media_config(target_site)
+    uploaded_media_ids = []
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_dir_path = Path(tmp_dir)
+        for idx, item in enumerate(body.images):
+            try:
+                data_bytes, filename = decode_base64_image(item.data, item.filename)
+                safe_name = re.sub(r'[^a-zA-Z0-9_\.-]', '_', filename)
+                if not safe_name or safe_name.startswith('.'):
+                    safe_name = f"image_{int(time.time())}_{idx}.jpg"
+                temp_file = tmp_dir_path / safe_name
+                temp_file.write_bytes(data_bytes)
+
+                media_id = notion_sync.wp_upload_media(wp_cfg, temp_file)
+                if media_id:
+                    uploaded_media_ids.append(int(media_id))
+                else:
+                    bot.log(f"[MiniApp] Không upload được file {safe_name} lên WP Media.")
+            except Exception as e:
+                bot.log(f"[MiniApp] Lỗi xử lý file upload {item.filename}: {e}")
+
+    if not uploaded_media_ids:
+        raise HTTPException(status_code=500, detail="Không thể tải ảnh lên WordPress Media Library.")
+
+    try:
+        prod = bot.wc_get(f"products/{product_id}", site_key=target_site)
+        if not isinstance(prod, dict) or not prod.get("id"):
+            raise HTTPException(status_code=404, detail=f"Không tìm thấy sản phẩm #{product_id} trên {target_site}.")
+
+        current_images = prod.get("images") or []
+        existing_ids = [img["id"] for img in current_images if isinstance(img, dict) and img.get("id")]
+
+        if body.as_featured:
+            new_image_order = uploaded_media_ids + [mid for mid in existing_ids if mid not in uploaded_media_ids]
+        else:
+            new_image_order = [mid for mid in existing_ids if mid not in uploaded_media_ids] + uploaded_media_ids
+
+        update_payload = {"images": [{"id": mid} for mid in new_image_order]}
+        res = bot.wc_put(f"products/{product_id}", update_payload, site_key=target_site)
+        if not isinstance(res, dict) or not res.get("id"):
+            raise HTTPException(status_code=400, detail="Lỗi gán ảnh vào sản phẩm WooCommerce.")
+
+        updated_images = res.get("images") or []
+        update_product_cache_locally(product_id, {"images": updated_images}, site_key=target_site)
+
+        return {
+            "ok": True,
+            "message": f"Đã tải lên và gán thành công {len(uploaded_media_ids)} ảnh!",
+            "uploaded_ids": uploaded_media_ids,
+            "images": updated_images
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        bot.log(f"[MiniApp] Lỗi cập nhật ảnh sản phẩm #{product_id}: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))
+
+@app.put("/api/products/{product_id}/images")
+def update_product_images(
+    product_id: int,
+    body: UpdateProductImagesRequest,
+    current_user: dict = Depends(get_current_admin)
+):
+    target_site = body.site_key or "derma"
+    try:
+        update_payload = {"images": [{"id": mid} for mid in body.image_ids]}
+        res = bot.wc_put(f"products/{product_id}", update_payload, site_key=target_site)
+        if not isinstance(res, dict) or not res.get("id"):
+            raise HTTPException(status_code=400, detail="Lỗi cập nhật thứ tự ảnh trên WooCommerce.")
+
+        updated_images = res.get("images") or []
+        update_product_cache_locally(product_id, {"images": updated_images}, site_key=target_site)
+        return {
+            "ok": True,
+            "message": "Đã cập nhật thứ tự ảnh thành công!",
+            "images": updated_images
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        bot.log(f"[MiniApp] Lỗi cập nhật thứ tự ảnh #{product_id}: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))
+
+@app.delete("/api/products/{product_id}/images/{image_id}")
+def delete_product_image(
+    product_id: int,
+    image_id: int,
+    site_key: Optional[str] = Query("derma"),
+    delete_media: bool = Query(False),
+    current_user: dict = Depends(get_current_admin)
+):
+    target_site = site_key or "derma"
+    try:
+        prod = bot.wc_get(f"products/{product_id}", site_key=target_site)
+        if not isinstance(prod, dict) or not prod.get("id"):
+            raise HTTPException(status_code=404, detail=f"Không tìm thấy sản phẩm #{product_id}.")
+
+        current_images = prod.get("images") or []
+        remaining_ids = [
+            img["id"] for img in current_images
+            if isinstance(img, dict) and img.get("id") and img["id"] != image_id
+        ]
+
+        update_payload = {"images": [{"id": mid} for mid in remaining_ids]}
+        res = bot.wc_put(f"products/{product_id}", update_payload, site_key=target_site)
+        if not isinstance(res, dict) or not res.get("id"):
+            raise HTTPException(status_code=400, detail="Lỗi gỡ ảnh khỏi sản phẩm trên WooCommerce.")
+
+        updated_images = res.get("images") or []
+        update_product_cache_locally(product_id, {"images": updated_images}, site_key=target_site)
+
+        media_deleted = False
+        if delete_media:
+            wp_cfg = get_wp_media_config(target_site)
+            media_deleted = notion_sync.wp_delete_media(wp_cfg, image_id)
+
+        return {
+            "ok": True,
+            "message": f"Đã xóa ảnh #{image_id} khỏi sản phẩm!" + (" (Đã xóa vĩnh viễn khỏi Media Library)" if media_deleted else ""),
+            "deleted_media": media_deleted,
+            "images": updated_images
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        bot.log(f"[MiniApp] Lỗi xóa ảnh #{image_id} của SP #{product_id}: {exc}")
         raise HTTPException(status_code=500, detail=str(exc))
 
 
