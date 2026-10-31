@@ -1089,11 +1089,11 @@ def wants_notion_sync(text: str) -> bool:
     return any(keyword in normalized for keyword in keywords)
 
 
-def send_notion_sync_links_file(chat_id: int, products: list) -> None:
+def send_notion_sync_links_file(chat_id: int, products: list) -> bool:
     if not chat_id or not products:
-        return
+        return False
     try:
-        link_lines = [prod['url'] for prod in products if prod.get('url')]
+        link_lines = [prod['url'] for prod in products if isinstance(prod, dict) and prod.get('url')]
         if link_lines:
             file_content = "\n".join(link_lines)
             timestamp = time.strftime('%Y%m%d_%H%M%S')
@@ -1101,14 +1101,15 @@ def send_notion_sync_links_file(chat_id: int, products: list) -> None:
             temp_file_path = OUT_DIR / filename
             temp_file_path.write_text(file_content, encoding="utf-8")
             
-            # Gửi file này qua Telegram
-            send_document(chat_id, temp_file_path, caption="📄 Danh sách link sản phẩm đã đăng")
+            caption = f"📄 <b>Danh sách {len(link_lines)} URL sản phẩm vừa đăng từ Notion lên website:</b>"
+            send_document(chat_id, temp_file_path, caption=caption)
             
-            # Xóa file sau khi gửi thành công
             if temp_file_path.exists():
                 temp_file_path.unlink()
+            return True
     except Exception as e:
-        log(f"Lỗi khi tạo hoặc gửi file links.txt: {e}")
+        log(f"Lỗi khi tạo hoặc gửi file links.txt tới chat {chat_id}: {e}")
+    return False
 def prepare_notion_sync_confirmation(chat_id: int, page_ids: list[str] | None = None, titles: list[str] | None = None) -> str:
     selected_page_ids = [str(page_id) for page_id in (page_ids or []) if page_id]
     PENDING_ACTIONS[chat_id] = {

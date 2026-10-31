@@ -418,6 +418,26 @@ class MiniAppTestSuite(unittest.TestCase):
             self.assertFalse(mini_app_server.NOTION_SYNC_STATE["is_running"])
             self.assertIn("Đồng bộ thành công 1 sản phẩm", mini_app_server.NOTION_SYNC_STATE["current_status"])
 
+    def test_notion_sync_worker_sends_links_file_to_admin(self):
+        fake_products = [
+            {"title": "Serum A", "url": "https://khaihoanderma.com/sp-a"},
+            {"title": "Kem B", "url": "https://khaihoanderma.com/sp-b"}
+        ]
+        def fake_sync(progress_callback=None, site_key="all"):
+            return {
+                "status": "success",
+                "message": "Đã đăng 2 sản phẩm",
+                "count": 2,
+                "products": fake_products
+            }
+
+        with patch.dict("os.environ", {"TELEGRAM_ALLOWED_CHAT_IDS": "6295080195"}), \
+             patch.object(mini_app_server.notion_sync, "run_notion_sync_workflow", side_effect=fake_sync), \
+             patch.object(mini_app_server.bot, "send_notion_sync_links_file") as mock_send_file:
+            mini_app_server._notion_sync_worker(site_key="all", chat_id=6295080195)
+            self.assertEqual(len(mini_app_server.NOTION_SYNC_STATE["published_products"]), 2)
+            mock_send_file.assert_called_with(6295080195, fake_products)
+
     def test_get_product_images_endpoint(self):
         fake_prod = {
             "id": 100,

@@ -941,6 +941,29 @@
                 <span class="line-clamp-2">{{ syncStatusText }}</span>
               </div>
 
+              <!-- Success & Export Links File Box -->
+              <div v-if="lastPublishedProducts.length > 0" class="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 space-y-2 text-xs animate-fade-in">
+                <div class="flex items-center justify-between gap-2">
+                  <div class="font-bold text-emerald-700 dark:text-emerald-300 flex items-center space-x-1.5">
+                    <span>✅ Đã đăng {{ lastPublishedProducts.length }} sản phẩm mới</span>
+                  </div>
+                  <button @click="downloadLinksTxtFile" class="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold flex items-center space-x-1 shadow active:scale-95 transition-all flex-shrink-0" title="Tải file txt chứa toàn bộ URL">
+                    <span>📥 Xuất file TXT</span>
+                  </button>
+                </div>
+                <div class="text-[10px] text-muted flex items-center space-x-1">
+                  <span>💬 Bot Telegram đã tự động gửi file <code>.txt</code> tổng hợp link vào hội thoại cho bạn!</span>
+                </div>
+                <div class="max-h-24 overflow-y-auto space-y-1 pr-1 font-mono text-[10px]">
+                  <div v-for="(p, idx) in lastPublishedProducts" :key="idx" class="truncate flex items-center space-x-1 text-sub">
+                    <span class="text-muted">{{ idx + 1 }}.</span>
+                    <a :href="p.url" target="_blank" rel="noopener" class="text-blue-600 dark:text-sky-400 hover:underline truncate">
+                      {{ p.url }}
+                    </a>
+                  </div>
+                </div>
+              </div>
+
               <button @click="triggerNotionSync" :disabled="isSyncRunning" 
                       class="w-full py-2.5 px-4 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white rounded-xl text-xs font-bold flex items-center justify-center space-x-2 shadow-md active:scale-95 transition-all disabled:opacity-50">
                 <span v-if="isSyncRunning" class="animate-spin">🔄</span>

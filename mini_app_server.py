@@ -73,7 +73,8 @@ NOTION_SYNC_STATE = {
     "is_running": False,
     "current_status": "Sẵn sàng",
     "last_run": None,
-    "last_error": None
+    "last_error": None,
+    "published_products": []
 }
 
 
@@ -1135,11 +1136,12 @@ def get_notion_pages(
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-def _notion_sync_worker(site_key: str = "all"):
+def _notion_sync_worker(site_key: str = "all", chat_id: Optional[int] = None):
     global NOTION_SYNC_STATE
     NOTION_SYNC_STATE["is_running"] = True
     NOTION_SYNC_STATE["current_status"] = f"Đang kết nối Notion và kiểm tra bài viết ({site_key})..."
     NOTION_SYNC_STATE["last_error"] = None
+    NOTION_SYNC_STATE["published_products"] = []
     bot.log(f"[NotionSync] Bắt đầu kích hoạt quy trình đồng bộ bài viết Notion ({site_key})...")
     try:
         def callback(*args, **kwargs):
@@ -1159,6 +1161,29 @@ def _notion_sync_worker(site_key: str = "all"):
         if isinstance(res, dict):
             sync_status = res.get("status")
             clean_msg = re.sub(r"</?[a-zA-Z0-9_-]+[^>]*>", "", res.get("message", "")).strip()
+            published_products = res.get("products") or []
+
+            if published_products:
+                NOTION_SYNC_STATE["published_products"] = published_products
+
+                # Tự động gửi file txt tổng hợp link sản phẩm qua Telegram hội thoại
+                target_recipients = []
+                if chat_id and int(chat_id) > 0:
+                    target_recipients.append(int(chat_id))
+
+                allowed_str = os.environ.get("TELEGRAM_ALLOWED_CHAT_IDS", "")
+                for cid_str in allowed_str.split(","):
+                    c = cid_str.strip().replace("-", "")
+                    if c.isdigit():
+                        target_recipients.append(int(cid_str.strip()))
+
+                for cid in set(target_recipients):
+                    try:
+                        bot.send_notion_sync_links_file(cid, published_products)
+                        bot.log(f"[NotionSync] Đã tự động gửi file txt danh sách link cho admin {cid}")
+                    except Exception as send_err:
+                        bot.log(f"[NotionSync] Lỗi gửi file txt cho admin {cid}: {send_err}")
+
             if sync_status == "error":
                 NOTION_SYNC_STATE["current_status"] = f"Lỗi: {clean_msg}"
                 NOTION_SYNC_STATE["last_error"] = clean_msg
@@ -1193,7 +1218,8 @@ def trigger_notion_sync(
         raise HTTPException(status_code=400, detail="Quá trình đồng bộ đang chạy dở.")
 
     target_site = site or "all"
-    thread = threading.Thread(target=_notion_sync_worker, args=(target_site,), daemon=True)
+    user_chat_id = current_user.get("id") if isinstance(current_user, dict) else None
+    thread = threading.Thread(target=_notion_sync_worker, args=(target_site, user_chat_id), daemon=True)
     thread.start()
     return {"ok": True, "message": f"Đã bắt đầu tiến trình đồng bộ Notion ({target_site})."}
 

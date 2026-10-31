@@ -120,6 +120,7 @@ const app = createApp({
     const isNotionLoading = ref(false);
     const isSyncRunning = ref(false);
     const syncStatusText = ref("");
+    const lastPublishedProducts = ref([]);
 
     // Live System & Sync Logs State
     const systemLogs = ref([]);
@@ -808,6 +809,9 @@ const app = createApp({
             clearInterval(interval);
             isSyncRunning.value = false;
             showToast("Đồng bộ Notion hoàn tất!", "success");
+            if (res.published_products && res.published_products.length > 0) {
+              lastPublishedProducts.value = res.published_products;
+            }
             fetchNotionQueue();
             fetchDashboard();
           }
@@ -816,6 +820,25 @@ const app = createApp({
           isSyncRunning.value = false;
         }
       }, 2500);
+    };
+
+    const downloadLinksTxtFile = () => {
+      haptic("light");
+      if (!lastPublishedProducts.value || lastPublishedProducts.value.length === 0) return;
+      const urls = lastPublishedProducts.value.map(p => p.url).filter(Boolean);
+      if (urls.length === 0) return;
+      const content = urls.join("\n");
+      const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      const timestamp = new Date().toISOString().slice(0, 19).replace(/[-:T]/g, "");
+      link.href = url;
+      link.download = `links_san_pham_notion_${timestamp}.txt`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      showToast("Đã tải file TXT link thành công!", "success");
     };
 
     // Markdown & HTML Formatter for AI Chat
@@ -1264,6 +1287,8 @@ const app = createApp({
       deleteReview,
       fetchNotionQueue,
       triggerNotionSync,
+      lastPublishedProducts,
+      downloadLinksTxtFile,
       askGemini,
       sendAiPrompt,
       renderAiHtml,
