@@ -31,7 +31,7 @@
   </script>
 </head>
 <body class="antialiased selection:bg-blue-500 selection:text-white pb-24">
-  <div id="app" class="min-h-screen flex flex-col max-w-6xl xl:max-w-7xl mx-auto w-full px-2 sm:px-4 md:px-6">
+  <div id="app" class="min-h-screen flex flex-col max-w-full 2xl:max-w-[1700px] mx-auto w-full px-2 sm:px-4 md:px-6">
 
     <!-- Toast Notification -->
     <transition name="fade">
@@ -95,6 +95,14 @@
       </nav>
 
       <div class="flex items-center space-x-1.5 sm:space-x-2 shrink-0">
+        <!-- Fullscreen Button (Phóng to / Thu nhỏ cho Desktop) -->
+        <button v-if="isDesktopDevice" @click="toggleFullscreen" 
+                class="px-2.5 py-1.5 rounded-xl card-theme text-main text-xs font-semibold flex items-center space-x-1 hover:scale-105 active:scale-95 transition-all shadow-sm"
+                :title="isFullscreen ? 'Thu nhỏ cửa sổ' : 'Phóng to full màn hình'">
+          <span>{{ isFullscreen ? '🗗' : '⛶' }}</span>
+          <span class="hidden sm:inline">{{ isFullscreen ? 'Thu nhỏ' : 'Toàn màn hình' }}</span>
+        </button>
+
         <!-- Theme Toggle Button -->
         <button @click="toggleTheme" 
                 class="w-8 h-8 rounded-xl card-theme flex items-center justify-center text-sm hover:scale-105 active:scale-95 transition-all shrink-0"
@@ -499,12 +507,12 @@
         </div>
 
         <!-- Products Loading Skeleton -->
-        <div v-if="isProductsLoading" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div v-if="isProductsLoading" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5 gap-3.5 sm:gap-4">
           <div v-for="i in 6" :key="i" class="card-theme p-4 rounded-2xl h-44 shimmer"></div>
         </div>
 
         <!-- Products Responsive Grid (1 col on mobile, 2 on tablet, 3 on desktop) -->
-        <div v-else-if="products.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div v-else-if="products.length > 0" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5 gap-3.5 sm:gap-4">
           <div v-for="prod in products" :key="prod.id" 
                :class="{'border-purple-400/50 dark:border-purple-600/50 shadow-sm': prod.type === 'variable'}"
                class="card-theme p-4 rounded-2xl flex flex-col justify-between space-y-3 transition-all hover:shadow-md">
@@ -1370,7 +1378,7 @@
     </div>
 
     <!-- ================= BOTTOM NAVIGATION BAR ================= -->
-    <nav class="fixed bottom-0 left-0 right-0 z-40 bottom-nav max-w-6xl xl:max-w-7xl mx-auto flex items-center justify-around py-2 px-2 sm:px-4 border-t border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md md:hidden">
+    <nav class="fixed bottom-0 left-0 right-0 z-40 bottom-nav max-w-full mx-auto flex items-center justify-around py-2 px-2 sm:px-4 border-t border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md md:hidden">
       <button @click="switchTab('dashboard')" 
               :class="currentTab === 'dashboard' ? 'text-blue-600 dark:text-sky-400 font-bold scale-105' : 'text-muted'"
               class="flex-1 flex flex-col items-center text-[10px] space-y-0.5 transition-all py-1">

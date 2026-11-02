@@ -19,6 +19,35 @@ const app = createApp({
     const isDark = ref(false);
     const isLoading = ref(false);
     const toast = reactive({ show: false, message: "", type: "info" });
+    const isFullscreen = ref(false);
+
+    // Detect desktop device or Telegram Desktop
+    const isDesktopDevice = computed(() => {
+      const ua = navigator.userAgent || "";
+      const isMobile = /Android|iPhone|iPad|iPod|Windows Phone/i.test(ua);
+      const desktopPlatforms = ["tdesktop", "macos", "web", "weba", "webk"];
+      return !isMobile || desktopPlatforms.includes(tg.platform);
+    });
+
+    const toggleFullscreen = () => {
+      try {
+        if (tg.isFullscreen) {
+          if (typeof tg.exitFullscreen === "function") tg.exitFullscreen();
+          isFullscreen.value = false;
+        } else if (typeof tg.requestFullscreen === "function") {
+          tg.requestFullscreen();
+          isFullscreen.value = true;
+        } else if (!document.fullscreenElement) {
+          document.documentElement.requestFullscreen?.();
+          isFullscreen.value = true;
+        } else {
+          document.exitFullscreen?.();
+          isFullscreen.value = false;
+        }
+      } catch (e) {
+        console.warn("Fullscreen toggle error:", e);
+      }
+    };
     
     // Auth & User State
     const user = ref(null);
@@ -1222,6 +1251,22 @@ const app = createApp({
       tg.ready();
       tg.expand();
 
+      // Nếu trên giao diện Desktop: tự động phóng to toàn màn hình
+      if (isDesktopDevice.value) {
+        try {
+          if (typeof tg.requestFullscreen === "function") {
+            tg.requestFullscreen();
+            isFullscreen.value = true;
+          }
+        } catch (e) {}
+      }
+
+      try {
+        tg.onEvent?.("fullscreenChanged", () => {
+          isFullscreen.value = !!tg.isFullscreen;
+        });
+      } catch (e) {}
+
       // Check saved theme or fallback to Telegram colorScheme
       const savedTheme = localStorage.getItem("khd_theme");
       if (savedTheme) {
@@ -1296,6 +1341,9 @@ const app = createApp({
       formatMoney,
       formatDate,
       getOrderStatusLabel,
+      isFullscreen,
+      isDesktopDevice,
+      toggleFullscreen,
       toggleTheme,
       switchTab,
       refreshCurrentTab,
