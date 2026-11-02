@@ -283,13 +283,14 @@ def get_dashboard_stats(site: str = Query("all"), current_user: dict = Depends(g
     _, _, _, p_today_rev, _, _ = bot.summarize_orders(p_today_orders)
     _, _, _, p_month_rev, _, _ = bot.summarize_orders(p_month_orders)
 
-    # 3. Đánh giá chờ duyệt (hold)
+    # 3. Đánh giá chờ duyệt (hold - Đa kênh Derma & Pharma)
     pending_reviews_count = 0
-    if site in {"all", "derma"}:
+    target_review_sites = ["derma", "pharma"] if site == "all" else [site]
+    for sk in target_review_sites:
         try:
-            revs = bot.wc_get("products/reviews", {"status": "hold", "per_page": 100}, site_key="derma")
+            revs = bot.wc_get("products/reviews", {"status": "hold", "per_page": 100}, site_key=sk)
             if isinstance(revs, list):
-                pending_reviews_count = len(revs)
+                pending_reviews_count += len(revs)
         except Exception:
             pass
 
@@ -1044,22 +1045,44 @@ def delete_product_image(
 @app.get("/api/reviews")
 def get_reviews(
     status_filter: str = Query("hold", alias="status"),
+    site: str = Query("all"),
     current_user: dict = Depends(get_current_admin)
 ):
     try:
         params = {"per_page": 50}
         if status_filter != "all":
             params["status"] = status_filter
-        revs = bot.wc_get("products/reviews", params)
-        if not isinstance(revs, list):
-            return {"reviews": []}
+
+        target_sites = ["derma", "pharma"] if site == "all" else [site]
+        all_revs = []
+
+        for sk in target_sites:
+            cfg = bot.get_site_config(sk)
+            try:
+                revs = bot.wc_get("products/reviews", params, site_key=sk)
+                if isinstance(revs, list):
+                    for r in revs:
+                        if isinstance(r, dict):
+                            r["_site_key"] = sk
+                            r["_site_name"] = cfg["name"]
+                            r["_site_short"] = cfg["short_name"]
+                            all_revs.append(r)
+            except Exception as e:
+                bot.log(f"[MiniApp] Lỗi tải đánh giá {sk}: {e}")
+
+        # Sắp xếp mới nhất trước
+        all_revs.sort(key=lambda r: str(r.get("date_created") or ""), reverse=True)
 
         formatted = []
-        for r in revs:
+        for r in all_revs:
             p_id = r.get("product_id")
+            sk = r.get("_site_key") or "derma"
             p_name = bot.find_product_name_by_id(p_id) if p_id else ""
             formatted.append({
                 "id": r.get("id"),
+                "_site_key": sk,
+                "_site_name": r.get("_site_name") or "Khải Hoàn Derma",
+                "_site_short": r.get("_site_short") or "Derma",
                 "status": r.get("status") or "approved",
                 "reviewer": r.get("reviewer") or "Ẩn danh",
                 "reviewer_email": r.get("reviewer_email") or "",
@@ -1076,26 +1099,48 @@ def get_reviews(
 
 
 @app.post("/api/reviews/{review_id}/approve")
-def approve_review(review_id: int, current_user: dict = Depends(get_current_admin)):
+def approve_review(
+    review_id: int, 
+    site_key: str = Query("derma"), 
+    current_user: dict = Depends(get_current_admin)
+):
     try:
-        res = bot.wc_put(f"products/reviews/{review_id}", {"status": "approved"})
+        res = bot.wc_put(f"products/reviews/{review_id}", {"status": "approved"}, site_key=site_key)
+        if (not isinstance(res, dict) or not res.get("id")) and site_key == "derma":
+            res = bot.wc_put(f"products/reviews/{review_id}", {"status": "approved"}, site_key="pharma")
+            site_key = "pharma"
+
         if not isinstance(res, dict) or not res.get("id"):
             raise HTTPException(status_code=400, detail="Lỗi phê duyệt đánh giá.")
+        bot.NOTIFIED_REVIEWS.add(f"{site_key}_{review_id}")
         bot.NOTIFIED_REVIEWS.add(review_id)
-        return {"ok": True, "message": f"Đã duyệt đánh giá #{review_id} thành công!"}
+        return {"ok": True, "message": f"Đã duyệt đánh giá #{review_id} ({site_key}) thành công!"}
+    except HTTPException:
+        raise
     except Exception as exc:
         bot.log(f"[MiniApp] Lỗi duyệt đánh giá #{review_id}: {exc}")
         raise HTTPException(status_code=500, detail=str(exc))
 
 
 @app.post("/api/reviews/{review_id}/delete")
-def delete_review(review_id: int, current_user: dict = Depends(get_current_admin)):
+def delete_review(
+    review_id: int, 
+    site_key: str = Query("derma"), 
+    current_user: dict = Depends(get_current_admin)
+):
     try:
-        res = bot.wc_put(f"products/reviews/{review_id}", {"status": "trash"})
+        res = bot.wc_put(f"products/reviews/{review_id}", {"status": "trash"}, site_key=site_key)
+        if (not isinstance(res, dict) or not res.get("id")) and site_key == "derma":
+            res = bot.wc_put(f"products/reviews/{review_id}", {"status": "trash"}, site_key="pharma")
+            site_key = "pharma"
+
         if not isinstance(res, dict) or not res.get("id"):
             raise HTTPException(status_code=400, detail="Lỗi xóa đánh giá.")
+        bot.NOTIFIED_REVIEWS.add(f"{site_key}_{review_id}")
         bot.NOTIFIED_REVIEWS.add(review_id)
-        return {"ok": True, "message": f"Đã chuyển đánh giá #{review_id} vào thùng rác!"}
+        return {"ok": True, "message": f"Đã chuyển đánh giá #{review_id} ({site_key}) vào thùng rác!"}
+    except HTTPException:
+        raise
     except Exception as exc:
         bot.log(f"[MiniApp] Lỗi xóa đánh giá #{review_id}: {exc}")
         raise HTTPException(status_code=500, detail=str(exc))

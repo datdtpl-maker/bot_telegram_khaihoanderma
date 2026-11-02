@@ -73,6 +73,8 @@ const app = createApp({
       } else if (currentTab.value === "products") {
         currentPage.value = 1;
         fetchProducts();
+      } else if (currentTab.value === "reviews") {
+        fetchReviews();
       } else if (currentTab.value === "tools") {
         fetchNotionQueue();
       }
@@ -738,7 +740,7 @@ const app = createApp({
     const fetchReviews = async () => {
       isReviewsLoading.value = true;
       try {
-        const data = await apiCall(`/api/reviews?status=${reviewsFilter.value}`);
+        const data = await apiCall(`/api/reviews?status=${reviewsFilter.value}&site=${selectedStore.value}`);
         reviews.value = data.reviews || [];
       } catch (err) {
         showToast("Lỗi khi tải danh sách đánh giá", "error");
@@ -747,10 +749,12 @@ const app = createApp({
       }
     };
 
-    const approveReview = async (reviewId) => {
+    const approveReview = async (rev) => {
+      const reviewId = typeof rev === "object" ? rev.id : rev;
+      const siteKey = (typeof rev === "object" ? rev._site_key : null) || selectedStore.value || "derma";
       haptic("medium");
       try {
-        await apiCall(`/api/reviews/${reviewId}/approve`, { method: "POST" });
+        await apiCall(`/api/reviews/${reviewId}/approve?site_key=${siteKey}`, { method: "POST" });
         showToast("Đã phê duyệt đánh giá thành công!", "success");
         if (reviewsFilter.value === "hold") {
           reviews.value = reviews.value.filter(r => r.id !== reviewId);
@@ -765,11 +769,13 @@ const app = createApp({
       }
     };
 
-    const deleteReview = async (reviewId) => {
+    const deleteReview = async (rev) => {
+      const reviewId = typeof rev === "object" ? rev.id : rev;
+      const siteKey = (typeof rev === "object" ? rev._site_key : null) || selectedStore.value || "derma";
       haptic("heavy");
       if (!confirm("Bạn có chắc chắn muốn xóa đánh giá này không?")) return;
       try {
-        await apiCall(`/api/reviews/${reviewId}/delete`, { method: "POST" });
+        await apiCall(`/api/reviews/${reviewId}/delete?site_key=${siteKey}`, { method: "POST" });
         showToast("Đã xóa đánh giá!", "success");
         reviews.value = reviews.value.filter(r => r.id !== reviewId);
         stats.pending_reviews = Math.max(0, stats.pending_reviews - 1);

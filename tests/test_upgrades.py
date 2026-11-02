@@ -104,7 +104,8 @@ class UpgradesTestSuite(unittest.TestCase):
             }
         ]
         bot.NOTIFIED_REVIEWS.clear()
-        with patch.object(bot, "wc_get", return_value=fake_reviews), \
+        with patch.object(bot, "get_all_sites", return_value=[bot.get_site_config("derma")]), \
+             patch.object(bot, "wc_get", return_value=fake_reviews), \
              patch.object(bot, "auto_moderate_review", return_value=(True, "Đánh giá tốt")), \
              patch.object(bot, "site_base_url", return_value="https://khaihoanderma.com"), \
              patch.object(bot, "wc_put") as mock_put, \
@@ -112,9 +113,24 @@ class UpgradesTestSuite(unittest.TestCase):
              patch.dict("os.environ", {"TELEGRAM_ALLOWED_CHAT_IDS": "12345"}):
             count = bot.scan_and_notify_reviews()
             self.assertEqual(count, 1)
-            mock_put.assert_called_once_with("products/reviews/9999", {"status": "approved"})
+            mock_put.assert_called_once_with("products/reviews/9999", {"status": "approved"}, site_key="derma")
             self.assertTrue(mock_send.called)
             self.assertIn(9999, bot.NOTIFIED_REVIEWS)
+            self.assertIn("derma_9999", bot.NOTIFIED_REVIEWS)
+
+    def test_auto_moderate_review_pharma_no_email(self):
+        # Pharma review without email but genuine name & content
+        rev_pharma = {
+            "id": 922,
+            "reviewer": "Phạm Thùy Dung",
+            "reviewer_email": "",
+            "rating": 5,
+            "review": "Kem dùng rất hiệu quả, thấm nhanh và giảm mụn đáng kể"
+        }
+        with patch.object(bot, "gemini_moderate_review", return_value=(True, "Nội dung chân thực")):
+            ok, reason = bot.auto_moderate_review(rev_pharma)
+            self.assertTrue(ok)
+            self.assertIn("Thỏa mãn", reason)
 
 
 if __name__ == "__main__":

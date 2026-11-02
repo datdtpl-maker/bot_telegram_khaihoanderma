@@ -4365,20 +4365,22 @@ def parse_review_action(text: str) -> dict | None:
     normalized = normalize_text(text)
     plain = plain_ascii(normalized)
     
-    # 1. Check approval
-    approve_match = re.search(r"^(?:duyet|duyet\s+danh\s+gia|chap\s+thuan)\s+(?P<id>\d+)$", plain, flags=re.IGNORECASE)
+    # 1. Check approval: duyệt đánh giá 123 hoặc duyệt đánh giá 123:pharma
+    approve_match = re.search(r"^(?:duyet|duyet\s+danh\s+gia|chap\s+thuan)\s+(?P<id>\d+)(?::(?P<site>\w+))?$", plain, flags=re.IGNORECASE)
     if approve_match:
         return {
             "action": "approve",
-            "id": int(approve_match.group("id"))
+            "id": int(approve_match.group("id")),
+            "site_key": approve_match.group("site") or "derma"
         }
         
-    # 2. Check deletion
-    delete_match = re.search(r"^(?:xoa|xoa\s+danh\s+gia|huy|huy\s+danh\s+gia|tu\s+choi)\s+(?P<id>\d+)$", plain, flags=re.IGNORECASE)
+    # 2. Check deletion: xóa đánh giá 123 hoặc xóa đánh giá 123:pharma
+    delete_match = re.search(r"^(?:xoa|xoa\s+danh\s+gia|huy|huy\s+danh\s+gia|tu\s+choi)\s+(?P<id>\d+)(?::(?P<site>\w+))?$", plain, flags=re.IGNORECASE)
     if delete_match:
         return {
             "action": "delete",
-            "id": int(delete_match.group("id"))
+            "id": int(delete_match.group("id")),
+            "site_key": delete_match.group("site") or "derma"
         }
         
     return None
@@ -4391,55 +4393,57 @@ def find_product_name_by_id(product_id: int) -> str:
         return PRODUCT_NAME_CACHE[product_id]
     try:
         with _ALL_PRODUCTS_CACHE_LOCK:
-            for p in _ALL_PRODUCTS_CACHE:
+            for p in _ALL_PRODUCTS_CACHE + _ALL_PHARMA_PRODUCTS_CACHE:
                 if p.get("id") == product_id and p.get("name"):
                     name = str(p["name"])
                     PRODUCT_NAME_CACHE[product_id] = name
                     return name
     except Exception:
         pass
-    try:
-        product = wc_get(f"products/{product_id}", {})
-        if isinstance(product, dict) and "name" in product:
-            name = str(product["name"])
-            PRODUCT_NAME_CACHE[product_id] = name
-            return name
-    except Exception as e:
-        log(f"Lỗi lấy tên sản phẩm {product_id}: {e}")
+    for sk in ["derma", "pharma"]:
+        try:
+            product = wc_get(f"products/{product_id}", {}, site_key=sk)
+            if isinstance(product, dict) and "name" in product:
+                name = str(product["name"])
+                PRODUCT_NAME_CACHE[product_id] = name
+                return name
+        except Exception:
+            pass
     return f"Sản phẩm #{product_id}"
 
 
 def execute_review_action_text(chat_id: int, review_action: dict) -> str:
     action = review_action["action"]
     review_id = review_action["id"]
+    site_key = review_action.get("site_key") or "derma"
+    cfg = get_site_config(site_key)
     
     try:
-        if action == "approve":
-            res = wc_put(f"products/reviews/{review_id}", {"status": "approved"})
-            if isinstance(res, dict) and res.get("id"):
-                reviewer = res.get("reviewer") or "Ẩn danh"
-                product_id = res.get("product_id")
-                product_name = find_product_name_by_id(product_id) if product_id else "Sản phẩm"
+        status_target = "approved" if action == "approve" else "trash"
+        res = wc_put(f"products/reviews/{review_id}", {"status": status_target}, site_key=site_key)
+        if (not isinstance(res, dict) or not res.get("id")) and site_key == "derma":
+            res = wc_put(f"products/reviews/{review_id}", {"status": status_target}, site_key="pharma")
+            site_key = "pharma"
+            cfg = get_site_config("pharma")
+
+        if isinstance(res, dict) and res.get("id"):
+            reviewer = res.get("reviewer") or "Ẩn danh"
+            product_id = res.get("product_id")
+            product_name = find_product_name_by_id(product_id) if product_id else "Sản phẩm"
+            if action == "approve":
                 return (
-                    f"✅ <b>Đã duyệt thành công đánh giá #{review_id}:</b>\n"
+                    f"✅ <b>[{cfg['badge']}] Đã duyệt thành công đánh giá #{review_id}:</b>\n"
                     f"• Người đánh giá: {h(reviewer)}\n"
                     f"• Sản phẩm: {h(product_name)}"
                 )
             else:
-                return f"❌ Không thể duyệt đánh giá #{review_id}. Phản hồi lỗi từ WooCommerce."
-        elif action == "delete":
-            res = wc_put(f"products/reviews/{review_id}", {"status": "trash"})
-            if isinstance(res, dict) and res.get("id"):
-                reviewer = res.get("reviewer") or "Ẩn danh"
-                product_id = res.get("product_id")
-                product_name = find_product_name_by_id(product_id) if product_id else "Sản phẩm"
                 return (
-                    f"🗑️ <b>Đã chuyển đánh giá #{review_id} vào Thùng rác:</b>\n"
+                    f"🗑️ <b>[{cfg['badge']}] Đã chuyển đánh giá #{review_id} vào Thùng rác:</b>\n"
                     f"• Người đánh giá: {h(reviewer)}\n"
                     f"• Sản phẩm: {h(product_name)}"
                 )
-            else:
-                return f"❌ Không thể xóa đánh giá #{review_id}. Phản hồi lỗi từ WooCommerce."
+        else:
+            return f"❌ Không thể xử lý đánh giá #{review_id}. Phản hồi lỗi từ WooCommerce."
     except Exception as e:
         log(f"Lỗi khi thực thi hành động đánh giá #{review_id}: {e}")
         return f"❌ <b>Gặp lỗi khi xử lý đánh giá #{review_id}:</b>\n<code>{h(e)}</code>"
@@ -4448,20 +4452,19 @@ def execute_review_action_text(chat_id: int, review_action: dict) -> str:
 def execute_review_callback(chat_id: int, msg_id: int, original_text: str, review_action: dict) -> None:
     action = review_action["action"]
     review_id = review_action["id"]
+    site_key = review_action.get("site_key") or "derma"
     
     try:
-        if action == "approve":
-            res = wc_put(f"products/reviews/{review_id}", {"status": "approved"})
-            if isinstance(res, dict) and res.get("id"):
-                status_text = "<b>[ĐÃ DUYỆT]</b>"
-            else:
-                status_text = "<b>[LỖI DUYỆT]</b>"
-        elif action == "delete":
-            res = wc_put(f"products/reviews/{review_id}", {"status": "trash"})
-            if isinstance(res, dict) and res.get("id"):
-                status_text = "<b>[ĐÃ XÓA/BỎ QUA]</b>"
-            else:
-                status_text = "<b>[LỖI XÓA]</b>"
+        status_target = "approved" if action == "approve" else "trash"
+        res = wc_put(f"products/reviews/{review_id}", {"status": status_target}, site_key=site_key)
+        if (not isinstance(res, dict) or not res.get("id")) and site_key == "derma":
+            res = wc_put(f"products/reviews/{review_id}", {"status": status_target}, site_key="pharma")
+            site_key = "pharma"
+
+        if isinstance(res, dict) and res.get("id"):
+            status_text = "<b>[ĐÃ DUYỆT]</b>" if action == "approve" else "<b>[ĐÃ XÓA/BỎ QUA]</b>"
+        else:
+            status_text = "<b>[LỖI XỬ LÝ]</b>"
     except Exception as e:
         log(f"Lỗi callback đánh giá #{review_id}: {e}")
         status_text = f"<b>[LỖI: {h(e)}]</b>"
@@ -4565,15 +4568,15 @@ def auto_moderate_review(rev: dict) -> tuple[bool, str]:
     if re.search(r"[0-9\d@#$%^&*()_+={}\[\]|\\:;\"'<>,.?/~`]", reviewer):
         return False, f"Tên người đánh giá chứa ký tự đặc biệt hoặc số: '{reviewer}'"
         
-    # 3. Email phải hợp lệ và thuộc các đuôi email uy tín
+    # 3. Email nếu có thì phải hợp lệ và thuộc các đuôi email uy tín (hỗ trợ web không bắt buộc email như Pharma)
     email = (rev.get("reviewer_email") or "").strip().lower()
-    if not email or not re.match(r"^[\w\.-]+@[\w\.-]+\.\w+$", email):
-        return False, f"Email không hợp lệ: '{email}'"
-        
-    allowed_domains = {"gmail.com", "yahoo.com", "outlook.com", "hotmail.com", "yandex.com", "mail.ru", "protonmail.com", "icloud.com"}
-    domain = email.split("@")[-1]
-    if domain not in allowed_domains:
-        return False, f"Email sử dụng domain lạ/không uy tín: '{email}'"
+    if email:
+        if not re.match(r"^[\w\.-]+@[\w\.-]+\.\w+$", email):
+            return False, f"Email không hợp lệ: '{email}'"
+        allowed_domains = {"gmail.com", "yahoo.com", "outlook.com", "hotmail.com", "yandex.com", "mail.ru", "protonmail.com", "icloud.com"}
+        domain = email.split("@")[-1]
+        if domain not in allowed_domains:
+            return False, f"Email sử dụng domain lạ/không uy tín: '{email}'"
         
     # 4. Nội dung đánh giá rõ ràng, độ dài hợp lệ, không chứa link quảng cáo, chứa tiếng Việt có dấu
     review_content = plain_text_from_html(rev.get("review") or "").strip()
@@ -4939,106 +4942,112 @@ def scan_and_notify_reviews() -> int:
     notified_file = OUT_DIR / "notified_reviews.json"
     new_reviews_count = 0
     try:
-        log("Đang quét WooCommerce để kiểm tra đánh giá mới...")
-        reviews = wc_get("products/reviews", {"status": "hold", "per_page": 100})
-        if not isinstance(reviews, list):
-            log("Lỗi: Kết quả trả về từ WooCommerce reviews không phải danh sách.")
-            return 0
-        
-        log(f"Tìm thấy {len(reviews)} đánh giá chờ duyệt (hold) trên WooCommerce.")
-        if not reviews:
-            return 0
-            
-        new_reviews_detected = []
-        for rev in reviews:
-            rev_id = rev.get("id")
-            if rev_id not in NOTIFIED_REVIEWS:
-                new_reviews_detected.append(rev)
-                
-        log(f"Phát hiện {len(new_reviews_detected)} đánh giá mới chưa thông báo.")
-        if not new_reviews_detected:
-            return 0
-            
-        # Lấy danh sách admin chat IDs
+        sites_to_scan = get_all_sites()
         allowed_str = os.environ.get("TELEGRAM_ALLOWED_CHAT_IDS", "")
         allowed_ids = [int(x.strip()) for x in allowed_str.split(",") if x.strip().replace("-", "").isdigit()]
-        
-        for rev in new_reviews_detected:
-            rev_id = rev.get("id")
-            NOTIFIED_REVIEWS.add(rev_id)
-            new_reviews_count += 1
-            
-            # Chi tiết đánh giá
-            reviewer = rev.get("reviewer") or "Ẩn danh"
-            log(f"-> Đang xử lý đánh giá #{rev_id} của {reviewer}...")
-            reviewer_email = rev.get("reviewer_email") or ""
-            rating = rev.get("rating") or 0
-            review_content = plain_text_from_html(rev.get("review") or "")
-            product_id = rev.get("product_id")
-            product_name = find_product_name_by_id(product_id)
-            
-            # Chạy cơ chế duyệt tự động
-            is_auto, moderate_reason = auto_moderate_review(rev)
-            
-            if is_auto:
-                # Tiến hành duyệt tự động đánh giá này trên WooCommerce
-                try:
-                    wc_put(f"products/reviews/{rev_id}", {"status": "approved"})
-                    log(f"Tự động duyệt đánh giá #{rev_id} thành công. Lý do: {moderate_reason}")
-                    
-                    # Gửi thông báo ngắn gọn về cho Admin
+
+        for site_entry in sites_to_scan:
+            if isinstance(site_entry, str):
+                site_cfg = get_site_config(site_entry)
+            else:
+                site_cfg = site_entry
+            site_key = site_cfg.get("key", "derma")
+            site_name = site_cfg.get("name", "Khải Hoàn Derma")
+            site_badge = site_cfg.get("badge", "🌿 Derma")
+
+            try:
+                reviews = wc_get("products/reviews", {"status": "hold", "per_page": 100}, site_key=site_key)
+            except Exception as e:
+                log(f"Lỗi khi quét đánh giá {site_name}: {e}")
+                continue
+
+            if not isinstance(reviews, list) or not reviews:
+                continue
+
+            new_reviews_detected = []
+            for rev in reviews:
+                rev_id = rev.get("id")
+                tracking_key = f"{site_key}_{rev_id}"
+                is_already_notified = tracking_key in NOTIFIED_REVIEWS or (site_key == "derma" and rev_id in NOTIFIED_REVIEWS)
+                if not is_already_notified:
+                    new_reviews_detected.append(rev)
+
+            if not new_reviews_detected:
+                continue
+
+            log(f"[{site_name}] Phát hiện {len(new_reviews_detected)} đánh giá mới chưa thông báo.")
+
+            for rev in new_reviews_detected:
+                rev_id = rev.get("id")
+                tracking_key = f"{site_key}_{rev_id}"
+                NOTIFIED_REVIEWS.add(tracking_key)
+                if site_key == "derma":
+                    NOTIFIED_REVIEWS.add(rev_id)
+                new_reviews_count += 1
+
+                reviewer = rev.get("reviewer") or "Ẩn danh"
+                log(f"-> [{site_name}] Đang xử lý đánh giá #{rev_id} của {reviewer}...")
+                reviewer_email = rev.get("reviewer_email") or ""
+                rating = rev.get("rating") or 0
+                review_content = plain_text_from_html(rev.get("review") or "")
+                product_id = rev.get("product_id")
+                product_name = find_product_name_by_id(product_id)
+
+                is_auto, moderate_reason = auto_moderate_review(rev)
+
+                if is_auto:
+                    try:
+                        wc_put(f"products/reviews/{rev_id}", {"status": "approved"}, site_key=site_key)
+                        log(f"[{site_name}] Tự động duyệt đánh giá #{rev_id} thành công. Lý do: {moderate_reason}")
+
+                        msg = (
+                            f"🔔 <b>[{site_badge}] Tự động duyệt đánh giá 5★ thành công:</b>\n"
+                            f"• <b>Sản phẩm:</b> <a href=\"{site_cfg['site_url']}/?p={product_id}\">{h(product_name)}</a>\n"
+                            f"• <b>Khách hàng:</b> {h(reviewer)}" + (f" ({h(reviewer_email)})" if reviewer_email else "") + f"\n"
+                            f"• <b>Nội dung:</b> <i>{h(review_content)}</i>\n"
+                            f"• <b>Chi tiết:</b> {h(moderate_reason)}"
+                        )
+                        for cid in allowed_ids:
+                            try:
+                                send_message(cid, msg)
+                            except Exception as e:
+                                log(f"Lỗi gửi thông báo tự động duyệt tới {cid}: {e}")
+                    except Exception as e:
+                        log(f"Lỗi khi thực hiện tự động duyệt đánh giá #{rev_id} ({site_name}): {e}")
+                        is_auto = False
+
+                if not is_auto:
+                    log(f"[{site_name}] Yêu cầu kiểm duyệt thủ công đánh giá #{rev_id}. Lý do: {moderate_reason}")
+                    stars = "★" * rating + "☆" * (5 - rating)
                     msg = (
-                        f"🔔 <b>Tự động duyệt đánh giá 5★ thành công:</b>\n"
-                        f"• <b>Sản phẩm:</b> <a href=\"{site_base_url()}/?p={product_id}\">{h(product_name)}</a>\n"
-                        f"• <b>Khách hàng:</b> {h(reviewer)} ({h(reviewer_email)})\n"
+                        f"⭐ <b>[{site_badge}] Có đánh giá sản phẩm mới cần duyệt:</b>\n"
+                        f"• <b>Sản phẩm:</b> <a href=\"{site_cfg['site_url']}/?p={product_id}\">{h(product_name)}</a>\n"
+                        f"• <b>Người đánh giá:</b> {h(reviewer)}" + (f" ({h(reviewer_email)})" if reviewer_email else "") + f"\n"
+                        f"• <b>Đánh giá:</b> {stars} ({rating}/5)\n"
                         f"• <b>Nội dung:</b> <i>{h(review_content)}</i>\n"
-                        f"• <b>Chi tiết:</b> {h(moderate_reason)}"
+                        f"• <b>Lý do không tự duyệt:</b> <i>{h(moderate_reason)}</i>\n\n"
+                        f"Bạn muốn duyệt hay xóa đánh giá này?"
                     )
+                    reply_markup = {
+                        "inline_keyboard": [
+                            [
+                                {"text": "✅ Duyệt", "callback_data": f"duyệt đánh giá {rev_id}:{site_key}"},
+                                {"text": "❌ Xóa", "callback_data": f"xóa đánh giá {rev_id}:{site_key}"}
+                            ]
+                        ]
+                    }
                     for cid in allowed_ids:
                         try:
-                            send_message(cid, msg)
+                            send_message(cid, msg, reply_markup=reply_markup)
                         except Exception as e:
-                            log(f"Lỗi gửi thông báo tự động duyệt tới {cid}: {e}")
-                except Exception as e:
-                    log(f"Lỗi khi thực hiện tự động duyệt đánh giá #{rev_id}: {e}")
-                    is_auto = False  # Chuyển về duyệt thủ công nếu gọi API lỗi
-                    
-            if not is_auto:
-                log(f"Yêu cầu kiểm duyệt thủ công đánh giá #{rev_id}. Lý do: {moderate_reason}")
-                # Gửi thông báo duyệt thủ công kèm nút bấm
-                stars = "★" * rating + "☆" * (5 - rating)
-                msg = (
-                    f"⭐ <b>Có đánh giá sản phẩm mới cần duyệt:</b>\n"
-                    f"• <b>Sản phẩm:</b> <a href=\"{site_base_url()}/?p={product_id}\">{h(product_name)}</a>\n"
-                    f"• <b>Người đánh giá:</b> {h(reviewer)} ({h(reviewer_email)})\n"
-                    f"• <b>Đánh giá:</b> {stars} ({rating}/5)\n"
-                    f"• <b>Nội dung:</b> <i>{h(review_content)}</i>\n"
-                    f"• <b>Lý do không tự duyệt:</b> <i>{h(moderate_reason)}</i>\n\n"
-                    f"Bạn muốn duyệt hay xóa đánh giá này?"
-                )
-                
-                reply_markup = {
-                    "inline_keyboard": [
-                        [
-                            {"text": "✅ Duyệt", "callback_data": f"duyệt đánh giá {rev_id}"},
-                            {"text": "❌ Xóa", "callback_data": f"xóa đánh giá {rev_id}"}
-                        ]
-                    ]
-                }
-                
-                for cid in allowed_ids:
-                    try:
-                        send_message(cid, msg, reply_markup=reply_markup)
-                    except Exception as e:
-                        log(f"Lỗi gửi thông báo đánh giá tới {cid}: {e}")
-                    
-        # Lưu danh sách đã thông báo xuống file
+                            log(f"Lỗi gửi thông báo đánh giá tới {cid}: {e}")
+
         try:
             with notified_file.open("w", encoding="utf-8") as f:
                 json.dump(list(NOTIFIED_REVIEWS), f, indent=2, ensure_ascii=False)
         except Exception as e:
             log(f"Lỗi ghi file notified_reviews.json: {e}")
-            
+
     except Exception as e:
         log(f"Lỗi khi quét đánh giá tự động: {e}")
 

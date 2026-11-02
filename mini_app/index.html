@@ -758,6 +758,10 @@
                 <div>
                   <div class="flex items-center space-x-2">
                     <h4 class="font-bold text-xs text-title">{{ rev.reviewer || 'Ẩn danh' }}</h4>
+                    <span :class="rev._site_key === 'pharma' ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30' : 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'" 
+                          class="text-[9px] font-bold px-1.5 py-0.5 rounded-full border">
+                      {{ rev._site_short || 'Derma' }}
+                    </span>
                     <span :class="rev.status === 'hold' ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30' : 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'" 
                           class="text-[9px] font-black px-1.5 py-0.2 rounded-full border uppercase">
                       {{ rev.status === 'hold' ? 'Chờ duyệt' : 'Đã duyệt' }}
@@ -783,11 +787,11 @@
 
             <!-- Action Buttons -->
             <div class="flex space-x-2 pt-1 border-t border-slate-100 dark:border-slate-800">
-              <button v-if="rev.status === 'hold'" @click="approveReview(rev.id)" class="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center justify-center space-x-1 shadow-sm active:scale-95 transition-all">
+              <button v-if="rev.status === 'hold'" @click="approveReview(rev)" class="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center justify-center space-x-1 shadow-sm active:scale-95 transition-all">
                 <span>✅</span>
                 <span>Phê duyệt</span>
               </button>
-              <button @click="deleteReview(rev.id)" 
+              <button @click="deleteReview(rev)" 
                       :class="rev.status === 'hold' ? 'flex-1 bg-rose-600 hover:bg-rose-700 text-white' : 'w-full bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20'"
                       class="py-2 rounded-xl text-xs font-bold flex items-center justify-center space-x-1 shadow-sm active:scale-95 transition-all">
                 <span>🗑️</span>

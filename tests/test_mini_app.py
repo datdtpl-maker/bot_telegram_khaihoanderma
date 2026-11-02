@@ -290,12 +290,20 @@ class MiniAppTestSuite(unittest.TestCase):
         with patch.dict("os.environ", {"TELEGRAM_BOT_TOKEN": self.bot_token}), \
              patch.object(mini_app_server.bot, "wc_get", return_value=fake_reviews):
             headers = {"X-Admin-Token": self.admin_token}
+            # All sites: derma + pharma = 4 reviews
             res = self.client.get("/api/reviews?status=approved", headers=headers)
             self.assertEqual(res.status_code, 200)
             data = res.json()
             self.assertIn("reviews", data)
-            self.assertEqual(len(data["reviews"]), 2)
+            self.assertEqual(len(data["reviews"]), 4)
             self.assertEqual(data["reviews"][0]["status"], "approved")
+
+            # Pharma specific filter: 2 reviews
+            res_pharma = self.client.get("/api/reviews?status=approved&site=pharma", headers=headers)
+            self.assertEqual(res_pharma.status_code, 200)
+            data_pharma = res_pharma.json()
+            self.assertEqual(len(data_pharma["reviews"]), 2)
+            self.assertEqual(data_pharma["reviews"][0]["_site_key"], "pharma")
 
     def test_google_seo_report_web_html(self):
         with patch.dict("os.environ", {"TELEGRAM_BOT_TOKEN": self.bot_token}), \
