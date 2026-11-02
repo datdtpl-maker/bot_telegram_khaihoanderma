@@ -576,12 +576,14 @@ def get_products(
             "variable": sum(1 for p in all_cached if p.get("type") == "variable")
         }
 
-        # 1. Tìm kiếm hoặc lấy toàn bộ
+        # 1. Tìm kiếm hoặc lấy toàn bộ (Sắp xếp từ mới nhất tới cũ nhất)
         search_term = str(search or "").strip()
         if search_term:
-            matched = bot.find_products_by_fuzzy_name(search_term)
+            matched = bot.search_cached_products(all_cached, search_term)
+            if not matched and not all_cached:
+                matched = bot.find_products_by_fuzzy_name(search_term, site_key=site, limit=100)
             if site != "all":
-                matched = [p for p in matched if p.get("_site_key") == site]
+                matched = [p for p in matched if (p.get("_site_key") or "derma") == site]
         else:
             matched = all_cached
 

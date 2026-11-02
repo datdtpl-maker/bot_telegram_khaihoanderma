@@ -561,6 +561,38 @@ def test_send_notion_sync_links_file_naming(self):
             self.assertTrue(any(fn.startswith("khaihoanderma_linkdongbo_") for fn in file_names))
             self.assertTrue(any(fn.startswith("khaihoanpharma_linkdongbo_") for fn in file_names))
 
+def test_search_cached_products_and_sorting(self):
+        fake_prods = [
+            {"id": 10, "name": "Kem trị mụn cũ", "date_created": "2024-01-01T00:00:00", "_site_key": "derma", "sku": "SKU10", "permalink": "https://derma.vn/sp10"},
+            {"id": 20, "name": "SUNPRE X-TREME 50+ 50ml – Kem Chống Nắng", "date_created": "2026-10-31T10:00:00", "_site_key": "derma", "sku": "SUN50", "permalink": "https://derma.vn/sunpre-x-treme"},
+            {"id": 30, "name": "Gel chấm mụn Deriva BPO", "date_created": "2026-10-31T12:00:00", "_site_key": "pharma", "sku": "DERIVA", "permalink": "https://pharma.vn/deriva-bpo"}
+        ]
+        with patch.dict("os.environ", {"TELEGRAM_BOT_TOKEN": self.bot_token}), \
+             patch.object(mini_app_server.bot, "get_cached_all_products", return_value=fake_prods):
+            headers = {"X-Admin-Token": self.admin_token}
+
+            # 1. Test search exact web name with special characters
+            res = self.client.get("/api/products?search=SUNPRE+X-TREME+50%2B+50ml+%E2%80%93+Kem+Ch%E1%BB%91ng+N%E1%BA%AFng&site=all", headers=headers)
+            self.assertEqual(res.status_code, 200)
+            self.assertEqual(res.json().get("total"), 1)
+            self.assertEqual(res.json().get("products")[0]["id"], 20)
+
+            # 2. Test search by ID
+            res_id = self.client.get("/api/products?search=%2320&site=derma", headers=headers)
+            self.assertEqual(res_id.status_code, 200)
+            self.assertEqual(res_id.json().get("total"), 1)
+            self.assertEqual(res_id.json().get("products")[0]["id"], 20)
+
+            # 3. Test search by URL
+            res_url = self.client.get("/api/products?search=https://pharma.vn/deriva-bpo&site=pharma", headers=headers)
+            self.assertEqual(res_url.status_code, 200)
+            self.assertEqual(res_url.json().get("total"), 1)
+            self.assertEqual(res_url.json().get("products")[0]["id"], 30)
+
+            # 4. Test search in memory helper sorting
+            sorted_prods = mini_app_server.bot.search_cached_products(fake_prods, "")
+            self.assertEqual([p["id"] for p in sorted_prods], [30, 20, 10])
+
 if __name__ == "__main__":
     unittest.main()
 

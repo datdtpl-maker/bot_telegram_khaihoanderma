@@ -434,7 +434,14 @@ const app = createApp({
       searchDebounceTimer = setTimeout(() => {
         currentPage.value = 1;
         fetchProducts();
-      }, 300);
+      }, 250);
+    };
+
+    const onSearchPaste = () => {
+      setTimeout(() => {
+        currentPage.value = 1;
+        fetchProducts();
+      }, 50);
     };
 
     const goToPage = (page) => {
@@ -1298,6 +1305,7 @@ const app = createApp({
       updateOrderStatus,
       fetchProducts,
       onSearchInput,
+      onSearchPaste,
       goToPage,
       toggleVariationsExpand,
       openEditPriceModal,

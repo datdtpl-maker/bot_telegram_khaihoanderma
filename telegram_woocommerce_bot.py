@@ -1715,6 +1715,11 @@ def search_products(name: str, limit: int = 5) -> list[dict]:
     )
     if not isinstance(products, list):
         raise RuntimeError("WooCommerce trả về dữ liệu sản phẩm không hợp lệ.")
+    for p in products:
+        if isinstance(p, dict) and "_site_key" not in p:
+            p["_site_key"] = "derma"
+            p["_site_name"] = "Khải Hoàn Derma"
+            p["_site_short"] = "Derma"
     return products
 
 
@@ -1849,6 +1854,114 @@ _ALL_PHARMA_PRODUCTS_CACHE_TIME: float = 0.0
 _ALL_PRODUCTS_CACHE_LOCK = Lock()
 
 
+
+def clean_search_query(text: str) -> str:
+    if not text:
+        return ""
+    text = html.unescape(str(text))
+    text = re.sub(r"<.*?>", " ", text)
+    text = re.sub(r"[  -‏ - ﻿]", " ", text)
+    text = re.sub(r"[‐-―−]", "-", text)
+    text = text.strip("'\"“”‘’`")
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def extract_search_id(query: str) -> str | None:
+    q = query.strip()
+    if re.fullmatch(r"#?\d+", q):
+        return q.lstrip("#")
+    m = re.search(r"\b(?:id|mã|ma)\s*[:#]?\s*(\d+)\b", q, re.IGNORECASE)
+    if m:
+        return m.group(1)
+    if q.startswith("#"):
+        m2 = re.match(r"#(\d+)", q)
+        if m2:
+            return m2.group(1)
+    return None
+
+
+def product_sort_key(p: dict) -> tuple:
+    # Sắp xếp mới nhất trước: ưu tiên date_created (hoặc date_created_gmt), sau đó id
+    d = str(p.get("date_created") or p.get("date_created_gmt") or "").strip()
+    try:
+        pid = int(p.get("id") or 0)
+    except (ValueError, TypeError):
+        pid = 0
+    return (d, pid)
+
+
+def search_cached_products(products: list[dict], query: str) -> list[dict]:
+    query_clean = clean_search_query(query)
+    if not query_clean:
+        return sorted(products, key=product_sort_key, reverse=True)
+
+    query_lower = query_clean.lower()
+    query_ascii = plain_ascii(query_clean)
+    query_id = extract_search_id(query_clean)
+
+    slug_part = ""
+    if "http://" in query_lower or "https://" in query_lower or "/" in query_lower:
+        slug_part = query_lower.rstrip("/").split("/")[-1].strip()
+
+    query_tokens = [t for t in query_ascii.split() if len(t) >= 2]
+    scored: list[tuple[dict, float]] = []
+
+    for p in products:
+        p_id = str(p.get("id") or "")
+        p_name = html.unescape(str(p.get("name") or ""))
+        p_name_clean = clean_search_query(p_name)
+        p_name_lower = p_name_clean.lower()
+        p_name_ascii = plain_ascii(p_name_clean)
+        p_sku = str(p.get("sku") or "").strip().lower()
+        p_slug = str(p.get("slug") or "").strip().lower()
+        p_permalink = str(p.get("permalink") or "").strip().lower()
+
+        score = 0.0
+
+        # 1. Khớp ID chính xác
+        if query_id and p_id == query_id:
+            score = 100.0
+        # 2. Khớp SKU chính xác hoặc chứa SKU
+        elif p_sku and (query_lower == p_sku or query_lower in p_sku):
+            score = 90.0
+        # 3. Khớp tên hoàn toàn (có dấu hoặc không dấu)
+        elif query_lower == p_name_lower or query_ascii == p_name_ascii:
+            score = 85.0
+        # 4. Khớp chuỗi con trong tên sản phẩm (exact substring)
+        elif query_lower in p_name_lower or query_ascii in p_name_ascii:
+            score = 75.0
+        # 5. Khớp URL / Slug khi copy link từ web
+        elif slug_part and (slug_part in p_slug or slug_part in p_permalink):
+            score = 70.0
+        # 6. Khớp tất cả các từ khóa trong chuỗi tìm kiếm (All tokens match)
+        elif query_tokens and all(token in p_name_ascii for token in query_tokens):
+            score = 55.0 + (len(query_tokens) / (len(p_name_ascii.split()) + 1)) * 10
+        else:
+            # 7. Khớp từ khóa mờ / độ tương đồng difflib
+            p_tokens = set(p_name_ascii.split())
+            q_set = set(query_tokens)
+            overlap = len(q_set.intersection(p_tokens))
+            if overlap >= 2 or (overlap == 1 and len(q_set) == 1):
+                token_ratio = overlap / max(len(q_set), 1)
+                sim_ratio = difflib.SequenceMatcher(None, query_ascii, p_name_ascii).ratio()
+                best = max(token_ratio * 40, sim_ratio * 40)
+                if best >= 20.0:
+                    score = best
+
+        if score > 0:
+            scored.append((p, score))
+
+    scored.sort(
+        key=lambda item: (
+            item[1],
+            product_sort_key(item[0])[0],
+            product_sort_key(item[0])[1]
+        ),
+        reverse=True
+    )
+    return [item[0] for item in scored]
+
+
 def get_cached_all_products(site_key: str = "derma") -> list[dict]:
     global _ALL_PRODUCTS_CACHE, _ALL_PRODUCTS_CACHE_TIME
     global _ALL_PHARMA_PRODUCTS_CACHE, _ALL_PHARMA_PRODUCTS_CACHE_TIME
@@ -1861,6 +1974,7 @@ def get_cached_all_products(site_key: str = "derma") -> list[dict]:
                 log("Tải danh sách tất cả sản phẩm Khải Hoàn Derma từ WooCommerce...")
                 try:
                     _ALL_PRODUCTS_CACHE = fetch_all_products(site_key="derma")
+                    _ALL_PRODUCTS_CACHE.sort(key=product_sort_key, reverse=True)
                     _ALL_PRODUCTS_CACHE_TIME = now
                     log(f"Đã tải và cache {len(_ALL_PRODUCTS_CACHE)} sản phẩm Khải Hoàn Derma.")
                 except Exception as e:
@@ -1872,6 +1986,7 @@ def get_cached_all_products(site_key: str = "derma") -> list[dict]:
             if not _ALL_PHARMA_PRODUCTS_CACHE or (now - _ALL_PHARMA_PRODUCTS_CACHE_TIME) > 600:
                 try:
                     _ALL_PHARMA_PRODUCTS_CACHE = fetch_all_products(site_key="pharma")
+                    _ALL_PHARMA_PRODUCTS_CACHE.sort(key=product_sort_key, reverse=True)
                     _ALL_PHARMA_PRODUCTS_CACHE_TIME = now
                     log(f"Đã tải và cache {len(_ALL_PHARMA_PRODUCTS_CACHE)} sản phẩm Khải Hoàn Pharma.")
                 except Exception as e:
@@ -1880,61 +1995,35 @@ def get_cached_all_products(site_key: str = "derma") -> list[dict]:
                         _ALL_PHARMA_PRODUCTS_CACHE = []
 
         if site_key == "pharma":
-            return _ALL_PHARMA_PRODUCTS_CACHE
+            return sorted(_ALL_PHARMA_PRODUCTS_CACHE, key=product_sort_key, reverse=True)
         elif site_key == "all":
-            return _ALL_PRODUCTS_CACHE + _ALL_PHARMA_PRODUCTS_CACHE
-        return _ALL_PRODUCTS_CACHE
+            combined = _ALL_PRODUCTS_CACHE + _ALL_PHARMA_PRODUCTS_CACHE
+            return sorted(combined, key=product_sort_key, reverse=True)
+        return sorted(_ALL_PRODUCTS_CACHE, key=product_sort_key, reverse=True)
 
 
-def find_products_by_fuzzy_name(name: str) -> list[dict]:
-    target_normalized = normalize_product_name(name)
-    if not target_normalized:
+def find_products_by_fuzzy_name(name: str, site_key: str = "all", limit: int = 20) -> list[dict]:
+    # 1. Tìm kiếm siêu tốc trên dữ liệu cache trước
+    cached_prods = get_cached_all_products(site_key=site_key)
+    if cached_prods:
+        matches = search_cached_products(cached_prods, name)
+        if matches:
+            return matches[:limit]
+
+    # 2. Nếu cache chưa có, gọi API WooCommerce
+    target_clean = clean_search_query(name)
+    if not target_clean:
         return []
 
-    # 1. Tìm kiếm bằng API WooCommerce trước
-    products = search_products(name, limit=20)
-
-    # Lọc/Kiểm tra để đảm bảo kết quả search API có chứa cụm từ hoặc tương đồng cao
+    products = search_products(target_clean, limit=limit)
     matched_products = []
     for product in products:
-        p_name = normalize_product_name(product.get("name", ""))
-        if target_normalized in p_name or p_name in target_normalized:
+        if isinstance(product, dict):
+            if "_site_key" not in product:
+                product["_site_key"] = "derma"
+                product["_site_name"] = "Khải Hoàn Derma"
+                product["_site_short"] = "Derma"
             matched_products.append(product)
-        elif difflib.SequenceMatcher(None, target_normalized, p_name).ratio() >= 0.6:
-            matched_products.append(product)
-
-    # 2. Nếu API search không ra, tiến hành dò tìm từ cache (fuzzy search với SequenceMatcher & token)
-    if not matched_products:
-        all_products = get_cached_all_products()
-        matches = []
-        name_tokens = set(product_tokens(name))
-
-        for product in all_products:
-            p_name = product.get("name", "")
-            p_normalized = normalize_product_name(p_name)
-
-            # Khớp chuỗi con
-            if target_normalized in p_normalized or p_normalized in target_normalized:
-                matches.append((product, 1.0))
-                continue
-
-            # Khớp độ tương đồng chuỗi difflib
-            sim_ratio = difflib.SequenceMatcher(None, target_normalized, p_normalized).ratio()
-
-            # Khớp theo từ (token)
-            p_tokens = set(product_tokens(p_name))
-            token_score = 0.0
-            if p_tokens and name_tokens:
-                intersect = p_tokens.intersection(name_tokens)
-                if intersect:
-                    token_score = len(intersect) / max(len(p_tokens), len(name_tokens))
-
-            best_score = max(sim_ratio, token_score)
-            if best_score >= 0.4:
-                matches.append((product, best_score))
-
-        matches.sort(key=lambda item: item[1], reverse=True)
-        matched_products = [item[0] for item in matches[:5]]
 
     return matched_products
 
@@ -2093,8 +2182,8 @@ def fetch_all_products(site_key: str = "derma") -> list[dict]:
                 "per_page": 100,
                 "page": page,
                 "status": "any",
-                "orderby": "title",
-                "order": "asc",
+                "orderby": "date",
+                "order": "desc",
             },
             site_key=site_key,
         )
