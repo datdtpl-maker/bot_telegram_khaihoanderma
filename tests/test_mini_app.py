@@ -139,6 +139,21 @@ class MiniAppTestSuite(unittest.TestCase):
             url = mini_app_server.bot.start_cloudflare_tunnel(8088)
             self.assertEqual(url, "https://app.khaihoanderma.com")
 
+    def test_start_cloudflare_tunnel_with_token(self):
+        with patch.dict("os.environ", {"CLOUDFLARE_TUNNEL_TOKEN": "eyJhIjoi...", "MINI_APP_URL": "https://app.khaihoanderma.com"}), \
+             patch("subprocess.Popen") as mock_popen, \
+             patch.object(mini_app_server.bot, "ensure_cloudflared_binary", return_value="cloudflared.exe"):
+            mock_proc = MagicMock()
+            mock_proc.stdout = iter([])
+            mock_proc.poll.return_value = None
+            mock_popen.return_value = mock_proc
+            url = mini_app_server.bot.start_cloudflare_tunnel(8088)
+            self.assertEqual(url, "https://app.khaihoanderma.com")
+            mock_popen.assert_called_once()
+            args = mock_popen.call_args[0][0]
+            self.assertIn("--token", args)
+            self.assertIn("eyJhIjoi...", args)
+
     def test_delete_product_endpoint(self):
         with patch.dict("os.environ", {"TELEGRAM_BOT_TOKEN": self.bot_token}), \
              patch.object(mini_app_server.bot, "wc_delete", return_value={"id": 105}):

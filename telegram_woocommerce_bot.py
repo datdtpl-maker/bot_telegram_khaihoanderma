@@ -4107,17 +4107,10 @@ def start_cloudflare_tunnel(port: int = 8088) -> str | None:
     if os.environ.get("AUTO_CLOUDFLARE_TUNNEL", "1").strip().lower() in {"0", "false", "no"}:
         return os.environ.get("MINI_APP_URL")
 
-    configured_url = os.environ.get("MINI_APP_URL", "").strip()
-    if configured_url and "trycloudflare.com" not in configured_url:
-        log(f"Sử dụng tên miền cố định cho Mini App: {configured_url}")
-        return configured_url
-
     bin_path = ensure_cloudflared_binary()
-    if not bin_path:
-        log("Không tìm thấy công cụ cloudflared để mở HTTPS tunnel.")
-        return configured_url or None
+    tunnel_token = os.environ.get("CLOUDFLARE_TUNNEL_TOKEN", "").strip()
+    configured_url = os.environ.get("MINI_APP_URL", "").strip()
 
-    global CLOUDFLARE_TUNNEL_PROC
     if CLOUDFLARE_TUNNEL_PROC is not None:
         try:
             CLOUDFLARE_TUNNEL_PROC.kill()
@@ -4126,7 +4119,66 @@ def start_cloudflare_tunnel(port: int = 8088) -> str | None:
             pass
         CLOUDFLARE_TUNNEL_PROC = None
 
-    log(f"Đang tự động khởi chạy Cloudflare Tunnel cho Mini App (cổng {port})...")
+    # TH1: Người dùng cấu hình Cloudflare Named Tunnel Token cố định cho domain riêng
+    if tunnel_token:
+        if not bin_path:
+            log("Không tìm thấy công cụ cloudflared để mở Named Tunnel.")
+            return configured_url or None
+
+        custom_domain = configured_url if (configured_url and "trycloudflare.com" not in configured_url) else "https://app.khaihoanderma.com"
+        log(f"Đang khởi chạy Cloudflare Named Tunnel cố định cho {custom_domain}...")
+        cmd = [
+            bin_path, "tunnel", "run",
+            "--token", tunnel_token,
+            "--protocol", "http2",
+            "--edge-ip-version", "4",
+            "--no-autoupdate",
+        ]
+        creationflags = subprocess.CREATE_NO_WINDOW if sys.platform.startswith("win") else 0
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                bufsize=1,
+                creationflags=creationflags
+            )
+            CLOUDFLARE_TUNNEL_PROC = proc
+
+            try:
+                atexit.register(lambda: proc.kill() if proc.poll() is None else None)
+            except Exception:
+                pass
+
+            def _drain(p):
+                try:
+                    for _ in p.stdout:
+                        pass
+                except Exception:
+                    pass
+            threading.Thread(target=_drain, args=(proc,), daemon=True).start()
+
+            log(f"Cloudflare Named Tunnel đã kết nối thành công tên miền cố định: {custom_domain}")
+            update_env_variable("MINI_APP_URL", custom_domain)
+            return custom_domain
+        except Exception as exc:
+            log(f"Lỗi khi chạy Cloudflare Named Tunnel: {exc}")
+            return custom_domain
+
+    # TH2: Sử dụng tên miền cố định chạy từ bên ngoài (hoặc service ngoài)
+    if configured_url and "trycloudflare.com" not in configured_url:
+        log(f"Sử dụng tên miền cố định cho Mini App: {configured_url}")
+        return configured_url
+
+    # TH3: Dùng Quick Tunnel tạm thời (trycloudflare.com)
+    if not bin_path:
+        log("Không tìm thấy công cụ cloudflared để mở HTTPS tunnel.")
+        return configured_url or None
+
+    log(f"Đang tự động khởi chạy Cloudflare Quick Tunnel cho Mini App (cổng {port})...")
     cmd = [
         bin_path, "tunnel",
         "--url", f"http://127.0.0.1:{port}",
@@ -4239,7 +4291,7 @@ def notify_admins_mini_app_ready(url: str) -> None:
 
 
 def is_tunnel_alive(url: str) -> bool:
-    if not url or "trycloudflare.com" not in url:
+    if not url:
         return True
     try:
         req = urllib.request.Request(
@@ -4270,8 +4322,9 @@ def cloudflare_tunnel_watchdog(port: int = 8088) -> None:
         proc_died = (CLOUDFLARE_TUNNEL_PROC is not None and CLOUDFLARE_TUNNEL_PROC.poll() is not None)
         current_url = os.environ.get("MINI_APP_URL", "").strip()
 
+        tunnel_token = os.environ.get("CLOUDFLARE_TUNNEL_TOKEN", "").strip()
         unhealthy = False
-        if current_url and "trycloudflare.com" in current_url:
+        if current_url:
             if not is_tunnel_alive(current_url):
                 consecutive_failures += 1
                 if consecutive_failures >= 2:
