@@ -822,23 +822,52 @@ const app = createApp({
       }, 2500);
     };
 
-    const downloadLinksTxtFile = () => {
+    const downloadLinksTxtFile = (filterSite = "all") => {
       haptic("light");
       if (!lastPublishedProducts.value || lastPublishedProducts.value.length === 0) return;
-      const urls = lastPublishedProducts.value.map(p => p.url).filter(Boolean);
-      if (urls.length === 0) return;
-      const content = urls.join("\n");
-      const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      const timestamp = new Date().toISOString().slice(0, 19).replace(/[-:T]/g, "");
-      link.href = url;
-      link.download = `links_san_pham_notion_${timestamp}.txt`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-      showToast("Đã tải file TXT link thành công!", "success");
+
+      const dermaUrls = [];
+      const pharmaUrls = [];
+
+      lastPublishedProducts.value.forEach(p => {
+        if (!p.url) return;
+        const site = (p.site_key || "").toLowerCase();
+        const url = p.url.toLowerCase();
+        if (site === "pharma" || url.includes("khaihoanpharma.com")) {
+          pharmaUrls.push(p.url);
+        } else {
+          dermaUrls.push(p.url);
+        }
+      });
+
+      const now = new Date();
+      const pad = (n) => String(n).padStart(2, "0");
+      const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+
+      const triggerDownload = (urls, prefix) => {
+        if (urls.length === 0) return;
+        const content = urls.join("\n");
+        const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `${prefix}_linkdongbo_${timestamp}.txt`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      };
+
+      if (filterSite === "derma") {
+        triggerDownload(dermaUrls, "khaihoanderma");
+      } else if (filterSite === "pharma") {
+        triggerDownload(pharmaUrls, "khaihoanpharma");
+      } else {
+        if (dermaUrls.length > 0) triggerDownload(dermaUrls, "khaihoanderma");
+        if (pharmaUrls.length > 0) setTimeout(() => triggerDownload(pharmaUrls, "khaihoanpharma"), 300);
+      }
+
+      showToast("Đã tải file TXT thành công!", "success");
     };
 
     // Markdown & HTML Formatter for AI Chat

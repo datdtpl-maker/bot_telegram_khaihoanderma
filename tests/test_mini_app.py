@@ -525,6 +525,42 @@ class MiniAppTestSuite(unittest.TestCase):
             self.assertEqual(len(data.get("images")), 1)
             self.assertEqual(data["images"][0]["id"], 2)
 
+def test_send_notion_sync_links_file_naming(self):
+        derma_prod = [{"title": "SP Derma", "url": "https://khaihoanderma.com/sp1", "site_key": "derma"}]
+        pharma_prod = [{"title": "SP Pharma", "url": "https://khaihoanpharma.com/sp2", "site_key": "pharma"}]
+        mixed_prods = derma_prod + pharma_prod
+
+        sent_files = []
+        def fake_send_doc(chat_id, path, caption=""):
+            sent_files.append((chat_id, path.name, caption))
+
+        with patch.dict("os.environ", {"TELEGRAM_BOT_TOKEN": self.bot_token}), \
+             patch.object(mini_app_server.bot, "send_document", side_effect=fake_send_doc):
+            # Test Derma only
+            sent_files.clear()
+            res = mini_app_server.bot.send_notion_sync_links_file(12345, derma_prod)
+            self.assertTrue(res)
+            self.assertEqual(len(sent_files), 1)
+            self.assertTrue(sent_files[0][1].startswith("khaihoanderma_linkdongbo_"))
+            self.assertTrue(sent_files[0][1].endswith(".txt"))
+
+            # Test Pharma only
+            sent_files.clear()
+            res = mini_app_server.bot.send_notion_sync_links_file(12345, pharma_prod)
+            self.assertTrue(res)
+            self.assertEqual(len(sent_files), 1)
+            self.assertTrue(sent_files[0][1].startswith("khaihoanpharma_linkdongbo_"))
+            self.assertTrue(sent_files[0][1].endswith(".txt"))
+
+            # Test Mixed (sends 2 separate files)
+            sent_files.clear()
+            res = mini_app_server.bot.send_notion_sync_links_file(12345, mixed_prods)
+            self.assertTrue(res)
+            self.assertEqual(len(sent_files), 2)
+            file_names = [f[1] for f in sent_files]
+            self.assertTrue(any(fn.startswith("khaihoanderma_linkdongbo_") for fn in file_names))
+            self.assertTrue(any(fn.startswith("khaihoanpharma_linkdongbo_") for fn in file_names))
+
 if __name__ == "__main__":
     unittest.main()
 

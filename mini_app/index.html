@@ -952,11 +952,14 @@
                   </button>
                 </div>
                 <div class="text-[10px] text-muted flex items-center space-x-1">
-                  <span>💬 Bot Telegram đã tự động gửi file <code>.txt</code> tổng hợp link vào hội thoại cho bạn!</span>
+                  <span>💬 File đã gửi qua Telegram: <code>khaihoanderma_linkdongbo_...txt</code> / <code>khaihoanpharma_linkdongbo_...txt</code></span>
                 </div>
                 <div class="max-h-24 overflow-y-auto space-y-1 pr-1 font-mono text-[10px]">
                   <div v-for="(p, idx) in lastPublishedProducts" :key="idx" class="truncate flex items-center space-x-1 text-sub">
                     <span class="text-muted">{{ idx + 1 }}.</span>
+                    <span class="px-1 py-0.2 rounded text-[9px] font-bold" :class="p.site_key === 'pharma' || (p.url && p.url.includes('khaihoanpharma')) ? 'bg-purple-500/20 text-purple-600' : 'bg-emerald-500/20 text-emerald-600'">
+                      {{ p.site_key === 'pharma' || (p.url && p.url.includes('khaihoanpharma')) ? 'Pharma' : 'Derma' }}
+                    </span>
                     <a :href="p.url" target="_blank" rel="noopener" class="text-blue-600 dark:text-sky-400 hover:underline truncate">
                       {{ p.url }}
                     </a>

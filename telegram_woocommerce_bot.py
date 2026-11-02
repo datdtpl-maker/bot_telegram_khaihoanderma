@@ -1092,24 +1092,48 @@ def wants_notion_sync(text: str) -> bool:
 def send_notion_sync_links_file(chat_id: int, products: list) -> bool:
     if not chat_id or not products:
         return False
-    try:
-        link_lines = [prod['url'] for prod in products if isinstance(prod, dict) and prod.get('url')]
-        if link_lines:
-            file_content = "\n".join(link_lines)
-            timestamp = time.strftime('%Y%m%d_%H%M%S')
-            filename = f"links_dong_bo_{timestamp}.txt"
+
+    site_groups = {"derma": [], "pharma": []}
+    for prod in products:
+        if not isinstance(prod, dict) or not prod.get("url"):
+            continue
+        url = str(prod.get("url") or "").lower()
+        site_key = str(prod.get("site_key") or "").lower()
+        if site_key in {"pharma", "khaihoanpharma"} or "khaihoanpharma.com" in url:
+            site_groups["pharma"].append(prod)
+        else:
+            site_groups["derma"].append(prod)
+
+    sent_any = False
+    timestamp = time.strftime('%Y%m%d_%H%M%S')
+
+    for site_key, prods in site_groups.items():
+        if not prods:
+            continue
+        try:
+            prefix = "khaihoanpharma" if site_key == "pharma" else "khaihoanderma"
+            site_name = "Khải Hoàn Pharma" if site_key == "pharma" else "Khải Hoàn Derma"
+            filename = f"{prefix}_linkdongbo_{timestamp}.txt"
             temp_file_path = OUT_DIR / filename
+
+            link_lines = [p["url"] for p in prods if p.get("url")]
+            file_content = "\n".join(link_lines)
             temp_file_path.write_text(file_content, encoding="utf-8")
-            
-            caption = f"📄 <b>Danh sách {len(link_lines)} URL sản phẩm vừa đăng từ Notion lên website:</b>"
+
+            caption = (
+                f"📄 <b>File danh sách {len(link_lines)} URL sản phẩm {site_name} đã đăng:</b>\n"
+                f"Tên file: <code>{filename}</code>"
+            )
             send_document(chat_id, temp_file_path, caption=caption)
-            
+
             if temp_file_path.exists():
                 temp_file_path.unlink()
-            return True
-    except Exception as e:
-        log(f"Lỗi khi tạo hoặc gửi file links.txt tới chat {chat_id}: {e}")
-    return False
+            sent_any = True
+            log(f"Đã gửi file {filename} ({len(link_lines)} link) tới chat {chat_id}")
+        except Exception as e:
+            log(f"Lỗi khi tạo hoặc gửi file links {site_key} tới chat {chat_id}: {e}")
+
+    return sent_any
 def prepare_notion_sync_confirmation(chat_id: int, page_ids: list[str] | None = None, titles: list[str] | None = None) -> str:
     selected_page_ids = [str(page_id) for page_id in (page_ids or []) if page_id]
     PENDING_ACTIONS[chat_id] = {
@@ -4125,21 +4149,63 @@ def notify_admins_mini_app_ready(url: str) -> None:
             log(f"Không thể gửi thông báo Mini App tới {chat_id}: {exc}")
 
 
+def is_tunnel_alive(url: str) -> bool:
+    if not url or "trycloudflare.com" not in url:
+        return True
+    try:
+        req = urllib.request.Request(
+            url,
+            headers={"User-Agent": "MCP-KhaiHoan-TunnelWatchdog/1.0"},
+            method="HEAD"
+        )
+        ctx = urllib.request.ssl._create_unverified_context()
+        with urllib.request.urlopen(req, context=ctx, timeout=8) as resp:
+            return resp.status < 500
+    except urllib.error.HTTPError as he:
+        return he.code < 500
+    except Exception:
+        return False
+
+
 def cloudflare_tunnel_watchdog(port: int = 8088) -> None:
     """
-    Giám sát tiến trình Cloudflare Tunnel.
-    Chỉ khởi động lại khi tiến trình cloudflared thực sự bị tắt (crashed hoặc exited).
-    Cập nhật Menu Button ngầm, KHÔNG spam tin nhắn vào nhóm chat admin.
+    Giám sát tiến trình và tính sẵn sàng của Cloudflare Tunnel.
+    Tự động khởi động lại và cập nhật Menu Button khi:
+    1. Tiến trình cloudflared bị tắt (crashed hoặc exited)
+    2. Hoặc tên miền trycloudflare.com bị rớt mạng / hết hạn kết nối (NXDOMAIN / Connection Error)
     """
+    consecutive_failures = 0
     while True:
         time.sleep(30)
         global CLOUDFLARE_TUNNEL_PROC
-        if CLOUDFLARE_TUNNEL_PROC is not None and CLOUDFLARE_TUNNEL_PROC.poll() is not None:
-            log("Phát hiện tiến trình Cloudflare Tunnel đã dừng. Đang tự động kết nối lại...")
+        proc_died = (CLOUDFLARE_TUNNEL_PROC is not None and CLOUDFLARE_TUNNEL_PROC.poll() is not None)
+        current_url = os.environ.get("MINI_APP_URL", "").strip()
+
+        unhealthy = False
+        if current_url and "trycloudflare.com" in current_url:
+            if not is_tunnel_alive(current_url):
+                consecutive_failures += 1
+                if consecutive_failures >= 2:
+                    unhealthy = True
+            else:
+                consecutive_failures = 0
+
+        if proc_died or unhealthy:
+            reason = "tiến trình đã dừng" if proc_died else f"tên miền {current_url} không thể truy cập (NXDOMAIN/hết hạn)"
+            log(f"Phát hiện sự cố Cloudflare Tunnel ({reason}). Đang tự động kết nối lại...")
+            if CLOUDFLARE_TUNNEL_PROC is not None:
+                try:
+                    CLOUDFLARE_TUNNEL_PROC.kill()
+                    CLOUDFLARE_TUNNEL_PROC.wait(timeout=2)
+                except Exception:
+                    pass
+                CLOUDFLARE_TUNNEL_PROC = None
+
             new_url = start_cloudflare_tunnel(port)
             if new_url:
                 os.environ["MINI_APP_URL"] = new_url
                 set_telegram_menu_button(new_url)
+                consecutive_failures = 0
                 log(f"Đã cập nhật Menu Button với Cloudflare Tunnel mới: {new_url}")
 
 
