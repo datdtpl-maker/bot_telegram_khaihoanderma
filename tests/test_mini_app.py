@@ -135,7 +135,8 @@ class MiniAppTestSuite(unittest.TestCase):
         self.assertEqual(match.group(0), "https://scaled-norfolk-export-treo.trycloudflare.com")
 
     def test_start_cloudflare_tunnel_custom_domain(self):
-        with patch.dict("os.environ", {"MINI_APP_URL": "https://app.khaihoanderma.com"}):
+        with patch.dict("os.environ", {"MINI_APP_URL": "https://app.khaihoanderma.com"}), \
+             patch.object(mini_app_server.bot, "is_tunnel_alive", return_value=True):
             url = mini_app_server.bot.start_cloudflare_tunnel(8088)
             self.assertEqual(url, "https://app.khaihoanderma.com")
 

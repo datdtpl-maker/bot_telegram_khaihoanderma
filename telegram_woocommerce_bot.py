@@ -4170,8 +4170,10 @@ def start_cloudflare_tunnel(port: int = 8088) -> str | None:
 
     # TH2: Sử dụng tên miền cố định chạy từ bên ngoài (hoặc service ngoài)
     if configured_url and "trycloudflare.com" not in configured_url:
-        log(f"Sử dụng tên miền cố định cho Mini App: {configured_url}")
-        return configured_url
+        if is_tunnel_alive(configured_url):
+            log(f"Sử dụng tên miền cố định cho Mini App: {configured_url}")
+            return configured_url
+        log(f"Cảnh báo: Tên miền cấu hình {configured_url} không thể truy cập (DNS/lỗi mạng). Tự động chuyển sang Cloudflare Quick Tunnel...")
 
     # TH3: Dùng Quick Tunnel tạm thời (trycloudflare.com)
     if not bin_path:
@@ -4342,6 +4344,9 @@ def cloudflare_tunnel_watchdog(port: int = 8088) -> None:
                 except Exception:
                     pass
                 CLOUDFLARE_TUNNEL_PROC = None
+
+            if not tunnel_token and "trycloudflare.com" not in current_url:
+                os.environ.pop("MINI_APP_URL", None)
 
             new_url = start_cloudflare_tunnel(port)
             if new_url:
