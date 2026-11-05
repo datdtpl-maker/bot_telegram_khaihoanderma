@@ -4130,9 +4130,6 @@ def start_cloudflare_tunnel(port: int = 8088) -> str | None:
         cmd = [
             bin_path, "tunnel", "run",
             "--token", tunnel_token,
-            "--protocol", "http2",
-            "--edge-ip-version", "4",
-            "--no-autoupdate",
         ]
         creationflags = subprocess.CREATE_NO_WINDOW if sys.platform.startswith("win") else 0
         try:
