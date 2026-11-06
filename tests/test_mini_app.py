@@ -142,6 +142,7 @@ class MiniAppTestSuite(unittest.TestCase):
 
     def test_start_cloudflare_tunnel_with_token(self):
         with patch.dict("os.environ", {"CLOUDFLARE_TUNNEL_TOKEN": "eyJhIjoi...", "MINI_APP_URL": "https://app.khaihoanderma.com"}), \
+             patch.object(mini_app_server.bot, "is_cloudflared_service_running", return_value=False), \
              patch("subprocess.Popen") as mock_popen, \
              patch.object(mini_app_server.bot, "ensure_cloudflared_binary", return_value="cloudflared.exe"):
             mock_proc = MagicMock()

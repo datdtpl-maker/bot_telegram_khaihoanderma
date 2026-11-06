@@ -4,10 +4,12 @@ param(
 )
 
 function Initialize-KhdConsole {
-    $utf8 = [System.Text.UTF8Encoding]::new($false)
-    $script:OutputEncoding = $utf8
-    [Console]::InputEncoding = $utf8
-    [Console]::OutputEncoding = $utf8
+    try {
+        $utf8 = [System.Text.UTF8Encoding]::new($false)
+        $script:OutputEncoding = $utf8
+        [Console]::InputEncoding = $utf8
+        [Console]::OutputEncoding = $utf8
+    } catch {}
     try {
         Add-Type -TypeDefinition @'
 using System;

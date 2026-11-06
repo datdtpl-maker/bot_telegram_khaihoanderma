@@ -3993,27 +3993,15 @@ _singleton_socket = None
 
 def kill_process_on_port(port: int) -> None:
     try:
-        import subprocess
         my_pid = os.getpid()
+        parent_pid = os.getppid() if hasattr(os, "getppid") else -1
 
-        # 1. Tìm và diệt các tiến trình python đang chạy cùng bot script này
-        try:
-            ps_cmd = (
-                f"powershell -NoProfile -ExecutionPolicy Bypass -Command \""
-                f"Get-CimInstance Win32_Process | "
-                f"Where-Object {{ $_.ProcessId -ne {my_pid} -and ($_.CommandLine -like '*telegram_woocommerce_bot.py*' -or $_.CommandLine -like '*run_telegram_bot.ps1*') }} | "
-                f"ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force; Write-Host ('Killed PID: ' + $_.ProcessId) }}\""
-            )
-            subprocess.run(ps_cmd, shell=True, capture_output=True, text=True)
-        except Exception:
-            pass
-
-        # 2. Tìm PID đang chiếm port qua netstat (dùng subprocess.run an toàn không ném lỗi exit code 1)
+        # Chỉ tìm PID đang chiếm port qua netstat (dùng subprocess.run an toàn không ném lỗi exit code 1)
         cmd = f"netstat -ano | findstr :{port}"
         proc = subprocess.run(cmd, shell=True, capture_output=True, text=True)
         output = proc.stdout or ""
         pids: set[int] = set()
-        for line in output.strip().split("\n"):
+        for line in output.splitlines():
             line = line.strip()
             if not line:
                 continue
@@ -4024,40 +4012,77 @@ def kill_process_on_port(port: int) -> None:
                     pids.add(int(pid_str))
         
         for pid in pids:
-            if pid != my_pid and pid > 0:
-                log(f"Phát hiện phiên bản bot cũ đang chạy ngầm (PID: {pid}) chiếm cổng {port}. Đang tiến hành giải phóng...")
+            if pid not in (my_pid, parent_pid) and pid > 0:
+                log(f"Phát hiện tiến trình cũ (PID: {pid}) chiếm cổng {port}. Đang tiến hành giải phóng...")
                 subprocess.run(f"taskkill /F /T /PID {pid}", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except Exception as exc:
         log(f"Không thể tự động giải phóng cổng {port}: {exc}")
 
 
+_singleton_mutex = None
+_singleton_socket = None
+
+
 def ensure_single_instance() -> None:
-    global _singleton_socket
-    port = 52365
+    global _singleton_mutex, _singleton_socket
     mini_app_port = int(os.environ.get("MINI_APP_PORT", 8088))
+
+    # Trên Windows: Sử dụng Win32 Named Mutex để tránh xung đột cổng bị Windows Hyper-V/WinNAT chiếm dụng (WinError 10013)
+    if sys.platform.startswith("win"):
+        import ctypes
+        from ctypes import wintypes
+        ERROR_ALREADY_EXISTS = 183
+        kernel32 = ctypes.windll.kernel32
+        CreateMutexW = kernel32.CreateMutexW
+        CreateMutexW.argtypes = [wintypes.LPCVOID, wintypes.BOOL, wintypes.LPCWSTR]
+        CreateMutexW.restype = wintypes.HANDLE
+        CloseHandle = kernel32.CloseHandle
+        CloseHandle.argtypes = [wintypes.HANDLE]
+
+        mutex_name = r"Local\KhaiHoanTelegramBotMutex_SingleInstance"
+        handle = CreateMutexW(None, False, mutex_name)
+        last_error = kernel32.GetLastError()
+        if last_error == ERROR_ALREADY_EXISTS:
+            log("Đã có một bản bot khác đang chạy ngầm (Mutex active). Bot mới sẽ tự thoát.")
+            if handle:
+                CloseHandle(handle)
+            sys.exit(99)
+        _singleton_mutex = handle
+        # Đảm bảo cổng mini app 8088 không bị tiến trình treo chiếm giữ
+        kill_process_on_port(mini_app_port)
+        return
+
+    # Fallback cho Linux / macOS
+    port = 52365
     try:
         _singleton_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         _singleton_socket.bind(("127.0.0.1", port))
     except OSError:
-        log(f"Phát hiện cổng {port} đã bị chiếm. Đang tự động dọn dẹp phiên bản bot cũ chạy ngầm...")
         kill_process_on_port(port)
         kill_process_on_port(mini_app_port)
-        if sys.platform.startswith("win"):
-            try:
-                subprocess.run("taskkill /F /IM cloudflared.exe", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            except Exception:
-                pass
-        time.sleep(2.0)  # Chờ 2 giây để Windows giải phóng socket hoàn toàn
+        time.sleep(1.0)
         try:
             _singleton_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             _singleton_socket.bind(("127.0.0.1", port))
-            log("Đã giải phóng cổng và khởi chạy phiên bản mới thành công.")
         except OSError:
-            log(f"Lỗi: Cổng {port} vẫn bị chiếm sau khi quét. Vui lòng kiểm tra lại. Bot sẽ tự thoát.")
             sys.exit(99)
 
 
 CLOUDFLARE_TUNNEL_PROC: subprocess.Popen | None = None
+
+
+def is_cloudflared_service_running(token: str = "") -> bool:
+    if sys.platform.startswith("win"):
+        try:
+            if token:
+                qc = subprocess.run("sc qc Cloudflared", shell=True, capture_output=True, text=True)
+                if token not in (qc.stdout or ""):
+                    return False
+            res = subprocess.run("sc query Cloudflared", shell=True, capture_output=True, text=True)
+            return "RUNNING" in (res.stdout or "")
+        except Exception:
+            pass
+    return False
 
 
 def find_cloudflared_executable() -> str | None:
@@ -4121,11 +4146,18 @@ def start_cloudflare_tunnel(port: int = 8088) -> str | None:
 
     # TH1: Người dùng cấu hình Cloudflare Named Tunnel Token cố định cho domain riêng
     if tunnel_token:
+        custom_domain = configured_url if (configured_url and "trycloudflare.com" not in configured_url) else "https://app.khaihoanderma.com"
+        
+        # Nếu Windows Service 'Cloudflared' đã đang chạy ngầm trên máy, sử dụng trực tiếp service
+        if is_cloudflared_service_running(tunnel_token):
+            log(f"Cloudflare Tunnel Windows Service đã đang hoạt động sẵn sàng cho {custom_domain}.")
+            update_env_variable("MINI_APP_URL", custom_domain)
+            return custom_domain
+
         if not bin_path:
             log("Không tìm thấy công cụ cloudflared để mở Named Tunnel.")
             return configured_url or None
 
-        custom_domain = configured_url if (configured_url and "trycloudflare.com" not in configured_url) else "https://app.khaihoanderma.com"
         log(f"Đang khởi chạy Cloudflare Named Tunnel cố định cho {custom_domain}...")
         cmd = [
             bin_path, "tunnel", "run",

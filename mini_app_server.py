@@ -1416,7 +1416,18 @@ def clear_reviews_cache_endpoint(current_user: dict = Depends(get_current_admin)
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+@app.head("/")
+def head_root():
+    from fastapi import Response
+    return Response(status_code=200)
+
+@app.get("/ping")
+@app.head("/ping")
+def ping_root():
+    return {"status": "ok", "app": "MCP Khải Hoàn Mini App"}
+
 @app.get("/api/ping")
+@app.head("/api/ping")
 def health_ping():
     return {"status": "ok", "app": "MCP Khải Hoàn Mini App"}
 
