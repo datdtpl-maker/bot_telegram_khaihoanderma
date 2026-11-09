@@ -1304,8 +1304,12 @@ const app = createApp({
 
     // Setup & Lifecycle
     onMounted(() => {
-      tg.ready();
-      tg.expand();
+      try {
+        if (typeof tg.ready === "function") tg.ready();
+        if (typeof tg.expand === "function") tg.expand();
+      } catch (e) {
+        console.warn("Telegram WebApp init warning:", e);
+      }
 
       // Nếu trên giao diện Desktop: tự động phóng to toàn màn hình
       if (isDesktopDevice.value) {
@@ -1446,5 +1450,13 @@ const app = createApp({
 
   }
 });
+
+app.config.errorHandler = (err, instance, info) => {
+  console.error("Vue Global Error:", err, info);
+};
+
+app.config.errorHandler = (err, instance, info) => {
+  console.error("Vue Global Error:", err, info);
+};
 
 app.mount("#app");

@@ -15,7 +15,7 @@
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
-  <link rel="stylesheet" href="/static/style.css?v=2.2">
+  <link rel="stylesheet" href="/static/style.css?v=2.4">
   <script>
     tailwind.config = {
       darkMode: 'class',
@@ -35,7 +35,7 @@
 
     <!-- Toast Notification -->
     <transition name="fade">
-      <div v-if="toast.show" 
+      <div v-if="toast && toast.show" 
            :class="{'bg-emerald-600': toast.type === 'success', 'bg-rose-600': toast.type === 'error', 'bg-blue-600': toast.type === 'info'}"
            class="fixed top-4 left-4 right-4 z-50 text-white px-4 py-3 rounded-2xl shadow-xl flex items-center justify-between text-sm font-semibold max-w-md mx-auto">
         <span>{{ toast.message }}</span>
@@ -1097,7 +1097,7 @@
     </main>
 
     <!-- ================= SYSTEM & SEO REPORT MODAL ================= -->
-    <div v-if="systemReportModal.show" class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+    <div v-if="systemReportModal && systemReportModal.show" class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
       <div class="card-theme w-full max-w-3xl max-h-[88vh] flex flex-col rounded-t-3xl sm:rounded-2xl p-4 sm:p-6 animate-in slide-in-from-bottom duration-200 shadow-2xl">
         <!-- Modal Header -->
         <div class="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
@@ -1116,7 +1116,7 @@
     </div>
 
     <!-- ================= EDIT NAME MODAL ================= -->
-    <div v-if="editNameModal.show" class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fade-in">
+    <div v-if="editNameModal && editNameModal.show" class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fade-in">
       <div class="card-theme w-full max-w-sm rounded-t-3xl sm:rounded-2xl p-5 space-y-4 shadow-2xl animate-slide-up">
         <div class="flex items-center justify-between">
           <div class="flex items-center space-x-1.5">
@@ -1151,14 +1151,14 @@
           </button>
           <button @click="saveProductName" :disabled="editNameModal.isSaving || !editNameModal.name?.trim()" 
                   class="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs flex items-center justify-center space-x-1 active:scale-95 transition-all disabled:opacity-50">
-            <span>{{ editNameModal.isSaving ? '\xc4\x90ang l∆\xb0u...' : 'L∆\xb0u Thay \xc4\x90·\xbb\x95i' }}</span>
+            <span>{{ editNameModal.isSaving ? 'ƒêang l∆∞u...' : 'L∆∞u Thay ƒê·ªïi' }}</span>
           </button>
         </div>
       </div>
     </div>
 
     <!-- ================= EDIT PRICE MODAL ================= -->
-    <div v-if="editPriceModal.show" class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+    <div v-if="editPriceModal && editPriceModal.show" class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
       <div class="card-theme w-full max-w-sm rounded-t-3xl sm:rounded-2xl p-5 space-y-4 shadow-2xl">
         <div class="flex items-center justify-between">
           <div class="flex items-center space-x-1.5">
@@ -1208,7 +1208,7 @@
     </div>
 
 <!-- ================= PRODUCT IMAGES MANAGEMENT MODAL ================= -->
-    <div v-if="editImagesModal.show" class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fade-in">
+    <div v-if="editImagesModal && editImagesModal.show" class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fade-in">
       <div class="card-theme w-full max-w-xl max-h-[90vh] sm:rounded-3xl rounded-t-3xl border border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col overflow-hidden animate-slide-up">
         <!-- Modal Header -->
         <div class="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
@@ -1496,6 +1496,6 @@
 
   </div>
 
-  <script src="/static/app.js?v=2.2"></script>
+  <script src="/static/app.js?v=2.4"></script>
 </body>
 </html>
