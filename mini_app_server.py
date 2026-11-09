@@ -37,7 +37,7 @@ def load_env_file():
                 k, v = line.split("=", 1)
                 k = k.strip()
                 v = v.strip().strip("'\"")
-                if k and k not in os.environ:
+                if k:
                     os.environ[k] = v
         except Exception:
             pass
@@ -131,7 +131,7 @@ def get_current_admin(
 
     # 1. Kiểm tra Admin Token dự phòng (Dành cho trình duyệt web thường)
     provided_token = x_admin_token or admin_token
-    configured_admin_token = os.environ.get("MINI_APP_ADMIN_TOKEN", "").strip()
+    configured_admin_token = os.environ.get("MINI_APP_ADMIN_TOKEN", "").strip() or os.environ.get("MINI_APP_ADMIN_PASSWORD", "").strip()
     if provided_token:
         if configured_admin_token and provided_token == configured_admin_token:
             return {"id": 0, "first_name": "Admin (Token)", "username": "admin", "is_admin": True}
@@ -790,6 +790,46 @@ def update_product_price(
         raise HTTPException(status_code=400, detail=err_msg)
     except Exception as exc:
         bot.log(f"[MiniApp] Lỗi cập nhật giá #{product_id}: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+class UpdateProductNameRequest(BaseModel):
+    name: str
+    site_key: Optional[str] = "derma"
+
+
+@app.post("/api/products/{product_id}/name")
+@app.put("/api/products/{product_id}/name")
+def update_product_name(
+    product_id: int,
+    body: UpdateProductNameRequest,
+    site_key: Optional[str] = Query(None),
+    current_user: dict = Depends(get_current_admin)
+):
+    target_site = site_key or body.site_key or "derma"
+    new_name = (body.name or "").strip()
+    if not new_name:
+        raise HTTPException(status_code=400, detail="Tên sản phẩm không được để trống.")
+    try:
+        res = bot.wc_put(f"products/{product_id}", {"name": new_name}, site_key=target_site)
+        if not isinstance(res, dict) or not res.get("id"):
+            raise HTTPException(status_code=400, detail="Lỗi cập nhật tên sản phẩm trên WooCommerce.")
+        update_product_cache_locally(product_id, {"name": new_name}, site_key=target_site)
+        return {"ok": True, "message": f"Đã cập nhật tên sản phẩm #{product_id} thành công!", "name": new_name}
+    except HTTPException:
+        raise
+    except requests.exceptions.HTTPError as exc:
+        err_msg = "Lỗi cập nhật tên từ WooCommerce."
+        try:
+            err_json = exc.response.json()
+            if isinstance(err_json, dict) and err_json.get("message"):
+                err_msg = f"WooCommerce: {err_json['message']}"
+        except Exception:
+            err_msg = str(exc)
+        bot.log(f"[MiniApp] Lỗi WooCommerce cập nhật tên #{product_id}: {err_msg}")
+        raise HTTPException(status_code=400, detail=err_msg)
+    except Exception as exc:
+        bot.log(f"[MiniApp] Lỗi cập nhật tên #{product_id}: {exc}")
         raise HTTPException(status_code=500, detail=str(exc))
 
 

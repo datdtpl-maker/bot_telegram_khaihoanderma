@@ -131,6 +131,13 @@ const app = createApp({
       isSaving: false
     });
 
+    const editNameModal = reactive({
+      show: false,
+      product: null,
+      name: "",
+      isSaving: false
+    });
+
     const editImagesModal = reactive({
       show: false,
       product: null,
@@ -544,6 +551,49 @@ const app = createApp({
         showToast(err.message || "Lỗi cập nhật giá", "error");
       } finally {
         editPriceModal.isSaving = false;
+      }
+    };
+
+    const openEditNameModal = (product) => {
+      haptic("light");
+      editNameModal.product = product;
+      editNameModal.name = product.name || "";
+      editNameModal.show = true;
+    };
+
+    const saveProductName = async () => {
+      if (!editNameModal.product) return;
+      const trimmed = (editNameModal.name || "").trim();
+      if (!trimmed) {
+        showToast("Tên sản phẩm không được để trống!", "error");
+        return;
+      }
+      if (trimmed === editNameModal.product.name) {
+        editNameModal.show = false;
+        return;
+      }
+
+      editNameModal.isSaving = true;
+      haptic("medium");
+      try {
+        const pId = editNameModal.product.id;
+        const siteKey = editNameModal.product._site_key || "derma";
+        const payload = {
+          name: trimmed,
+          site_key: siteKey
+        };
+        const res = await apiCall(`/api/products/${pId}/name?site_key=${siteKey}`, {
+          method: "POST",
+          body: JSON.stringify(payload)
+        });
+        showToast(res.message || "Đã đổi tên sản phẩm thành công!", "success");
+        editNameModal.product.name = trimmed;
+        editNameModal.show = false;
+        fetchProducts();
+      } catch (err) {
+        showToast(err.message || "Lỗi cập nhật tên sản phẩm", "error");
+      } finally {
+        editNameModal.isSaving = false;
       }
     };
 
@@ -1324,6 +1374,7 @@ const app = createApp({
       isProductsLoading,
       expandedVariations,
       editPriceModal,
+      editNameModal,
       reviews,
       reviewsFilter,
       isReviewsLoading,
@@ -1364,6 +1415,8 @@ const app = createApp({
       toggleVariationsExpand,
       openEditPriceModal,
       saveProductPrice,
+      openEditNameModal,
+      saveProductName,
       editImagesModal,
       openEditImagesModal,
       handleImageFileSelected,

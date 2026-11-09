@@ -106,6 +106,34 @@ class MiniAppTestSuite(unittest.TestCase):
             self.assertEqual(response.status_code, 400)
             self.assertIn("thấp hơn giá bán", response.json().get("detail", ""))
 
+    def test_update_product_name_endpoint(self):
+        with patch.dict("os.environ", {"TELEGRAM_BOT_TOKEN": self.bot_token}), \
+             patch.object(mini_app_server.bot, "wc_put", return_value={"id": 100, "name": "Kem Chống Nắng Mới"}), \
+             patch.object(mini_app_server, "update_product_cache_locally"):
+            headers = {"X-Admin-Token": self.admin_token}
+            payload = {"name": "Kem Chống Nắng Mới", "site_key": "derma"}
+            response = self.client.post("/api/products/100/name", json=payload, headers=headers)
+            self.assertEqual(response.status_code, 200)
+            data = response.json()
+            self.assertTrue(data.get("ok"))
+            self.assertIn("thành công", data.get("message"))
+            self.assertEqual(data.get("name"), "Kem Chống Nắng Mới")
+
+    def test_update_product_name_empty_validation(self):
+        with patch.dict("os.environ", {"TELEGRAM_BOT_TOKEN": self.bot_token}):
+            headers = {"X-Admin-Token": self.admin_token}
+            payload = {"name": "   "}
+            response = self.client.post("/api/products/100/name", json=payload, headers=headers)
+            self.assertEqual(response.status_code, 400)
+            self.assertIn("không được để trống", response.json().get("detail", ""))
+
+    def test_auth_verify_with_custom_admin_password(self):
+        with patch.dict("os.environ", {"MINI_APP_ADMIN_TOKEN": "Khaihoan@2027", "TELEGRAM_BOT_TOKEN": self.bot_token}):
+            headers = {"X-Admin-Token": "Khaihoan@2027"}
+            response = self.client.post("/api/auth/verify", headers=headers)
+            self.assertEqual(response.status_code, 200)
+            self.assertTrue(response.json().get("ok"))
+
     def test_approve_review_endpoint(self):
         with patch.dict("os.environ", {"TELEGRAM_BOT_TOKEN": self.bot_token}), \
              patch.object(mini_app_server.bot, "wc_put", return_value={"id": 555}):

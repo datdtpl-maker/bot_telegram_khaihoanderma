@@ -170,10 +170,10 @@
         <div>
           <h3 class="font-bold text-sm">Chưa đăng nhập qua Telegram WebApp</h3>
           <p class="text-xs mt-1 text-amber-700 dark:text-amber-300 leading-relaxed">
-            Ứng dụng cần mở trực tiếp từ Telegram để tự động nhận diện tài khoản Admin. Nếu mở trên trình duyệt thường, vui lòng nhập mã Admin Token:
+            Ứng dụng cần mở trực tiếp từ Telegram để tự động nhận diện tài khoản Admin. Nếu mở trên trình duyệt thường, vui lòng nhập mật khẩu Admin:
           </p>
           <div class="mt-3 flex space-x-2 max-w-md">
-            <input v-model="devToken" type="password" placeholder="Nhập Admin Token..." 
+            <input v-model="devToken" type="password" placeholder="Nhập Mật khẩu Admin..." 
                    class="text-xs px-3 py-2 border rounded-xl flex-1 bg-white dark:bg-slate-800 text-title border-amber-300 dark:border-amber-700 focus:outline-none">
             <button @click="saveDevToken" class="text-xs bg-amber-600 hover:bg-amber-700 text-white font-bold px-3 py-2 rounded-xl active:scale-95 transition-all">
               Xác nhận
@@ -552,9 +552,20 @@
                 <img :src="prod.images && prod.images[0] ? prod.images[0].src : 'https://placehold.co/100x100?text=No+Img'" 
                      class="w-20 h-20 rounded-xl object-cover card-sub flex-shrink-0 shadow-sm" alt="">
                 <div class="flex-1 min-w-0 space-y-1">
-                  <h4 class="font-bold text-xs text-title line-clamp-2 leading-snug" :title="prod.name">
-                    {{ prod.name }}
-                  </h4>
+                  <div class="flex items-start justify-between gap-1 group">
+                    <h4 class="font-bold text-xs text-title line-clamp-2 leading-snug flex-1 cursor-pointer hover:text-blue-600 dark:hover:text-sky-400 transition-colors" 
+                        :title="'Bấm để sửa tên: ' + prod.name" 
+                        @click="openEditNameModal(prod)">
+                      {{ prod.name }}
+                    </h4>
+                    <button @click="openEditNameModal(prod)" 
+                            class="p-0.5 text-slate-400 hover:text-blue-600 dark:hover:text-sky-400 rounded-lg active:scale-90 transition-all flex-shrink-0" 
+                            title="Sửa tên sản phẩm">
+                      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/>
+                      </svg>
+                    </button>
+                  </div>
                   
                   <!-- Metadata Row: ID, SKU, Total Sales, Rating -->
                   <div class="text-[11px] text-sub flex flex-wrap items-center gap-x-2 gap-y-0.5">
@@ -694,6 +705,14 @@
                    title="Xem sản phẩm trên website">
                   <span>🔗</span>
                 </a>
+
+                <!-- Edit Name Button -->
+                <button @click="openEditNameModal(prod)" 
+                        class="h-7 px-1.5 sm:px-2 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-700 dark:text-indigo-300 rounded-xl border border-indigo-500/20 active:scale-95 transition-all whitespace-nowrap flex items-center space-x-1 text-[11px] font-bold flex-shrink-0"
+                        title="Đổi tên sản phẩm">
+                  <span>📝</span>
+                  <span class="text-[10px]">Tên</span>
+                </button>
 
                 <!-- Edit Price Button -->
                 <button v-if="prod.type !== 'variable'" @click="openEditPriceModal(prod)" 
@@ -1093,6 +1112,48 @@
 
         <!-- Modal Body: Scrollable -->
         <div class="flex-1 overflow-y-auto py-3 space-y-3 no-scrollbar" v-html="systemReportModal.content"></div>
+      </div>
+    </div>
+
+    <!-- ================= EDIT NAME MODAL ================= -->
+    <div v-if="editNameModal.show" class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fade-in">
+      <div class="card-theme w-full max-w-sm rounded-t-3xl sm:rounded-2xl p-5 space-y-4 shadow-2xl animate-slide-up">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center space-x-1.5">
+            <h3 class="font-bold text-sm text-title">
+              Sửa Tên Sản Phẩm
+            </h3>
+            <span v-if="editNameModal.product?._site_short === 'Pharma'" class="px-2 py-0.5 rounded-full text-[10px] font-black bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30">
+              💊 Pharma
+            </span>
+            <span v-else class="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+              🌿 Derma
+            </span>
+          </div>
+          <button @click="editNameModal.show = false" class="text-muted hover:text-main font-black text-xl">&times;</button>
+        </div>
+
+        <div class="text-xs text-sub">
+          <div class="font-medium text-slate-500">ID Sản phẩm: #{{ editNameModal.product?.id }}</div>
+        </div>
+
+        <div class="space-y-3 text-xs">
+          <div>
+            <label class="block font-bold text-title mb-1.5">Tên sản phẩm mới:</label>
+            <textarea v-model="editNameModal.name" rows="3" placeholder="Nhập tên sản phẩm mới..." 
+                      class="w-full px-3 py-2 card-sub rounded-xl text-title font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 border border-slate-200 dark:border-slate-700 resize-none"></textarea>
+          </div>
+        </div>
+
+        <div class="flex space-x-2 pt-2">
+          <button @click="editNameModal.show = false" class="flex-1 py-2.5 card-sub text-sub font-bold rounded-xl text-xs">
+            Hủy
+          </button>
+          <button @click="saveProductName" :disabled="editNameModal.isSaving || !editNameModal.name?.trim()" 
+                  class="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs flex items-center justify-center space-x-1 active:scale-95 transition-all disabled:opacity-50">
+            <span>{{ editNameModal.isSaving ? '\xc4\x90ang l�\xb0u...' : 'L�\xb0u Thay \xc4\x90�\xbb\x95i' }}</span>
+          </button>
+        </div>
       </div>
     </div>
 
