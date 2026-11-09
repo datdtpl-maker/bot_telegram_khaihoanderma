@@ -542,6 +542,46 @@ def update_order_status(
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+@app.delete("/api/orders/{order_id}")
+def delete_order_endpoint(
+    order_id: int,
+    site_key: Optional[str] = Query(None),
+    force: bool = Query(True),
+    current_user: dict = Depends(get_current_admin)
+):
+    """
+    Xóa đơn hàng (dành cho đơn hàng test hoặc đơn rác để không tính vào doanh thu/báo cáo).
+    Mặc định force=True để xóa vĩnh viễn khỏi hệ thống.
+    """
+    target_site = site_key or "derma"
+    force_str = "true" if force else "false"
+    try:
+        res = bot.wc_delete(f"orders/{order_id}", {"force": force_str}, site_key=target_site)
+        if not isinstance(res, dict) or not res.get("id"):
+            raise HTTPException(status_code=400, detail="Lỗi khi xóa đơn hàng trên WooCommerce.")
+        return {
+            "ok": True,
+            "message": f"Đã xóa thành công đơn hàng #{order_id}!",
+            "order": res
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        if target_site == "derma" and not site_key:
+            try:
+                res = bot.wc_delete(f"orders/{order_id}", {"force": force_str}, site_key="pharma")
+                if isinstance(res, dict) and res.get("id"):
+                    return {
+                        "ok": True,
+                        "message": f"Đã xóa thành công đơn hàng #{order_id} (Pharma)!",
+                        "order": res
+                    }
+            except Exception:
+                pass
+        bot.log(f"[MiniApp] Lỗi xóa đơn hàng #{order_id}: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 # ================= PRODUCTS API =================
 
 @app.get("/api/products")

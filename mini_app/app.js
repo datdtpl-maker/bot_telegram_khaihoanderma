@@ -431,6 +431,31 @@ const app = createApp({
       }
     };
 
+    const deleteOrder = async (order, force = true) => {
+      if (!order) return;
+      haptic("heavy");
+      const orderId = order.id;
+      const customer = order.customer_name ? `của ${order.customer_name}` : "";
+      const confirmMsg = `Bạn có chắc muốn XÓA đơn hàng #${orderId} ${customer} không?\n(Đơn hàng test này sẽ bị xóa khỏi hệ thống để không cập nhật doanh thu).`;
+      if (!confirm(confirmMsg)) return;
+
+      try {
+        const siteKey = order._site_key || "derma";
+        await apiCall(`/api/orders/${orderId}?site_key=${siteKey}&force=${force}`, {
+          method: "DELETE"
+        });
+        showToast(`Đã xóa đơn hàng #${orderId} thành công!`, "success");
+        orders.value = orders.value.filter(o => o.id !== orderId);
+        if (selectedOrder.value && selectedOrder.value.id === orderId) {
+          selectedOrder.value = null;
+        }
+        fetchDashboard();
+      } catch (err) {
+        showToast(err.message || "Lỗi khi xóa đơn hàng", "error");
+      }
+    };
+
+
     // Products
     let searchDebounceTimer = null;
     const fetchProducts = async () => {
@@ -1412,6 +1437,7 @@ const app = createApp({
       refreshAllData,
       fetchOrders,
       updateOrderStatus,
+      deleteOrder,
       fetchProducts,
       onSearchInput,
       onSearchPaste,
@@ -1451,10 +1477,6 @@ const app = createApp({
   }
 });
 
-app.config.errorHandler = (err, instance, info) => {
-  console.error("Vue Global Error:", err, info);
-};
-
 app.config.errorHandler = (err, instance, info) => {
   console.error("Vue Global Error:", err, info);
 };

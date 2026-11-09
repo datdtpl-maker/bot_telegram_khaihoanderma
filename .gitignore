@@ -24,3 +24,4 @@ bot_start_stderr.log
 notified_reviews.json
 notified_pages.json
 
+temp_notion_images/

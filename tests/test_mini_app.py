@@ -297,6 +297,15 @@ class MiniAppTestSuite(unittest.TestCase):
             self.assertTrue(res.json().get("ok"))
             self.assertIn("completed", res.json().get("message"))
 
+    def test_delete_order_endpoint(self):
+        with patch.dict("os.environ", {"TELEGRAM_BOT_TOKEN": self.bot_token}), \
+             patch.object(mini_app_server.bot, "wc_delete", return_value={"id": 888, "status": "trash"}):
+            headers = {"X-Admin-Token": self.admin_token}
+            res = self.client.delete("/api/orders/888?site_key=derma&force=true", headers=headers)
+            self.assertEqual(res.status_code, 200)
+            self.assertTrue(res.json().get("ok"))
+            self.assertIn("888", res.json().get("message"))
+
     def test_system_logs_endpoint(self):
         with patch.dict("os.environ", {"TELEGRAM_BOT_TOKEN": self.bot_token}):
             headers = {"X-Admin-Token": self.admin_token}
